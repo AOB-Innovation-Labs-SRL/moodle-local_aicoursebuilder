@@ -1,0 +1,15 @@
+{
+  "verdict": "approve",
+  "issues": [
+    {
+      "node": "s2.assign1",
+      "severity": "minor",
+      "message": "Precizați în enunț criteriile de notare."
+    },
+    {
+      "node": "q4",
+      "severity": "minor",
+      "message": "Numărul de surse depinde de material; verificați că sursa enumeră exact cinci."
+    }
+  ]
+}

@@ -29,4 +29,7 @@ $string['aicoursebuilder:manage'] = 'Administrează AI Course Builder';
 $string['aicoursebuilder:use'] = 'Folosește AI Course Builder';
 $string['aicoursebuilder:usedirectconnectors'] = 'Folosește conectorii direcți către furnizorii AI';
 $string['aicoursebuilder:viewusage'] = 'Vizualizează utilizarea AI Course Builder';
+$string['messageprovider:jobfailed'] = 'Job AI Course Builder eșuat';
+$string['messageprovider:jobfinished'] = 'Job AI Course Builder finalizat';
+$string['notimplemented'] = 'Această funcționalitate nu este încă implementată.';
 $string['pluginname'] = 'AI Course Builder';

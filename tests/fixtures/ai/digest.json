@@ -1,0 +1,28 @@
+{
+  "source": "src1",
+  "title": "Energia regenerabilă — material introductiv",
+  "language": "ro",
+  "concepts": [
+    {"name": "Energie regenerabilă", "chunks": [0]},
+    {"name": "Energie solară", "chunks": [1]},
+    {"name": "Energie eoliană", "chunks": [1]},
+    {"name": "Biomasă", "chunks": [2]}
+  ],
+  "definitions": [
+    {"term": "Energie regenerabilă", "definition": "Energie obținută din surse care se refac natural.", "chunks": [0]},
+    {"term": "Fotovoltaic", "definition": "Conversia directă a luminii în electricitate.", "chunks": [1]},
+    {"term": "Biomasă", "definition": "Materie organică folosită ca sursă de energie.", "chunks": [2]}
+  ],
+  "objectives": [
+    "Definește energia regenerabilă.",
+    "Enumeră principalele surse regenerabile.",
+    "Compară două surse regenerabile."
+  ],
+  "procedures": [
+    {
+      "title": "Alegerea unei surse pentru o locuință",
+      "steps": ["Evaluează clima și relieful.", "Estimează consumul anual.", "Compară costul surselor potrivite."],
+      "chunks": [2]
+    }
+  ]
+}
