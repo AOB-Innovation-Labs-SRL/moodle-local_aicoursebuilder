@@ -60,7 +60,7 @@ class save_blueprint extends job_api {
         if (!is_array(json_decode($params['blueprint'], true))) {
             throw new invalid_parameter_exception('blueprint must be a JSON object');
         }
-        self::validate_job($params['jobid']);
+        self::validate_job($params['jobid'], true);
         self::not_implemented();
     }
 

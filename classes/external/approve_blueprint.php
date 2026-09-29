@@ -55,7 +55,7 @@ class approve_blueprint extends job_api {
             'version' => $version,
             'contenthash' => $contenthash,
         ]);
-        self::validate_job($params['jobid']);
+        self::validate_job($params['jobid'], true);
         self::not_implemented();
     }
 

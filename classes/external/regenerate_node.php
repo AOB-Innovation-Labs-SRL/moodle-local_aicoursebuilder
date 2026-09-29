@@ -64,7 +64,7 @@ class regenerate_node extends job_api {
         if (!preg_match(self::NODEID_PATTERN, $params['nodeid'])) {
             throw new invalid_parameter_exception('nodeid is not a blueprint node id');
         }
-        self::validate_job($params['jobid']);
+        self::validate_job($params['jobid'], true);
         self::not_implemented();
     }
 

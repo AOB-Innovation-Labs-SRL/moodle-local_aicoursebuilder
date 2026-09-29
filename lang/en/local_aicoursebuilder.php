@@ -32,4 +32,5 @@ $string['aicoursebuilder:viewusage'] = 'View AI Course Builder usage';
 $string['messageprovider:jobfailed'] = 'AI Course Builder job failed';
 $string['messageprovider:jobfinished'] = 'AI Course Builder job finished';
 $string['notimplemented'] = 'This feature is not implemented yet.';
+$string['notjobowner'] = 'Only the owner of this job can change it.';
 $string['pluginname'] = 'AI Course Builder';

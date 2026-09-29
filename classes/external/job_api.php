@@ -29,13 +29,14 @@ abstract class job_api extends external_api {
     /**
      * Loads a job and checks that the current user may use it.
      *
-     * The owner needs local/aicoursebuilder:use in the job context; anyone else also needs
-     * local/aicoursebuilder:manage in the system context.
+     * The owner needs local/aicoursebuilder:use in the job context. Another user may only read the
+     * job, and needs local/aicoursebuilder:manage in the system context; changes are for the owner only.
      *
      * @param int $jobid Job id.
+     * @param bool $write True when the call changes the job (save, approve, regenerate).
      * @return \stdClass The local_aicb_job record.
      */
-    protected static function validate_job(int $jobid): \stdClass {
+    protected static function validate_job(int $jobid, bool $write = false): \stdClass {
         global $DB, $USER;
 
         $job = $DB->get_record('local_aicb_job', ['id' => $jobid], '*', MUST_EXIST);
@@ -43,6 +44,9 @@ abstract class job_api extends external_api {
         self::validate_context($context);
         require_capability('local/aicoursebuilder:use', $context);
         if ((int) $job->userid !== (int) $USER->id) {
+            if ($write) {
+                throw new \moodle_exception('notjobowner', 'local_aicoursebuilder');
+            }
             require_capability('local/aicoursebuilder:manage', \context_system::instance());
         }
         return $job;
