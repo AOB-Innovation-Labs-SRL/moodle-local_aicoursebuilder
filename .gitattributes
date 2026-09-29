@@ -1,0 +1,31 @@
+# Text files are stored and checked out with LF on every platform (moodle-cs requires "\n").
+* text=auto eol=lf
+
+# Binary files: no line-ending conversion, no text diff.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.doc binary
+*.docx binary
+*.ppt binary
+*.pptx binary
+*.xls binary
+*.xlsx binary
+*.odt binary
+*.odp binary
+*.ods binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.mbz binary
+*.h5p binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.mp3 binary
+*.mp4 binary
