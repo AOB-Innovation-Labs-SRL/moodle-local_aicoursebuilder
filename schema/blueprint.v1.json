@@ -1,0 +1,479 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local_aicoursebuilder/blueprint.v1",
+  "title": "AI Course Builder blueprint v1",
+  "description": "Source of truth for the validator, the blueprint editor and the builders. Every new field is added here first.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "course", "sections"],
+  "properties": {
+    "version": {"const": "1.0"},
+    "language": {"type": "string", "pattern": "^[a-z]{2}(_[A-Z]{2})?$"},
+    "course": {"$ref": "#/$defs/course"},
+    "sections": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/section"}}
+  },
+  "$defs": {
+    "sectionid": {"type": "string", "pattern": "^s[0-9]+$"},
+    "subsectionid": {"type": "string", "pattern": "^s[0-9]+-[0-9]+$"},
+    "activityid": {"type": "string", "pattern": "^s[0-9]+(-[0-9]+)?\\.[a-z][a-z0-9]*[0-9]$"},
+    "objectiveid": {"type": "string", "pattern": "^s[0-9]+\\.o[0-9]+$"},
+    "questionid": {"type": "string", "pattern": "^q[0-9]+$"},
+    "sourceid": {"type": "string", "pattern": "^src[0-9]+$"},
+    "html": {"type": "string", "minLength": 1},
+    "date": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 255},
+    "activityids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/activityid"}},
+
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {"$ref": "#/$defs/sourceid"},
+        "chunk": {"type": "integer", "minimum": 0},
+        "page": {"type": "integer", "minimum": 1}
+      }
+    },
+    "source_refs": {"type": "array", "items": {"$ref": "#/$defs/source_ref"}},
+
+    "course": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fullname", "shortname", "summary", "format"],
+      "properties": {
+        "fullname": {"type": "string", "minLength": 1, "maxLength": 254},
+        "shortname": {"type": "string", "minLength": 1, "maxLength": 100},
+        "summary": {"type": "string"},
+        "format": {"enum": ["topics", "weeks"]},
+        "startdate": {"$ref": "#/$defs/date"},
+        "enablecompletion": {"type": "boolean"},
+        "image_prompt": {"type": "string"},
+        "completion_activities": {"$ref": "#/$defs/activityids"},
+        "competencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["idnumber"],
+            "properties": {
+              "idnumber": {"type": "string", "minLength": 1, "maxLength": 100},
+              "activities": {"$ref": "#/$defs/activityids"}
+            }
+          }
+        },
+        "badges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "description", "criteria"],
+            "properties": {
+              "name": {"$ref": "#/$defs/name"},
+              "description": {"type": "string", "minLength": 1},
+              "criteria": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": {
+                  "type": {"enum": ["course", "activity"]},
+                  "activities": {"$ref": "#/$defs/activityids"}
+                },
+                "if": {"properties": {"type": {"const": "activity"}}},
+                "then": {"required": ["activities"]}
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text"],
+      "properties": {
+        "id": {"$ref": "#/$defs/objectiveid"},
+        "text": {"type": "string", "minLength": 1}
+      }
+    },
+
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "activities"],
+      "properties": {
+        "id": {"$ref": "#/$defs/sectionid"},
+        "title": {"$ref": "#/$defs/name"},
+        "summary": {"type": "string"},
+        "objectives": {"type": "array", "items": {"$ref": "#/$defs/objective"}},
+        "duration_minutes": {"type": "integer", "minimum": 1},
+        "source_refs": {"$ref": "#/$defs/source_refs"},
+        "availability": {"$ref": "#/$defs/availability"},
+        "activities": {"type": "array", "items": {"$ref": "#/$defs/activity"}},
+        "subsections": {"type": "array", "items": {"$ref": "#/$defs/subsection"}}
+      }
+    },
+
+    "subsection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "activities"],
+      "properties": {
+        "id": {"$ref": "#/$defs/subsectionid"},
+        "title": {"$ref": "#/$defs/name"},
+        "summary": {"type": "string"},
+        "availability": {"$ref": "#/$defs/availability"},
+        "activities": {"type": "array", "items": {"$ref": "#/$defs/activity"}}
+      }
+    },
+
+    "availability": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "require_completion_of": {"$ref": "#/$defs/activityids"},
+        "min_grade": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["activity", "min"],
+          "properties": {
+            "activity": {"$ref": "#/$defs/activityid"},
+            "min": {"type": "number", "minimum": 0, "maximum": 100}
+          }
+        },
+        "date_from": {"$ref": "#/$defs/date"}
+      }
+    },
+
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["none", "manual", "auto"]},
+        "view": {"type": "boolean"},
+        "usegrade": {"type": "boolean"},
+        "passgrade": {"type": "boolean"},
+        "rules": {"type": "object", "additionalProperties": {"type": ["integer", "boolean"]}}
+      }
+    },
+
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "name"],
+      "properties": {
+        "id": {"$ref": "#/$defs/activityid"},
+        "type": {"enum": ["page", "book", "label", "lesson", "quiz", "assign", "glossary", "forum", "wiki",
+          "choice", "feedback", "url", "resource", "folder", "h5pactivity", "scorm"]},
+        "name": {"$ref": "#/$defs/name"},
+        "intro": {"type": "string"},
+        "content": {"type": "object"},
+        "completion": {"$ref": "#/$defs/completion"},
+        "availability": {"$ref": "#/$defs/availability"},
+        "source_refs": {"$ref": "#/$defs/source_refs"},
+        "review_flag": {"type": "boolean"},
+        "competencies": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 100}}
+      },
+      "allOf": [
+        {"if": {"properties": {"type": {"const": "page"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_page"}}}},
+        {"if": {"properties": {"type": {"const": "label"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_label"}}}},
+        {"if": {"properties": {"type": {"const": "book"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_book"}}}},
+        {"if": {"properties": {"type": {"const": "lesson"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_lesson"}}}},
+        {"if": {"properties": {"type": {"const": "quiz"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_quiz"}}}},
+        {"if": {"properties": {"type": {"const": "assign"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_assign"}}}},
+        {"if": {"properties": {"type": {"const": "glossary"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_glossary"}}}},
+        {"if": {"properties": {"type": {"const": "forum"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_forum"}}}},
+        {"if": {"properties": {"type": {"const": "wiki"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_wiki"}}}},
+        {"if": {"properties": {"type": {"const": "choice"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_choice"}}}},
+        {"if": {"properties": {"type": {"const": "feedback"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_feedback"}}}},
+        {"if": {"properties": {"type": {"const": "url"}}}, "then": {"required": ["content", "source_refs"], "properties": {"content": {"$ref": "#/$defs/content_url"}, "source_refs": {"minItems": 1}}}},
+        {"if": {"properties": {"type": {"const": "resource"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_resource"}}}},
+        {"if": {"properties": {"type": {"const": "folder"}}}, "then": {"required": ["content"], "properties": {"content": {"$ref": "#/$defs/content_folder"}}}}
+      ]
+    },
+
+    "content_page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {"text": {"$ref": "#/$defs/html"}}
+    },
+    "content_label": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {"text": {"$ref": "#/$defs/html"}}
+    },
+    "content_book": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chapters"],
+      "properties": {
+        "chapters": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "content"],
+            "properties": {
+              "title": {"$ref": "#/$defs/name"},
+              "content": {"$ref": "#/$defs/html"},
+              "subchapter": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "content_lesson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pages"],
+      "properties": {
+        "pages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "title", "contents", "answers"],
+            "properties": {
+              "id": {"type": "string", "pattern": "^p[0-9]+$"},
+              "type": {"enum": ["content", "multichoice", "truefalse", "shortanswer"]},
+              "title": {"$ref": "#/$defs/name"},
+              "contents": {"$ref": "#/$defs/html"},
+              "answers": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["text", "jumpto"],
+                  "properties": {
+                    "text": {"type": "string", "minLength": 1},
+                    "response": {"type": "string"},
+                    "jumpto": {"type": "string", "pattern": "^(next|end|this|p[0-9]+)$"},
+                    "score": {"type": "integer"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "content_quiz": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["questions"],
+      "properties": {
+        "grade": {"type": "number", "exclusiveMinimum": 0},
+        "gradepass": {"type": "number", "minimum": 0},
+        "attempts": {"type": "integer", "minimum": 0},
+        "timelimit_minutes": {"type": "integer", "minimum": 0},
+        "questionsperpage": {"type": "integer", "minimum": 0},
+        "questions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/question"}}
+      }
+    },
+    "content_assign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["submission_types"],
+      "properties": {
+        "submission_types": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["onlinetext", "file"]}},
+        "grade": {"type": "number", "minimum": 0},
+        "duedate": {"$ref": "#/$defs/date"},
+        "maxfiles": {"type": "integer", "minimum": 1, "maximum": 100},
+        "filetypes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^\\.[a-z0-9]+$"}}
+      }
+    },
+    "content_glossary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["concept", "definition"],
+            "properties": {
+              "concept": {"$ref": "#/$defs/name"},
+              "definition": {"$ref": "#/$defs/html"},
+              "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}}
+            }
+          }
+        }
+      }
+    },
+    "content_forum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forumtype"],
+      "properties": {
+        "forumtype": {"enum": ["general", "qanda"]},
+        "discussions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["subject", "message"],
+            "properties": {
+              "subject": {"$ref": "#/$defs/name"},
+              "message": {"$ref": "#/$defs/html"}
+            }
+          }
+        }
+      }
+    },
+    "content_wiki": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pages"],
+      "properties": {
+        "pages": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "content"],
+            "properties": {
+              "title": {"$ref": "#/$defs/name"},
+              "content": {"$ref": "#/$defs/html"}
+            }
+          }
+        }
+      }
+    },
+    "content_choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["options"],
+      "properties": {
+        "options": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"$ref": "#/$defs/name"}},
+        "allowupdate": {"type": "boolean"}
+      }
+    },
+    "content_feedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "name"],
+            "properties": {
+              "type": {"enum": ["multichoice", "numeric", "textarea", "textfield", "info"]},
+              "name": {"$ref": "#/$defs/name"},
+              "label": {"type": "string", "maxLength": 255},
+              "required": {"type": "boolean"},
+              "options": {"type": "array", "minItems": 2, "items": {"type": "string", "minLength": 1}},
+              "min": {"type": "number"},
+              "max": {"type": "number"}
+            },
+            "if": {"properties": {"type": {"const": "multichoice"}}},
+            "then": {"required": ["options"]}
+          }
+        }
+      }
+    },
+    "content_url": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["externalurl"],
+      "properties": {
+        "externalurl": {"type": "string", "format": "uri", "pattern": "^https?://"}
+      }
+    },
+    "content_resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {"source": {"$ref": "#/$defs/sourceid"}}
+    },
+    "content_folder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources"],
+      "properties": {
+        "sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/sourceid"}}
+      }
+    },
+
+    "answer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "fraction"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "fraction": {"type": "number", "minimum": -1, "maximum": 1},
+        "feedback": {"type": "string"},
+        "tolerance": {"type": "number", "minimum": 0}
+      }
+    },
+
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["qtype", "name", "questiontext"],
+      "properties": {
+        "id": {"$ref": "#/$defs/questionid"},
+        "qtype": {"enum": ["multichoice", "truefalse", "shortanswer", "numerical", "match", "essay",
+          "gapselect", "ddwtos", "multianswer"]},
+        "name": {"$ref": "#/$defs/name"},
+        "questiontext": {"$ref": "#/$defs/html"},
+        "generalfeedback": {"type": "string"},
+        "defaultmark": {"type": "number", "exclusiveMinimum": 0},
+        "difficulty": {"enum": ["easy", "medium", "hard"]},
+        "objective_ref": {"$ref": "#/$defs/objectiveid"},
+        "source_refs": {"$ref": "#/$defs/source_refs"},
+        "answers": {"type": "array", "items": {"$ref": "#/$defs/answer"}},
+        "single": {"type": "boolean"},
+        "shuffleanswers": {"type": "boolean"},
+        "subquestions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "answer"],
+            "properties": {
+              "text": {"type": "string"},
+              "answer": {"type": "string", "minLength": 1, "maxLength": 255}
+            }
+          }
+        },
+        "responseformat": {"enum": ["editor", "plain", "noinline"]},
+        "graderinfo": {"type": "string"},
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text", "group"],
+            "properties": {
+              "text": {"type": "string", "minLength": 1},
+              "group": {"type": "integer", "minimum": 1, "maximum": 8},
+              "infinite": {"type": "boolean"}
+            }
+          }
+        }
+      },
+      "allOf": [
+        {"if": {"properties": {"qtype": {"const": "multichoice"}}}, "then": {"required": ["answers"], "properties": {"answers": {"minItems": 2}}}},
+        {"if": {"properties": {"qtype": {"const": "truefalse"}}}, "then": {"required": ["answers"], "properties": {"answers": {"minItems": 2, "maxItems": 2, "items": {"properties": {"text": {"enum": ["true", "false"]}}}}}}},
+        {"if": {"properties": {"qtype": {"enum": ["shortanswer", "numerical"]}}}, "then": {"required": ["answers"], "properties": {"answers": {"minItems": 1}}}},
+        {"if": {"properties": {"qtype": {"const": "match"}}}, "then": {"required": ["subquestions"], "properties": {"subquestions": {"minItems": 3}}}},
+        {"if": {"properties": {"qtype": {"enum": ["gapselect", "ddwtos"]}}}, "then": {"required": ["choices"], "properties": {"choices": {"minItems": 2}}}}
+      ]
+    }
+  }
+}

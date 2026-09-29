@@ -1,0 +1,366 @@
+{
+  "version": "1.0",
+  "language": "ro",
+  "course": {
+    "fullname": "Introducere în energia regenerabilă",
+    "shortname": "ENREG-INTRO",
+    "summary": "<p>Curs introductiv despre sursele de energie regenerabilă, avantajele și limitele lor.</p>",
+    "format": "topics",
+    "startdate": "2026-10-19",
+    "enablecompletion": true,
+    "image_prompt": "Panouri solare și turbine eoliene pe un deal verde, ilustrație simplă",
+    "completion_activities": ["s1.quiz1", "s2.assign1", "s3.feedback1"],
+    "competencies": [
+      {"idnumber": "ENREG-C1", "activities": ["s1.quiz1", "s2.lesson1"]},
+      {"idnumber": "ENREG-C2", "activities": ["s2.assign1"]}
+    ],
+    "badges": [
+      {
+        "name": "Absolvent Energie regenerabilă",
+        "description": "Acordat la finalizarea cursului.",
+        "criteria": {"type": "course"}
+      },
+      {
+        "name": "Test inițial promovat",
+        "description": "Acordat la promovarea testului din prima secțiune.",
+        "criteria": {"type": "activity", "activities": ["s1.quiz1"]}
+      }
+    ]
+  },
+  "sections": [
+    {
+      "id": "s1",
+      "title": "Noțiuni de bază",
+      "summary": "<p>Ce este energia regenerabilă și de ce contează.</p>",
+      "objectives": [
+        {"id": "s1.o1", "text": "Definește energia regenerabilă."},
+        {"id": "s1.o2", "text": "Enumeră principalele surse regenerabile."}
+      ],
+      "duration_minutes": 90,
+      "source_refs": [{"source": "src1", "chunk": 0, "page": 1}],
+      "activities": [
+        {
+          "id": "s1.label1",
+          "type": "label",
+          "name": "Bun venit",
+          "content": {"text": "<p>Bine ați venit! Parcurgeți materialele în ordinea de mai jos.</p>"}
+        },
+        {
+          "id": "s1.page1",
+          "type": "page",
+          "name": "Ce este energia regenerabilă",
+          "intro": "<p>Definiții și exemple.</p>",
+          "content": {"text": "<p>Energia regenerabilă provine din surse care se refac natural: soare, vânt, apă, biomasă și căldura Pământului.</p>"},
+          "completion": {"mode": "auto", "view": true},
+          "source_refs": [{"source": "src1", "chunk": 0, "page": 1}]
+        },
+        {
+          "id": "s1.book1",
+          "type": "book",
+          "name": "Ghidul surselor regenerabile",
+          "content": {
+            "chapters": [
+              {"title": "Energia solară", "content": "<p>Panourile fotovoltaice transformă lumina în electricitate.</p>"},
+              {"title": "Celule fotovoltaice", "content": "<p>O celulă produce o tensiune mică; celulele se leagă în module.</p>", "subchapter": true},
+              {"title": "Energia eoliană", "content": "<p>Turbinele eoliene transformă mișcarea aerului în electricitate.</p>"}
+            ]
+          },
+          "completion": {"mode": "auto", "view": true},
+          "source_refs": [{"source": "src1", "chunk": 1, "page": 3}]
+        },
+        {
+          "id": "s1.url1",
+          "type": "url",
+          "name": "Articol de referință",
+          "content": {"externalurl": "https://ro.wikipedia.org/wiki/Energie_regenerabil%C4%83"},
+          "completion": {"mode": "manual"},
+          "source_refs": [{"source": "src1", "chunk": 2, "page": 5}]
+        },
+        {
+          "id": "s1.resource1",
+          "type": "resource",
+          "name": "Material de curs (PDF)",
+          "content": {"source": "src1"},
+          "completion": {"mode": "auto", "view": true}
+        },
+        {
+          "id": "s1.glossary1",
+          "type": "glossary",
+          "name": "Glosar de termeni",
+          "content": {
+            "entries": [
+              {"concept": "Fotovoltaic", "definition": "<p>Conversia directă a luminii în electricitate.</p>", "aliases": ["PV"]},
+              {"concept": "Biomasă", "definition": "<p>Materie organică folosită ca sursă de energie.</p>"}
+            ]
+          },
+          "completion": {"mode": "manual"}
+        },
+        {
+          "id": "s1.quiz1",
+          "type": "quiz",
+          "name": "Test: noțiuni de bază",
+          "intro": "<p>Verificați ce ați învățat în această secțiune.</p>",
+          "content": {
+            "grade": 10,
+            "gradepass": 5,
+            "attempts": 2,
+            "timelimit_minutes": 20,
+            "questionsperpage": 1,
+            "questions": [
+              {
+                "id": "q1",
+                "qtype": "multichoice",
+                "name": "Sursă regenerabilă",
+                "questiontext": "<p>Care dintre următoarele este o sursă de energie regenerabilă?</p>",
+                "single": true,
+                "shuffleanswers": true,
+                "answers": [
+                  {"text": "Vântul", "fraction": 1, "feedback": "Corect."},
+                  {"text": "Cărbunele", "fraction": 0, "feedback": "Cărbunele este combustibil fosil."},
+                  {"text": "Gazul natural", "fraction": 0, "feedback": "Gazul natural este combustibil fosil."}
+                ],
+                "difficulty": "easy",
+                "objective_ref": "s1.o2",
+                "source_refs": [{"source": "src1", "chunk": 0}]
+              },
+              {
+                "id": "q2",
+                "qtype": "truefalse",
+                "name": "Soarele se epuizează",
+                "questiontext": "<p>Energia solară este considerată regenerabilă.</p>",
+                "answers": [
+                  {"text": "true", "fraction": 1, "feedback": "Corect."},
+                  {"text": "false", "fraction": 0, "feedback": "Soarele este o sursă care se reface."}
+                ],
+                "difficulty": "easy",
+                "objective_ref": "s1.o1"
+              },
+              {
+                "id": "q3",
+                "qtype": "shortanswer",
+                "name": "Termenul pentru panouri",
+                "questiontext": "<p>Cum se numește conversia directă a luminii în electricitate?</p>",
+                "answers": [
+                  {"text": "fotovoltaic", "fraction": 1},
+                  {"text": "fotovoltaică", "fraction": 1}
+                ],
+                "difficulty": "medium",
+                "objective_ref": "s1.o1"
+              },
+              {
+                "id": "q4",
+                "qtype": "numerical",
+                "name": "Număr de surse",
+                "questiontext": "<p>Câte surse regenerabile sunt enumerate în material?</p>",
+                "answers": [{"text": "5", "fraction": 1, "tolerance": 0}],
+                "difficulty": "medium",
+                "objective_ref": "s1.o2"
+              },
+              {
+                "id": "q5",
+                "qtype": "match",
+                "name": "Sursă și echipament",
+                "questiontext": "<p>Asociați fiecare sursă cu echipamentul potrivit.</p>",
+                "subquestions": [
+                  {"text": "Soare", "answer": "Panou fotovoltaic"},
+                  {"text": "Vânt", "answer": "Turbină eoliană"},
+                  {"text": "Apă", "answer": "Hidrocentrală"}
+                ],
+                "difficulty": "medium",
+                "objective_ref": "s1.o2"
+              },
+              {
+                "id": "q6",
+                "qtype": "essay",
+                "name": "Avantaje",
+                "questiontext": "<p>Descrieți în câteva fraze două avantaje ale energiei regenerabile.</p>",
+                "responseformat": "editor",
+                "graderinfo": "Se acceptă: emisii reduse, resurse inepuizabile, costuri de operare mici.",
+                "difficulty": "hard",
+                "objective_ref": "s1.o1"
+              },
+              {
+                "id": "q7",
+                "qtype": "gapselect",
+                "name": "Completați sursa",
+                "questiontext": "<p>Turbinele folosesc energia [[1]], iar panourile folosesc energia [[2]].</p>",
+                "choices": [
+                  {"text": "eoliană", "group": 1},
+                  {"text": "solară", "group": 1},
+                  {"text": "nucleară", "group": 1}
+                ],
+                "difficulty": "medium",
+                "objective_ref": "s1.o2"
+              },
+              {
+                "id": "q8",
+                "qtype": "ddwtos",
+                "name": "Trageți termenul",
+                "questiontext": "<p>Materia organică folosită ca sursă de energie se numește [[1]].</p>",
+                "choices": [
+                  {"text": "biomasă", "group": 1},
+                  {"text": "geotermie", "group": 1}
+                ],
+                "difficulty": "easy",
+                "objective_ref": "s1.o1"
+              }
+            ]
+          },
+          "completion": {"mode": "auto", "usegrade": true, "passgrade": true},
+          "source_refs": [{"source": "src1", "chunk": 0}]
+        }
+      ],
+      "subsections": [
+        {
+          "id": "s1-1",
+          "title": "Resurse suplimentare",
+          "summary": "<p>Materiale opționale.</p>",
+          "activities": [
+            {
+              "id": "s1-1.folder1",
+              "type": "folder",
+              "name": "Anexe",
+              "content": {"sources": ["src1", "src2"]}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "title": "Surse de energie în practică",
+      "summary": "<p>Aplicații practice ale surselor regenerabile.</p>",
+      "objectives": [
+        {"id": "s2.o1", "text": "Compară două surse regenerabile."}
+      ],
+      "duration_minutes": 120,
+      "source_refs": [{"source": "src2", "chunk": 0, "page": 1}],
+      "availability": {"require_completion_of": ["s1.quiz1"]},
+      "activities": [
+        {
+          "id": "s2.lesson1",
+          "type": "lesson",
+          "name": "Lecție: alegerea sursei",
+          "content": {
+            "pages": [
+              {
+                "id": "p1",
+                "type": "content",
+                "title": "Introducere",
+                "contents": "<p>Alegerea sursei depinde de climă și de relief.</p>",
+                "answers": [{"text": "Continuă", "jumpto": "next"}]
+              },
+              {
+                "id": "p2",
+                "type": "truefalse",
+                "title": "Verificare",
+                "contents": "<p>Energia eoliană este potrivită în zonele cu vânt constant.</p>",
+                "answers": [
+                  {"text": "Adevărat", "response": "Corect.", "jumpto": "next", "score": 1},
+                  {"text": "Fals", "response": "Mai citiți pagina anterioară.", "jumpto": "p1", "score": 0}
+                ]
+              },
+              {
+                "id": "p3",
+                "type": "multichoice",
+                "title": "Alegere",
+                "contents": "<p>Ce sursă este potrivită pentru o zonă însorită?</p>",
+                "answers": [
+                  {"text": "Solară", "response": "Corect.", "jumpto": "next", "score": 1},
+                  {"text": "Hidro", "response": "Hidro cere un curs de apă.", "jumpto": "this", "score": 0}
+                ]
+              },
+              {
+                "id": "p4",
+                "type": "shortanswer",
+                "title": "Termen",
+                "contents": "<p>Scrieți numele sursei care folosește căldura Pământului.</p>",
+                "answers": [
+                  {"text": "geotermală", "response": "Corect.", "jumpto": "end", "score": 1}
+                ]
+              }
+            ]
+          },
+          "completion": {"mode": "auto", "view": true},
+          "source_refs": [{"source": "src2", "chunk": 1, "page": 2}]
+        },
+        {
+          "id": "s2.assign1",
+          "type": "assign",
+          "name": "Temă: comparație între două surse",
+          "intro": "<p>Comparați două surse regenerabile, în maximum o pagină.</p>",
+          "content": {
+            "submission_types": ["onlinetext", "file"],
+            "grade": 100,
+            "duedate": "2026-11-15",
+            "maxfiles": 1,
+            "filetypes": [".pdf", ".docx"]
+          },
+          "completion": {"mode": "auto", "usegrade": true, "rules": {"completionsubmit": 1}},
+          "availability": {"min_grade": {"activity": "s1.quiz1", "min": 50}}
+        },
+        {
+          "id": "s2.forum1",
+          "type": "forum",
+          "name": "Forum de discuții",
+          "content": {
+            "forumtype": "general",
+            "discussions": [
+              {"subject": "Ce sursă folosiți acasă?", "message": "<p>Spuneți-ne ce surse regenerabile folosiți.</p>"}
+            ]
+          },
+          "completion": {"mode": "auto", "rules": {"completionposts": 1}}
+        },
+        {
+          "id": "s2.wiki1",
+          "type": "wiki",
+          "name": "Wiki colaborativ",
+          "content": {
+            "pages": [
+              {"title": "Pagina principală", "content": "<p>Adăugați exemple de proiecte regenerabile din regiunea voastră.</p>"},
+              {"title": "Exemple solare", "content": "<p>Listați proiecte solare cunoscute.</p>"}
+            ]
+          },
+          "completion": {"mode": "manual"}
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "title": "Evaluare și opinii",
+      "summary": "<p>Spuneți-ne ce părere aveți despre curs.</p>",
+      "objectives": [
+        {"id": "s3.o1", "text": "Reflectează asupra celor învățate."}
+      ],
+      "duration_minutes": 30,
+      "availability": {"date_from": "2026-11-01"},
+      "activities": [
+        {
+          "id": "s3.choice1",
+          "type": "choice",
+          "name": "Sondaj: sursa preferată",
+          "content": {
+            "options": ["Solară", "Eoliană", "Hidro", "Biomasă"],
+            "allowupdate": true
+          },
+          "completion": {"mode": "manual"}
+        },
+        {
+          "id": "s3.feedback1",
+          "type": "feedback",
+          "name": "Chestionar de feedback",
+          "content": {
+            "items": [
+              {"type": "info", "name": "Chestionarul este anonim."},
+              {"type": "multichoice", "name": "Cât de util a fost cursul?", "label": "utilitate", "required": true, "options": ["Foarte util", "Util", "Puțin util"]},
+              {"type": "numeric", "name": "Câte ore ați alocat cursului?", "label": "ore", "min": 0, "max": 100},
+              {"type": "textfield", "name": "Un cuvânt despre curs", "label": "cuvant"},
+              {"type": "textarea", "name": "Sugestii", "label": "sugestii"}
+            ]
+          },
+          "completion": {"mode": "auto", "rules": {"completionsubmit": 1}}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "course": {
+    "fullname": "Introducere în energia regenerabilă",
+    "shortname": "ENREG-INTRO",
+    "summary": "<p>Curs introductiv despre sursele de energie regenerabilă, avantajele și limitele lor.</p>",
+    "format": "topics",
+    "startdate": "2026-10-19",
+    "enablecompletion": true,
+    "image_prompt": "Panouri solare și turbine eoliene pe un deal verde, ilustrație simplă"
+  },
+  "sections": [
+    {
+      "id": "s1",
+      "title": "Noțiuni de bază",
+      "summary": "<p>Ce este energia regenerabilă și de ce contează.</p>",
+      "objectives": [
+        {
+          "id": "s1.o1",
+          "text": "Definește energia regenerabilă."
+        },
+        {
+          "id": "s1.o2",
+          "text": "Enumeră principalele surse regenerabile."
+        }
+      ],
+      "duration_minutes": 90,
+      "source_refs": [
+        {
+          "source": "src1",
+          "chunk": 0,
+          "page": 1
+        }
+      ],
+      "subsections": [
+        {
+          "id": "s1-1",
+          "title": "Resurse suplimentare",
+          "summary": "<p>Materiale opționale.</p>"
+        }
+      ]
+    },
+    {
+      "id": "s2",
+      "title": "Surse de energie în practică",
+      "summary": "<p>Aplicații practice ale surselor regenerabile.</p>",
+      "objectives": [
+        {
+          "id": "s2.o1",
+          "text": "Compară două surse regenerabile."
+        }
+      ],
+      "duration_minutes": 120,
+      "source_refs": [
+        {
+          "source": "src2",
+          "chunk": 0,
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "title": "Evaluare și opinii",
+      "summary": "<p>Spuneți-ne ce părere aveți despre curs.</p>",
+      "objectives": [
+        {
+          "id": "s3.o1",
+          "text": "Reflectează asupra celor învățate."
+        }
+      ],
+      "duration_minutes": 30
+    }
+  ]
+}

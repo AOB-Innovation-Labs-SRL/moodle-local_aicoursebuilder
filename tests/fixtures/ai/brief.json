@@ -1,0 +1,17 @@
+{
+  "target": "newcourse",
+  "audience": "Elevi de liceu și adulți fără pregătire tehnică",
+  "level": "începător",
+  "duration_minutes": 240,
+  "language": "ro",
+  "tone": "prietenos, clar",
+  "objectives": [
+    "Definește energia regenerabilă.",
+    "Enumeră principalele surse regenerabile.",
+    "Compară două surse regenerabile."
+  ],
+  "constraints": [
+    "Conținut doar din documentele-sursă.",
+    "Fără date personale."
+  ]
+}

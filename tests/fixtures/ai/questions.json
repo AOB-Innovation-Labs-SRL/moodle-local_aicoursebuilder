@@ -1,0 +1,167 @@
+{
+  "quizzes": [
+    {
+      "activity": "s1.quiz1",
+      "questions": [
+        {
+          "id": "q1",
+          "qtype": "multichoice",
+          "name": "Sursă regenerabilă",
+          "questiontext": "<p>Care dintre următoarele este o sursă de energie regenerabilă?</p>",
+          "single": true,
+          "shuffleanswers": true,
+          "answers": [
+            {
+              "text": "Vântul",
+              "fraction": 1,
+              "feedback": "Corect."
+            },
+            {
+              "text": "Cărbunele",
+              "fraction": 0,
+              "feedback": "Cărbunele este combustibil fosil."
+            },
+            {
+              "text": "Gazul natural",
+              "fraction": 0,
+              "feedback": "Gazul natural este combustibil fosil."
+            }
+          ],
+          "difficulty": "easy",
+          "objective_ref": "s1.o2",
+          "source_refs": [
+            {
+              "source": "src1",
+              "chunk": 0
+            }
+          ]
+        },
+        {
+          "id": "q2",
+          "qtype": "truefalse",
+          "name": "Soarele se epuizează",
+          "questiontext": "<p>Energia solară este considerată regenerabilă.</p>",
+          "answers": [
+            {
+              "text": "true",
+              "fraction": 1,
+              "feedback": "Corect."
+            },
+            {
+              "text": "false",
+              "fraction": 0,
+              "feedback": "Soarele este o sursă care se reface."
+            }
+          ],
+          "difficulty": "easy",
+          "objective_ref": "s1.o1"
+        },
+        {
+          "id": "q3",
+          "qtype": "shortanswer",
+          "name": "Termenul pentru panouri",
+          "questiontext": "<p>Cum se numește conversia directă a luminii în electricitate?</p>",
+          "answers": [
+            {
+              "text": "fotovoltaic",
+              "fraction": 1
+            },
+            {
+              "text": "fotovoltaică",
+              "fraction": 1
+            }
+          ],
+          "difficulty": "medium",
+          "objective_ref": "s1.o1"
+        },
+        {
+          "id": "q4",
+          "qtype": "numerical",
+          "name": "Număr de surse",
+          "questiontext": "<p>Câte surse regenerabile sunt enumerate în material?</p>",
+          "answers": [
+            {
+              "text": "5",
+              "fraction": 1,
+              "tolerance": 0
+            }
+          ],
+          "difficulty": "medium",
+          "objective_ref": "s1.o2"
+        },
+        {
+          "id": "q5",
+          "qtype": "match",
+          "name": "Sursă și echipament",
+          "questiontext": "<p>Asociați fiecare sursă cu echipamentul potrivit.</p>",
+          "subquestions": [
+            {
+              "text": "Soare",
+              "answer": "Panou fotovoltaic"
+            },
+            {
+              "text": "Vânt",
+              "answer": "Turbină eoliană"
+            },
+            {
+              "text": "Apă",
+              "answer": "Hidrocentrală"
+            }
+          ],
+          "difficulty": "medium",
+          "objective_ref": "s1.o2"
+        },
+        {
+          "id": "q6",
+          "qtype": "essay",
+          "name": "Avantaje",
+          "questiontext": "<p>Descrieți în câteva fraze două avantaje ale energiei regenerabile.</p>",
+          "responseformat": "editor",
+          "graderinfo": "Se acceptă: emisii reduse, resurse inepuizabile, costuri de operare mici.",
+          "difficulty": "hard",
+          "objective_ref": "s1.o1"
+        },
+        {
+          "id": "q7",
+          "qtype": "gapselect",
+          "name": "Completați sursa",
+          "questiontext": "<p>Turbinele folosesc energia [[1]], iar panourile folosesc energia [[2]].</p>",
+          "choices": [
+            {
+              "text": "eoliană",
+              "group": 1
+            },
+            {
+              "text": "solară",
+              "group": 1
+            },
+            {
+              "text": "nucleară",
+              "group": 1
+            }
+          ],
+          "difficulty": "medium",
+          "objective_ref": "s1.o2"
+        },
+        {
+          "id": "q8",
+          "qtype": "ddwtos",
+          "name": "Trageți termenul",
+          "questiontext": "<p>Materia organică folosită ca sursă de energie se numește [[1]].</p>",
+          "choices": [
+            {
+              "text": "biomasă",
+              "group": 1
+            },
+            {
+              "text": "geotermie",
+              "group": 1
+            }
+          ],
+          "difficulty": "easy",
+          "objective_ref": "s1.o1"
+        }
+      ]
+    }
+  ]
+}

@@ -14,22 +14,25 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_aicoursebuilder\builder;
+
 /**
- * English language strings for local_aicoursebuilder.
+ * Contract for the builders that turn one blueprint node into Moodle objects.
+ *
+ * A builder must be idempotent: when $context->is_built($nodeid) is true it returns a
+ * skipped result and creates nothing. The caller records the result in the context.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-defined('MOODLE_INTERNAL') || die();
-
-$string['aicoursebuilder:generateincourse'] = 'Generate content inside a course with AI Course Builder';
-$string['aicoursebuilder:manage'] = 'Manage AI Course Builder';
-$string['aicoursebuilder:use'] = 'Use AI Course Builder';
-$string['aicoursebuilder:usedirectconnectors'] = 'Use direct AI provider connectors';
-$string['aicoursebuilder:viewusage'] = 'View AI Course Builder usage';
-$string['messageprovider:jobfailed'] = 'AI Course Builder job failed';
-$string['messageprovider:jobfinished'] = 'AI Course Builder job finished';
-$string['notimplemented'] = 'This feature is not implemented yet.';
-$string['pluginname'] = 'AI Course Builder';
+interface builder_interface {
+    /**
+     * Builds one blueprint node (section, subsection or activity).
+     *
+     * @param array|\stdClass $node The blueprint node, as defined by schema/blueprint.v1.json.
+     * @param build_context $context Course, section and cm maps, question bank context.
+     * @return build_result
+     */
+    public function build(array|\stdClass $node, build_context $context): build_result;
+}

@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * English language strings for local_aicoursebuilder.
+ * Message providers for local_aicoursebuilder.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -24,12 +24,19 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$string['aicoursebuilder:generateincourse'] = 'Generate content inside a course with AI Course Builder';
-$string['aicoursebuilder:manage'] = 'Manage AI Course Builder';
-$string['aicoursebuilder:use'] = 'Use AI Course Builder';
-$string['aicoursebuilder:usedirectconnectors'] = 'Use direct AI provider connectors';
-$string['aicoursebuilder:viewusage'] = 'View AI Course Builder usage';
-$string['messageprovider:jobfailed'] = 'AI Course Builder job failed';
-$string['messageprovider:jobfinished'] = 'AI Course Builder job finished';
-$string['notimplemented'] = 'This feature is not implemented yet.';
-$string['pluginname'] = 'AI Course Builder';
+$messageproviders = [
+    // A job finished: the blueprint is ready for review or the course is built.
+    'jobfinished' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
+    // A job failed for good.
+    'jobfailed' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
+];
