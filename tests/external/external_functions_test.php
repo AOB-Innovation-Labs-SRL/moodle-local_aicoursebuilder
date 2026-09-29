@@ -184,6 +184,41 @@ final class external_functions_test extends \core_external\tests\externallib_tes
     }
 
     /**
+     * A manager can read another user's job but cannot change it.
+     */
+    public function test_manager_reads_but_cannot_change_other_users_job(): void {
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course();
+        $owner = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $manager = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->role_assign('manager', $manager->id, \context_system::instance()->id);
+        $jobid = $this->create_job_record($owner->id, $course->id);
+        $this->setUser($manager);
+
+        // Reading passes the access checks.
+        $this->assert_not_implemented(fn() => get_job_status::execute($jobid));
+        $this->assert_not_implemented(fn() => get_blueprint::execute($jobid, 0));
+        $this->assert_not_implemented(fn() => estimate_cost::execute($jobid));
+
+        // Changing is for the owner only.
+        $hash = self::HASH;
+        $writes = [
+            'approve_blueprint' => fn() => approve_blueprint::execute($jobid, 1, $hash),
+            'save_blueprint' => fn() => save_blueprint::execute($jobid, '{"version": "1.0"}', 1),
+            'regenerate_node' => fn() => regenerate_node::execute($jobid, 's1.quiz1', ''),
+        ];
+        foreach ($writes as $name => $call) {
+            try {
+                $call();
+                $this->fail("{$name} accepted for a manager who is not the owner");
+            } catch (\moodle_exception $e) {
+                $this->assertSame('notjobowner', $e->errorcode, $name);
+                $this->assertSame('local_aicoursebuilder', $e->module, $name);
+            }
+        }
+    }
+
+    /**
      * Students cannot create jobs.
      */
     public function test_create_job_requires_capability(): void {

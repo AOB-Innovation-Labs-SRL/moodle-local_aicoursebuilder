@@ -32,4 +32,5 @@ $string['aicoursebuilder:viewusage'] = 'Vizualizează utilizarea AI Course Build
 $string['messageprovider:jobfailed'] = 'Job AI Course Builder eșuat';
 $string['messageprovider:jobfinished'] = 'Job AI Course Builder finalizat';
 $string['notimplemented'] = 'Această funcționalitate nu este încă implementată.';
+$string['notjobowner'] = 'Doar proprietarul acestui job îl poate modifica.';
 $string['pluginname'] = 'AI Course Builder';
