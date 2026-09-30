@@ -125,7 +125,20 @@ final class extractor_docx implements extractor {
         require_once($CFG->dirroot . '/local/aicoursebuilder/thirdparty/autoload.php');
         raise_memory_limit(MEMORY_EXTRA);
 
-        $document = \PhpOffice\PhpWord\IOFactory::load($this->normalise_heading_styles($path), 'Word2007');
+        // PhpWord 1.4.0 passes null to htmlspecialchars() for a heading whose only run has no text. That is
+        // a PHP deprecation with no effect on the result, so it is dropped here instead of patching the library.
+        set_error_handler(
+            fn(int $errno, string $errstr, string $errfile): bool => str_contains(
+                str_replace('\\', '/', $errfile),
+                '/thirdparty/phpword/'
+            ),
+            E_DEPRECATED
+        );
+        try {
+            $document = \PhpOffice\PhpWord\IOFactory::load($this->normalise_heading_styles($path), 'Word2007');
+        } finally {
+            restore_error_handler();
+        }
 
         $blocks = [];
         foreach ($document->getSections() as $section) {

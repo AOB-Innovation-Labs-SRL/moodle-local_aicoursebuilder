@@ -1,0 +1,198 @@
+{
+  "generated": "2026-09-30",
+  "language": "ro",
+  "files": [
+    {
+      "file": "pdf_text_01.pdf",
+      "original_title": "Set de instrumente pentru educația incluzivă, dedicat profesorilor din România",
+      "institution": "UNICEF România",
+      "download_url": "https://www.unicef.org/romania/media/13071/file/UNICEF%20Romania%20-Set%20de%20instrumente%20pentru%20educatia%20incluziva.pdf",
+      "source_page": "https://www.unicef.org/romania/ro/rapoarte/set-de-instrumente-pentru-educa%C8%9Bia-incluziv%C4%83-dedicat-profesorilor-din-rom%C3%A2nia",
+      "rights": "Publicat pentru descărcare de UNICEF; licență explicită neidentificată (nici în text, nici în metadate).",
+      "pages_or_slides": 41,
+      "features": [
+        "text_layer",
+        "spread_layout_2_pages_per_sheet",
+        "no_outline"
+      ],
+      "modifications": "none",
+      "bytes": 6180122,
+      "sha256": "4c5774dc06eaf0b30e4df1d25aba66c244db32227f20fd1600f294c5619d9092"
+    },
+    {
+      "file": "pdf_text_02.pdf",
+      "original_title": "Set de instrumente pentru verificarea competenței: asigurarea competenței furnizorilor de servicii de îngrijire directă de a implementa inițiativa Spital prieten al copilului",
+      "institution": "OMS / UNICEF",
+      "download_url": "https://www.unicef.org/romania/media/14726/file/COMPETENCY%20VERIFICATION%20TOOLKIT_ROM.pdf.pdf",
+      "source_page": "https://www.unicef.org/romania/ro/documents/set-de-instrumente-pentru-verificarea-competen%C8%9Bei",
+      "rights": "CC BY-NC-SA 3.0 IGO (confirmat în textul documentului)",
+      "pages_or_slides": 40,
+      "features": [
+        "text_layer",
+        "tables",
+        "running_header_footer",
+        "structured_sections",
+        "one_blank_page"
+      ],
+      "modifications": "none",
+      "bytes": 1323952,
+      "sha256": "6ed5d0982547381d73a7de9905c1b021a5d9a378c2eeca9cc22936302b460343"
+    },
+    {
+      "file": "pdf_text_03.pdf",
+      "original_title": "Raport global privind tehnologia asistivă",
+      "institution": "OMS / UNICEF",
+      "download_url": "https://www.unicef.org/romania/media/11311/file/Raport%20global%20privind%20tehnologia%20asistiv%C4%83.pdf",
+      "source_page": "https://www.unicef.org/romania/ro/rapoarte/raport-global-privind-tehnologia-asistiv%C4%83",
+      "rights": "CC BY-NC-SA 3.0 IGO (confirmat în textul documentului)",
+      "pages_or_slides": 140,
+      "features": [
+        "text_layer",
+        "chapters",
+        "long_document",
+        "running_header_footer",
+        "5_pages_without_text"
+      ],
+      "modifications": "none; URL-ul direct din manifest a funcționat",
+      "bytes": 13165094,
+      "sha256": "98dc07a2228679525b1bb12f4138dd33928e5d39fb8889c850cd3a2b32f364a5"
+    },
+    {
+      "file": "pdf_text_04.pdf",
+      "original_title": "Ghid de lucru cu familia și comunitatea pentru profesioniștii locali",
+      "institution": "UNICEF România (autor: Population Services International România)",
+      "download_url": "https://www.unicef.org/romania/media/12977/file/Ghid%20de%20lucru%20cu%20familia%20si%20comunitatea%20pentru%20profesionistii%20locali%202015.pdf",
+      "source_page": "https://www.unicef.org/romania/ro/documents/ghid-de-lucru-cu-familia-si-comunitatea-pentru-profesionistii-locali-2015",
+      "rights": "Publicat pentru descărcare de UNICEF; licență explicită neidentificată.",
+      "pages_or_slides": 60,
+      "features": [
+        "text_layer",
+        "bookmarks_5",
+        "structured_sections",
+        "repeated_headers",
+        "4_pages_without_text"
+      ],
+      "modifications": "none",
+      "bytes": 8186988,
+      "sha256": "7e3b736bbc77c1ffe212f559cdc177b3fbdfcad4f7d0b30b4fa812ceb22d823b"
+    },
+    {
+      "file": "pdf_scan_01.pdf",
+      "original_title": "Idei și metode noi în educația copiilor de la 3-7 ani (V. Ghidionescu, 1933)",
+      "institution": "Biblioteca Centrală Universitară „Lucian Blaga” Cluj-Napoca",
+      "download_url": "https://dspace.bcucluj.ro/bitstream/123456789/143428/1/BCUCLUJ_FG_S6494_1933.pdf",
+      "source_page": "https://dspace.bcucluj.ro/jspui/handle/123456789/143428",
+      "rights": "Drepturile exacte nu au fost verificate pe item; fișier public accesibil (publicație din 1933). De confirmat înainte de redistribuire externă.",
+      "pages_or_slides": 34,
+      "features": [
+        "image_only",
+        "no_text_layer",
+        "historical_print",
+        "single_column"
+      ],
+      "modifications": "Originalul avea strat de text OCR (ABBYY FineReader 14; text pe 34/34 pagini). Toate cele 34 de pagini au fost rasterizate la 200 dpi (JPEG q85) cu PyMuPDF, iar PDF-ul a fost refăcut doar din imagini, la dimensiunea paginii originale, cu metadate goale. Verificat: 0 fonturi, 0 caractere text, 34 imagini.",
+      "bytes": 8317795,
+      "sha256": "1b6b59ebf6ea58aacb5235255f54ffacd2b593364415638c43c69e96419f34f5"
+    },
+    {
+      "file": "docx_01.docx",
+      "original_title": "Broșură MAP – Mapping Digital Methods Applied in Adult Education in Partnership (Brosura_RO.docx)",
+      "institution": "Government Office of Békés County (HU), coordonator; versiunea RO găzduită de AJOFM Covasna / ANOFM",
+      "download_url": "https://www.anofm.ro/upload2/Covasna/29355/Brosura_RO.docx",
+      "source_page": "https://kormanyhivatalok.hu/kormanyhivatalok/bekes/megye/map-felnottkori-digitalis-keszsegfejlesztes-nemzetkozi-partnersegben",
+      "rights": "Proiect Erasmus+ 2021-1-HU01-KA220-ADU-000033642; licență explicită neidentificată, doar mențiunea de cofinanțare UE. De confirmat.",
+      "pages_or_slides": 60,
+      "features": [
+        "heading_styles_Titlu1-4 (24 paragrafe)",
+        "253_list_paragraphs",
+        "46_images",
+        "no_tables",
+        "~19000_words"
+      ],
+      "modifications": "none; paginile provin din docProps/app.xml (LibreOffice absent)",
+      "bytes": 7706353,
+      "sha256": "efe44fe661e24f3a8dc0f35ccaf04179775be7e203745f0c4a1848993b163624",
+      "source_page_note": "Pagina proiectului MAP (HU); nu am confirmat că trimite la fișierul RO. Fișierul se descarcă direct de la download_url."
+    },
+    {
+      "file": "docx_02.docx",
+      "original_title": "Un cadru educațional pentru dezvoltarea alfabetizării digitale (An_educational_framework_to_develop_digital_literacy_V_2_ro.docx)",
+      "institution": "Government Office of Békés County (HU), coordonator; versiunea RO găzduită de AJOFM Covasna / ANOFM",
+      "download_url": "https://www.anofm.ro/upload2/Covasna/29355/An_educational_framework_to_develop_digital_literacy_V_2_ro.docx",
+      "source_page": "https://kormanyhivatalok.hu/kormanyhivatalok/bekes/megye/map-felnottkori-digitalis-keszsegfejlesztes-nemzetkozi-partnersegben",
+      "rights": "Același proiect Erasmus+; licență explicită neidentificată. De confirmat.",
+      "pages_or_slides": 18,
+      "features": [
+        "no_heading_styles (titluri doar formatate direct)",
+        "no_tables",
+        "2_images",
+        "~4900_words"
+      ],
+      "modifications": "none; paginile provin din docProps/app.xml",
+      "bytes": 118720,
+      "sha256": "adc2e6c0f474afbcc59ca64b9451198659bab690a5c1496c5513798e453dbe8a",
+      "source_page_note": "Pagina proiectului MAP (HU); nu am confirmat că trimite la fișierul RO. Fișierul se descarcă direct de la download_url."
+    },
+    {
+      "file": "pptx_01.pptx",
+      "original_title": "Consiliere pentru o carieră didactică de succes - suport de curs 2013-2014",
+      "institution": "Casa Corpului Didactic Hunedoara",
+      "download_url": "https://www.ccdhunedoara.ro/admin/fisiere/00000000024.pptx",
+      "source_page": "https://www.ccdhunedoara.ro/?a=10&b=2",
+      "rights": "Toate drepturile rezervate © CCD Hunedoara (conform manifestului). Redistribuirea trebuie clarificată.",
+      "pages_or_slides": 33,
+      "features": [
+        "0_speaker_notes",
+        "no_title_placeholders",
+        "4_images",
+        "no_tables",
+        "~2900_words",
+        "text_split_across_runs"
+      ],
+      "modifications": "none",
+      "bytes": 216581,
+      "sha256": "1e6fea39b14c3a45d5518972ad51fbe17bd1fd292cd1741538a1b00f5d72a122"
+    },
+    {
+      "file": "pptx_02.pptx",
+      "original_title": "Prezentare consilieri_educativi.2024.pptx",
+      "institution": "Inspectoratul Școlar Județean Hunedoara (atașament pe forumul instituțional)",
+      "download_url": "https://forum.isj.hd.edu.ro/download/file.php?id=195521 (URL dinamic, necesită sid de sesiune obținut de pe pagina sursă)",
+      "source_page": "https://forum.isj.hd.edu.ro/viewtopic.php?t=30684",
+      "rights": "Licență neidentificată.",
+      "pages_or_slides": 15,
+      "features": [
+        "0_speaker_notes",
+        "10_slides_with_title_placeholder",
+        "3_images",
+        "no_tables",
+        "~1700_words",
+        "text_split_across_runs",
+        "mostly_administrative_content"
+      ],
+      "modifications": "none",
+      "bytes": 1205035,
+      "sha256": "c32de922bc8967afb06b95c8c5f063521c384014a040f2c040821d656589ff46"
+    },
+    {
+      "file": "xlsx_01.xlsx",
+      "original_title": "Rețeaua școlară 2024-2025",
+      "institution": "Ministerul Educației / data.gov.ro",
+      "download_url": "https://data.gov.ro/dataset/69abefd6-8d94-458c-bc5a-a40c52e73402/resource/d474f5be-9f11-440b-a309-df7f34960e33/download/retea-scolara-2024-2025.xlsx",
+      "source_page": "https://data.gov.ro/dataset/retea-scolara",
+      "rights": "Creative Commons Attribution 4.0",
+      "pages_or_slides": "1 foaie „Export”, 447 rânduri de date, 23 coloane; antet pe rândul 4",
+      "features": [
+        "header_row_at_row_4",
+        "tabular_dataset",
+        "single_county_AB"
+      ],
+      "modifications": "(1) Eliminate coloanele Telefon, Fax și Email (26 -> 23 coloane), fiindcă conțineau numere mobile și adrese de email pe yahoo/gmail. (2) Păstrate doar rândurile județului Alba (Judet PJ = AB): 447 din 18.200 rânduri de date. Rândurile 1-4 (titlul exportului, două rânduri goale, antetul original) sunt păstrate neschimbate; restul datelor nu a fost modificat. Modificat cu openpyxl din fișierul descărcat de la download_url.",
+      "bytes": 58897,
+      "sha256": "585e1e8d1e1ef1286bf10ccc579bff585aaef78bf69f8a1efbc838d4887ddb7e",
+      "original_bytes": 3025261,
+      "original_sha256": "fc5fe4e3ad901cabc6d51841ee1327d2c5d452438142fffacbed10d531ca86ee"
+    }
+  ],
+  "reference_texts": "reference/*.md, generate_reference.py: independent reference for pdf_text_01-04 (PyMuPDF) and docx_01-02 (word/document.xml)"
+}
