@@ -1,4 +1,4 @@
-# CLAUDE.md — local_aicoursebuilder
+# AGENTS.md — local_aicoursebuilder
 
 Moodle local plugin (`local_aicoursebuilder`). The repo root is the plugin root.
 Targets Moodle 5.2 and 5.3 (`$plugin->supported = [502, 503]`), PHP 8.3+.
