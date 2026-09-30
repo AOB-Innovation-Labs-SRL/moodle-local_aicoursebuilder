@@ -29,6 +29,7 @@ use GuzzleHttp\Psr7\Response;
  * @covers     \local_aicoursebuilder\ai\deepseek_connector
  * @covers     \local_aicoursebuilder\ai\policy
  * @covers     \local_aicoursebuilder\ai\connector_exception
+ * @covers     \local_aicoursebuilder\ai\pricing
  */
 final class deepseek_connector_test extends \advanced_testcase {
     /** @var string API key used by the tests. */
@@ -144,7 +145,7 @@ final class deepseek_connector_test extends \advanced_testcase {
         $this->assertSame('deepseek-flash', $result->model);
         $this->assertSame('stop', $result->finishreason);
         $this->assertSame(deepseek_connector::NAME, $result->connector);
-        $this->assertSame(0.0, $result->cost);
+        $this->assertSame(pricing::cost_for(deepseek_connector::NAME, 'deepseek-flash', 56, 45, 64), $result->cost);
         $this->assertGreaterThanOrEqual(0, $result->durationms);
     }
 
@@ -388,9 +389,9 @@ final class deepseek_connector_test extends \advanced_testcase {
     }
 
     /**
-     * Capabilities, token estimate and cost placeholder.
+     * Capabilities and token estimate.
      */
-    public function test_supports_tokens_and_cost(): void {
+    public function test_supports_and_tokens(): void {
         $connector = new deepseek_connector();
         foreach (connector::CAPABILITIES as $capability) {
             $this->assertSame(
@@ -402,6 +403,22 @@ final class deepseek_connector_test extends \advanced_testcase {
         $this->assertTrue($connector->supports(connector::CAP_JSON_SCHEMA));
         $this->assertFalse($connector->supports(connector::CAP_VISION));
         $this->assertSame(2, $connector->count_tokens('ăîșțâ'));
-        $this->assertSame(0.0, $connector->estimate_cost($this->make_request()));
+    }
+
+    /**
+     * The pre-call estimate treats the whole input as a cache miss, output from maxtokens, at peak
+     * pricing; it never sends a request.
+     */
+    public function test_estimate_cost(): void {
+        $connector = new deepseek_connector();
+        $request = $this->make_request(['maxtokens' => 1000]);
+        $tokensin = $connector->count_tokens($request->get_input_text());
+        $peakprices = pricing::DEFAULT_PRICES[deepseek_connector::NAME][deepseek_connector::DEFAULT_MODEL];
+
+        $expected = round(($tokensin / pricing::PER_TOKENS) * $peakprices['input_miss']
+            + (1000 / pricing::PER_TOKENS) * $peakprices['output'], 6);
+        $this->assertSame($expected, $connector->estimate_cost($request));
+        $this->assertGreaterThan(0.0, $connector->estimate_cost($request));
+        $this->assertCount(0, $this->history);
     }
 }

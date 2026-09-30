@@ -14,19 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_aicoursebuilder\ai;
+
 /**
- * Version metadata for local_aicoursebuilder.
+ * Raised by budget_guard when the lock on a budget row cannot be obtained within its timeout.
+ *
+ * Distinct from budget_exceeded_exception: this is a contention failure (another runner is
+ * reserving against the same row right now), not a limit being reached.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-defined('MOODLE_INTERNAL') || die();
-
-$plugin->component = 'local_aicoursebuilder';
-$plugin->version = 2026093003;
-$plugin->requires = 2026042001;
-$plugin->supported = [502, 503];
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+class budget_lock_exception extends \moodle_exception {
+    /**
+     * Creates the exception.
+     *
+     * @param string $resource The lock resource key that could not be obtained.
+     */
+    public function __construct(
+        /** @var string The lock resource key that could not be obtained. */
+        public readonly string $resource,
+    ) {
+        parent::__construct('budgetlocktimeout', 'local_aicoursebuilder', '', $resource);
+    }
+}

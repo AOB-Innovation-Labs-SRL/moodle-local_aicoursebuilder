@@ -14,19 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_aicoursebuilder\ai;
+
 /**
- * Version metadata for local_aicoursebuilder.
+ * Time source used by the retry backoff, injectable so tests never sleep for real.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+interface clock {
+    /**
+     * Returns the current Unix timestamp.
+     *
+     * @return int
+     */
+    public function time(): int;
 
-defined('MOODLE_INTERNAL') || die();
-
-$plugin->component = 'local_aicoursebuilder';
-$plugin->version = 2026093003;
-$plugin->requires = 2026042001;
-$plugin->supported = [502, 503];
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+    /**
+     * Pauses execution for the given duration.
+     *
+     * @param int $milliseconds Duration to sleep, in milliseconds.
+     */
+    public function sleep(int $milliseconds): void;
+}
