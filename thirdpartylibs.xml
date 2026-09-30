@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<libraries>
+  <library>
+    <location>thirdparty/pdfparser</location>
+    <name>smalot/pdfparser</name>
+    <description>Reads PDF files and extracts their text; used by the PDF source extractor.</description>
+    <version>2.12.5</version>
+    <license>LGPL</license>
+    <licenseversion>3.0</licenseversion>
+    <repository>https://github.com/smalot/pdfparser</repository>
+    <copyrights>
+      <copyright>Sebastien Malot</copyright>
+    </copyrights>
+  </library>
+  <library>
+    <location>thirdparty/phpword</location>
+    <name>phpoffice/phpword</name>
+    <description>Reads DOCX files (headings, paragraphs, lists, tables); used by the DOCX source extractor. Only the reader is used.</description>
+    <version>1.4.0</version>
+    <license>LGPL</license>
+    <licenseversion>3.0</licenseversion>
+    <repository>https://github.com/PHPOffice/PHPWord</repository>
+    <copyrights>
+      <copyright>2010-2025 PHPWord contributors</copyright>
+    </copyrights>
+  </library>
+  <library>
+    <location>thirdparty/phpoffice-math</location>
+    <name>phpoffice/math</name>
+    <description>Formula support required by PhpWord.</description>
+    <version>0.3.0</version>
+    <license>MIT</license>
+    <repository>https://github.com/PHPOffice/Math</repository>
+    <copyrights>
+      <copyright>PHPOffice contributors</copyright>
+    </copyrights>
+  </library>
+</libraries>

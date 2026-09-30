@@ -31,6 +31,58 @@ if ($hassiteconfig) {
     );
     $ADMIN->add('localplugins', $settings);
 
+    if ($ADMIN->fulltree) {
+        $typechoices = [];
+        foreach (array_keys(\local_aicoursebuilder\ingest\extractor_factory::MIMETYPES) as $type) {
+            $typechoices[$type] = new lang_string('sourcetype_' . $type, 'local_aicoursebuilder');
+        }
+
+        $settings->add(new admin_setting_heading(
+            'local_aicoursebuilder/sourcesheading',
+            new lang_string('sourcesheading', 'local_aicoursebuilder'),
+            new lang_string('sourcesheading_desc', 'local_aicoursebuilder')
+        ));
+        $settings->add(new admin_setting_configmultiselect(
+            'local_aicoursebuilder/allowedtypes',
+            new lang_string('allowedtypes', 'local_aicoursebuilder'),
+            new lang_string('allowedtypes_desc', 'local_aicoursebuilder'),
+            array_keys($typechoices),
+            $typechoices
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/maxfilesize',
+            new lang_string('maxfilesize', 'local_aicoursebuilder'),
+            new lang_string('maxfilesize_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ingest\source_manager::DEFAULT_MAXFILESIZE,
+            PARAM_INT
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/maxfiles',
+            new lang_string('maxfiles', 'local_aicoursebuilder'),
+            new lang_string('maxfiles_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ingest\source_manager::DEFAULT_MAXFILES,
+            PARAM_INT
+        ));
+
+        $settings->add(new admin_setting_heading(
+            'local_aicoursebuilder/extractionheading',
+            new lang_string('extractionheading', 'local_aicoursebuilder'),
+            new lang_string('extractionheading_desc', 'local_aicoursebuilder')
+        ));
+        $settings->add(new admin_setting_configexecutable(
+            'local_aicoursebuilder/pdftotextpath',
+            new lang_string('pdftotextpath', 'local_aicoursebuilder'),
+            new lang_string('pdftotextpath_desc', 'local_aicoursebuilder'),
+            ''
+        ));
+        $settings->add(new admin_setting_configexecutable(
+            'local_aicoursebuilder/sofficepath',
+            new lang_string('sofficepath', 'local_aicoursebuilder'),
+            new lang_string('sofficepath_desc', 'local_aicoursebuilder'),
+            ''
+        ));
+    }
+
     $connectors = new admin_settingpage(
         'local_aicoursebuilder_connectors',
         new lang_string('connectorssettings', 'local_aicoursebuilder')
