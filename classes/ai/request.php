@@ -75,6 +75,9 @@ final class request {
      * @param float|null $temperature Sampling temperature, null for the connector default.
      * @param int $timeout Timeout in seconds, 0 for the connector default.
      * @param int|null $jobid Job the call belongs to, used for logging.
+     * @param int|null $userid User the call runs for (AI policy check, core_ai), null when unknown.
+     * @param int|null $contextid Context the call runs in (core_ai), null for the system context.
+     * @param bool $json Whether the output must be a JSON object even without a schema.
      */
     public function __construct(
         /** @var string Pipeline step. */
@@ -95,6 +98,12 @@ final class request {
         public readonly int $timeout = 0,
         /** @var int|null Job id. */
         public readonly ?int $jobid = null,
+        /** @var int|null User id. */
+        public readonly ?int $userid = null,
+        /** @var int|null Context id. */
+        public readonly ?int $contextid = null,
+        /** @var bool JSON object output without a schema. */
+        public readonly bool $json = false,
     ) {
         if (!in_array($step, self::STEPS, true)) {
             throw new \coding_exception("Unknown AI step: {$step}");
@@ -115,6 +124,18 @@ final class request {
         if ($maxtokens < 0 || $timeout < 0) {
             throw new \coding_exception('maxtokens and timeout cannot be negative');
         }
+        if (($userid !== null && $userid <= 0) || ($contextid !== null && $contextid <= 0)) {
+            throw new \coding_exception('userid and contextid must be positive when set');
+        }
+    }
+
+    /**
+     * Tells whether the output must be JSON (a schema is set or JSON was asked for).
+     *
+     * @return bool
+     */
+    public function wants_json(): bool {
+        return $this->schema !== null || $this->json;
     }
 
     /**

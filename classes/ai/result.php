@@ -19,6 +19,10 @@ namespace local_aicoursebuilder\ai;
 /**
  * Immutable result of a completion call.
  *
+ * Token convention: tokensin counts the input tokens not served from the prompt cache,
+ * tokenscached the input tokens served from the cache, so the total input is
+ * tokensin + tokenscached. tokensout counts every output token, reasoning included.
+ *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -29,7 +33,7 @@ final class result {
      *
      * @param string $content Raw text returned by the model.
      * @param array|null $json Decoded JSON content, or null when the content is not JSON.
-     * @param int $tokensin Input tokens billed (cache misses).
+     * @param int $tokensin Input tokens not served from the prompt cache (cache misses).
      * @param int $tokensout Output tokens.
      * @param int $tokenscached Input tokens served from the prompt cache.
      * @param float $cost Real cost of the call in USD.
@@ -43,7 +47,7 @@ final class result {
         public readonly string $content,
         /** @var array|null Decoded JSON content. */
         public readonly ?array $json,
-        /** @var int Input tokens. */
+        /** @var int Input tokens not served from the cache. */
         public readonly int $tokensin,
         /** @var int Output tokens. */
         public readonly int $tokensout,

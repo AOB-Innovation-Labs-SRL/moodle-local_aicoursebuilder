@@ -14,19 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace local_aicoursebuilder\ai;
+
 /**
- * Version metadata for local_aicoursebuilder.
+ * Heuristic token estimate shared by the connectors (spec 3.3).
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+trait token_estimator {
+    /** @var float Characters per token, heuristic for Romanian (spec 3.3). */
+    public const CHARS_PER_TOKEN = 3.5;
 
-defined('MOODLE_INTERNAL') || die();
-
-$plugin->component = 'local_aicoursebuilder';
-$plugin->version = 2026093000;
-$plugin->requires = 2026042001;
-$plugin->supported = [502, 503];
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+    /**
+     * Estimates tokens as characters / 3.5 (heuristic for Romanian), rounded up.
+     *
+     * @param string $text The text.
+     * @return int
+     */
+    public function count_tokens(string $text): int {
+        return (int) ceil(\core_text::strlen($text) / self::CHARS_PER_TOKEN);
+    }
+}
