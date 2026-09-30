@@ -262,8 +262,22 @@ class validator {
         $objectives = array_keys($ids['objective']);
         $sources = array_keys($sourcetexts);
 
-        $check = function (?string $value, array $known, string $kind, string $path) use (&$errors): void {
-            if ($value !== null && $known !== [] && !in_array($value, $known, true)) {
+        // A reference to an activity or an objective is checked even when the blueprint declares
+        // none: an empty list of ids means every such reference is broken, which is exactly what a
+        // section that could not be written leaves behind. Source ids are different, because the
+        // sources are context the caller may not have passed in; with none given there is nothing
+        // to check against, so that rule stands down rather than rejecting every reference.
+        $check = function (
+            ?string $value,
+            array $known,
+            string $kind,
+            string $path,
+            bool $optional = false
+        ) use (&$errors): void {
+            if ($value === null || ($optional && $known === [])) {
+                return;
+            }
+            if (!in_array($value, $known, true)) {
                 $errors[] = new validation_error(
                     $path,
                     validation_error::CODE_BROKEN_REF,
@@ -271,10 +285,16 @@ class validator {
                 );
             }
         };
-        $checklist = function (?array $values, array $known, string $kind, string $path) use ($check): void {
+        $checklist = function (
+            ?array $values,
+            array $known,
+            string $kind,
+            string $path,
+            bool $optional = false
+        ) use ($check): void {
             foreach ($values ?? [] as $index => $value) {
                 if (is_string($value)) {
-                    $check($value, $known, $kind, "{$path}/{$index}");
+                    $check($value, $known, $kind, "{$path}/{$index}", $optional);
                 }
             }
         };
@@ -300,7 +320,7 @@ class validator {
         $checksourcerefs = function (?array $refs, string $path) use ($check, $sources): void {
             foreach ($refs ?? [] as $index => $ref) {
                 if (is_array($ref) && isset($ref['source']) && is_string($ref['source'])) {
-                    $check($ref['source'], $sources, 'source id', "{$path}/{$index}/source");
+                    $check($ref['source'], $sources, 'source id', "{$path}/{$index}/source", true);
                 }
             }
         };
@@ -332,9 +352,9 @@ class validator {
             $checkavailability($activity['availability'] ?? null, $path . '/availability');
             $checksourcerefs($activity['source_refs'] ?? null, $path . '/source_refs');
             if (isset($activity['content']['source'])) {
-                $check($activity['content']['source'], $sources, 'source id', $path . '/content/source');
+                $check($activity['content']['source'], $sources, 'source id', $path . '/content/source', true);
             }
-            $checklist($activity['content']['sources'] ?? null, $sources, 'source id', $path . '/content/sources');
+            $checklist($activity['content']['sources'] ?? null, $sources, 'source id', $path . '/content/sources', true);
 
             foreach ($activity['content']['questions'] ?? [] as $index => $question) {
                 if (!is_array($question)) {

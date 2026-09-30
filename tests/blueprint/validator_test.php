@@ -211,6 +211,51 @@ final class validator_test extends \basic_testcase {
     }
 
     /**
+     * A reference is broken even when the blueprint declares no activities at all.
+     *
+     * This is what a section that could not be written leaves behind, so it is the case where a
+     * dangling reference is most likely and least excusable.
+     */
+    public function test_a_reference_into_an_empty_blueprint_is_broken(): void {
+        $blueprint = [
+            'version' => '1.0',
+            'course' => [
+                'fullname' => 'Curs', 'shortname' => 'C1', 'summary' => '<p>x</p>', 'format' => 'topics',
+            ],
+            'sections' => [[
+                'id' => 's1',
+                'title' => 'Secțiune',
+                'activities' => [],
+                'availability' => ['require_completion_of' => ['s9.nope1']],
+            ]],
+        ];
+
+        $errors = (new validator())->validate($blueprint);
+        $codes = array_map(fn(validation_error $error) => $error->code, $errors);
+
+        $this->assertContains(validation_error::CODE_BROKEN_REF, $codes);
+    }
+
+    /**
+     * Source ids are only checked when sources were given, because they are context, not content.
+     */
+    public function test_source_ids_are_only_checked_against_sources_that_were_given(): void {
+        $blueprint = $this->golden;
+
+        $codes = array_map(fn(validation_error $error) => $error->code, (new validator())->validate($blueprint));
+        $this->assertNotContains(validation_error::CODE_BROKEN_REF, $codes, 'with no sources, nothing to check');
+
+        $codes = $this->codes($blueprint);
+        $this->assertNotContains(validation_error::CODE_BROKEN_REF, $codes, 'with the right sources, all resolve');
+
+        $codes = array_map(
+            fn(validation_error $error) => $error->code,
+            (new validator())->validate($blueprint, ['src9' => 'o sursă care nu e citată nicăieri']),
+        );
+        $this->assertContains(validation_error::CODE_BROKEN_REF, $codes, 'with the wrong sources, they do not');
+    }
+
+    /**
      * With no sources given, the URL rule does not run: there is nothing to check against.
      */
     public function test_the_url_rule_needs_sources(): void {
