@@ -60,6 +60,8 @@ class connector_exception extends \moodle_exception {
      * @param mixed $a Language string placeholder values.
      * @param string|null $debuginfo Extra detail for developers, never secrets.
      * @param int $httpstatus HTTP status returned by the provider, 0 when there was none.
+     * @param int|null $retryafterms Delay asked for by the provider's Retry-After header, in
+     *                               milliseconds, null when the provider sent none.
      */
     public function __construct(
         string $errorcode,
@@ -67,6 +69,8 @@ class connector_exception extends \moodle_exception {
         ?string $debuginfo = null,
         /** @var int HTTP status returned by the provider, 0 when there was none. */
         public readonly int $httpstatus = 0,
+        /** @var int|null Delay asked for by the provider's Retry-After header, in milliseconds. */
+        public readonly ?int $retryafterms = null,
     ) {
         parent::__construct($errorcode, 'local_aicoursebuilder', '', $a, $debuginfo);
     }

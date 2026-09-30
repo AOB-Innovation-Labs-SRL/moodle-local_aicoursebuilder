@@ -37,11 +37,41 @@ class router {
     /**
      * Returns the connector of a step, configured with the model of its route.
      *
+     * Real connectors are wrapped for retry (respecting Retry-After, exponential backoff with
+     * jitter otherwise) and for logging every attempt to local_aicb_ailog; the fake connector used
+     * in tests is returned bare. Retry sits outside logging, so every attempt is logged, retried
+     * ones included (spec 3.3, 3.8).
+     *
      * @param string $step Pipeline step, one of the request::STEP_* constants.
      * @return connector
      * @throws connector_exception When the settings name an unknown connector.
      */
     public function for_step(string $step): connector {
+        $name = $this->get_route($step)['connector'];
+        $inner = $this->raw_connector($step);
+        if ($name === fake_connector::NAME) {
+            return $inner;
+        }
+        $maxattempts = (int) get_config('local_aicoursebuilder', 'retry_maxattempts');
+        $basedelayms = (int) get_config('local_aicoursebuilder', 'retry_basedelayms');
+        return new retrying_connector(
+            new logging_connector($inner, $name),
+            maxattempts: $maxattempts > 0 ? $maxattempts : retrying_connector::DEFAULT_MAXATTEMPTS,
+            basedelayms: $basedelayms > 0 ? $basedelayms : retrying_connector::DEFAULT_BASEDELAYMS,
+        );
+    }
+
+    /**
+     * Returns the undecorated connector of a step, configured with the model of its route.
+     *
+     * Used by parallel_executor, which needs to see the connector's own async_connector capability
+     * and applies its own per-round retry and logging around the async calls.
+     *
+     * @param string $step Pipeline step, one of the request::STEP_* constants.
+     * @return connector
+     * @throws connector_exception When the settings name an unknown connector.
+     */
+    public function raw_connector(string $step): connector {
         ['connector' => $name, 'model' => $model] = $this->get_route($step);
         return match ($name) {
             deepseek_connector::NAME => new deepseek_connector($model),

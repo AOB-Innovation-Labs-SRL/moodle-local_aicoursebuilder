@@ -23,6 +23,8 @@ namespace local_aicoursebuilder\ai;
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \local_aicoursebuilder\ai\router
+ * @covers     \local_aicoursebuilder\ai\retrying_connector
+ * @covers     \local_aicoursebuilder\ai\logging_connector
  */
 final class router_test extends \advanced_testcase {
     #[\Override]
@@ -42,7 +44,8 @@ final class router_test extends \advanced_testcase {
                 $router->get_route($step),
                 $step
             );
-            $this->assertInstanceOf(deepseek_connector::class, $router->for_step($step));
+            $this->assertInstanceOf(deepseek_connector::class, $router->raw_connector($step));
+            $this->assertInstanceOf(retrying_connector::class, $router->for_step($step));
         }
     }
 
@@ -61,10 +64,10 @@ final class router_test extends \advanced_testcase {
         $this->assertSame(['connector' => 'deepseek', 'model' => 'deepseek-flash'], $router->get_route('questions'));
         $this->assertSame(['connector' => 'coreai', 'model' => ''], $router->get_route('digest'));
 
-        $review = $router->for_step(request::STEP_REVIEW);
+        $review = $router->raw_connector(request::STEP_REVIEW);
         $this->assertInstanceOf(deepseek_connector::class, $review);
         $this->assertSame('deepseek-v4-pro', $review->get_model());
-        $this->assertInstanceOf(coreai_connector::class, $router->for_step(request::STEP_DIGEST));
+        $this->assertInstanceOf(coreai_connector::class, $router->raw_connector(request::STEP_DIGEST));
     }
 
     /**
@@ -72,24 +75,41 @@ final class router_test extends \advanced_testcase {
      */
     public function test_switch_with_set_config(): void {
         $router = new router();
-        $this->assertInstanceOf(deepseek_connector::class, $router->for_step(request::STEP_DIGEST));
+        $this->assertInstanceOf(deepseek_connector::class, $router->raw_connector(request::STEP_DIGEST));
 
         set_config('route_digest_connector', coreai_connector::NAME, 'local_aicoursebuilder');
-        $this->assertInstanceOf(coreai_connector::class, $router->for_step(request::STEP_DIGEST));
+        $this->assertInstanceOf(coreai_connector::class, $router->raw_connector(request::STEP_DIGEST));
 
         set_config('route_digest_connector', '', 'local_aicoursebuilder');
-        $this->assertInstanceOf(deepseek_connector::class, $router->for_step(request::STEP_DIGEST));
+        $this->assertInstanceOf(deepseek_connector::class, $router->raw_connector(request::STEP_DIGEST));
     }
 
     /**
-     * The fake connector is accepted in PHPUnit runs, but never offered to administrators.
+     * The fake connector is accepted in PHPUnit runs, but never offered to administrators; for_step()
+     * returns it bare, without retry or logging, since tests must not depend on their side effects.
      */
     public function test_fake_connector_in_tests(): void {
         set_config('route_outline_connector', fake_connector::NAME, 'local_aicoursebuilder');
         $router = new router();
         $this->assertSame(['connector' => 'fake', 'model' => fake_connector::MODEL], $router->get_route('outline'));
+        $this->assertInstanceOf(fake_connector::class, $router->raw_connector(request::STEP_OUTLINE));
         $this->assertInstanceOf(fake_connector::class, $router->for_step(request::STEP_OUTLINE));
         $this->assertNotContains(fake_connector::NAME, router::CONNECTORS);
+    }
+
+    /**
+     * for_step() applies the configured retry settings to the decorator.
+     */
+    public function test_for_step_applies_retry_settings(): void {
+        set_config('retry_maxattempts', 5, 'local_aicoursebuilder');
+        set_config('retry_basedelayms', 10, 'local_aicoursebuilder');
+        $connector = (new router())->for_step(request::STEP_DIGEST);
+        $this->assertInstanceOf(retrying_connector::class, $connector);
+
+        $property = new \ReflectionProperty($connector, 'maxattempts');
+        $this->assertSame(5, $property->getValue($connector));
+        $property = new \ReflectionProperty($connector, 'basedelayms');
+        $this->assertSame(10, $property->getValue($connector));
     }
 
     /**
