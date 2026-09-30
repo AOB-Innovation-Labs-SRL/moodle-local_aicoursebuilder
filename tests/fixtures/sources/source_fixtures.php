@@ -551,10 +551,16 @@ final class source_fixtures {
     /**
      * Counts the words of a text.
      *
+     * The Romanian letters with a cedilla (ş, ţ) and the ones with a comma below (ș, ț) are the same
+     * letters: Windows code pages, OCR engines and old documents write the first, the standard asks for
+     * the second. They count as equal, so that the metric measures the text that was found and not
+     * which of the two forms a tool wrote.
+     *
      * @param string $text The text.
      * @return int[] Occurrences of every word, lower case.
      */
     private static function count_words(string $text): array {
+        $text = strtr($text, ['ş' => 'ș', 'Ş' => 'Ș', 'ţ' => 'ț', 'Ţ' => 'Ț']);
         $words = preg_split('/[^\p{L}\p{N}]+/u', \core_text::strtolower($text), -1, PREG_SPLIT_NO_EMPTY);
         return array_count_values($words);
     }
