@@ -153,13 +153,13 @@ final class source_manager_test extends \advanced_testcase {
      */
     public function test_type_not_allowed(): void {
         global $DB;
-        $draft = $this->create_draft(['ok.pdf' => source_fixtures::pdf(), 'notes.txt' => 'text']);
+        $draft = $this->create_draft(['ok.pdf' => source_fixtures::pdf(), 'photo.png' => 'image']);
         try {
             (new source_manager())->save_from_draft($this->jobid, $draft, \context_system::instance());
             $this->fail('Expected an ingest_exception');
         } catch (ingest_exception $e) {
             $this->assertSame(ingest_exception::TYPE_NOT_ALLOWED, $e->errorcode);
-            $this->assertStringContainsString('notes.txt', $e->getMessage());
+            $this->assertStringContainsString('photo.png', $e->getMessage());
         }
         $this->assertSame(0, $DB->count_records('local_aicb_source'));
         $this->assertSame(0, $this->count_source_files());
@@ -170,7 +170,8 @@ final class source_manager_test extends \advanced_testcase {
      */
     public function test_allowed_types_setting(): void {
         $manager = new source_manager();
-        $this->assertSame(['pdf', 'docx'], $manager->get_allowed_types());
+        $this->assertSame(array_keys(extractor_factory::MIMETYPES), $manager->get_allowed_types());
+        $this->assertContains('pptx', $manager->get_allowed_types());
 
         set_config('allowedtypes', 'pdf', 'local_aicoursebuilder');
         $this->assertSame(['pdf'], $manager->get_allowed_types());

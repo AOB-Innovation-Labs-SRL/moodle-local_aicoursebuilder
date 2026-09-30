@@ -20,8 +20,8 @@ namespace local_aicoursebuilder\ingest;
  * Extracts the text of a PDF with smalot/pdfparser; pdftotext -layout is the fallback.
  *
  * The fallback runs when pdfparser fails or finds no text, and only if the path of pdftotext is
- * set in the plugin settings. Encrypted PDFs are refused. Scanned PDFs (no text) need OCR, which
- * is not part of this extractor.
+ * set in the plugin settings. Encrypted PDFs are refused. A scanned PDF (no text) goes to the OCR
+ * extractor, when the paths of pdftoppm and tesseract are set.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -97,6 +97,17 @@ final class extractor_pdf implements extractor {
                 $failure ??= $e->getMessage();
             }
             $warnings[] = extraction_result::WARNING_PDFTOTEXT_FAILED;
+        }
+
+        // A scan has no text layer: read the page images with OCR, when it is configured.
+        $ocr = new extractor_ocr();
+        if ($ocr->is_available()) {
+            try {
+                return $ocr->extract_path($path, $warnings);
+            } catch (ingest_exception $e) {
+                $failure ??= $e->errorcode === ingest_exception::NO_TEXT ? null : $e->getMessage();
+                $warnings[] = extraction_result::WARNING_OCR_FAILED;
+            }
         }
 
         if ($failure !== null) {

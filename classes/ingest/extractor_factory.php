@@ -28,6 +28,11 @@ final class extractor_factory {
     public const MIMETYPES = [
         'pdf' => 'application/pdf',
         'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'txt' => 'text/plain',
+        'md' => 'text/markdown',
+        'html' => 'text/html',
     ];
 
     /**
@@ -41,6 +46,9 @@ final class extractor_factory {
         return match ($mimetype) {
             self::MIMETYPES['pdf'] => new extractor_pdf(),
             self::MIMETYPES['docx'] => new extractor_docx(),
+            self::MIMETYPES['pptx'] => new extractor_pptx(),
+            self::MIMETYPES['xlsx'] => new extractor_xlsx(),
+            self::MIMETYPES['txt'], self::MIMETYPES['md'], self::MIMETYPES['html'] => new extractor_text(),
             default => throw new ingest_exception(ingest_exception::UNSUPPORTED, $mimetype),
         };
     }
@@ -48,12 +56,23 @@ final class extractor_factory {
     /**
      * Returns the extractor of a stored file.
      *
+     * The mimetype decides. Moodle does not know every type (it has no Markdown type, for one), so
+     * when the mimetype has no extractor the extension of the file name is tried.
+     *
      * @param \stored_file $file The source file.
      * @return extractor
-     * @throws ingest_exception When no extractor supports the mimetype of the file.
+     * @throws ingest_exception When no extractor supports the file.
      */
     public static function for_file(\stored_file $file): extractor {
-        return self::for_mimetype($file->get_mimetype());
+        try {
+            return self::for_mimetype($file->get_mimetype());
+        } catch (ingest_exception $e) {
+            $type = self::type_for_filename($file->get_filename());
+            if ($type === null) {
+                throw $e;
+            }
+            return self::for_mimetype(self::MIMETYPES[$type]);
+        }
     }
 
     /**
