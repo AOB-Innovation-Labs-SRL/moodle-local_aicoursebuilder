@@ -107,16 +107,24 @@ abstract class step {
         }
 
         $id = $this->context->steps->start($this->context->jobid, $step, $nodekey, $hash, $hashcontext);
+
+        // The running total lives out here so that a limit reached midway through a node, between
+        // its first call and a repair, still records what the calls already made really cost.
+        $spend = new spend();
         try {
-            $result = $this->generate($input, $nodekey);
+            $result = $this->generate($input, $nodekey, $spend);
         } catch (budget_exceeded_exception $e) {
             // The job stops here, but the row must not stay marked running, or a resume would
             // treat this step as one that was never attempted and lose its attempt count.
-            $this->context->steps->finish($id, step_result::failed($e->getMessage()));
+            $this->context->steps->finish($id, step_result::failed(
+                $e->getMessage(),
+                calls: $spend->calls,
+                cost: $spend->cost,
+            ));
             $this->context->record_job_cost();
             throw $e;
         } catch (connector_exception $e) {
-            $result = step_result::failed($e->getMessage());
+            $result = step_result::failed($e->getMessage(), calls: $spend->calls, cost: $spend->cost);
         }
         $this->context->steps->finish($id, $result);
         $this->context->record_job_cost();
@@ -128,15 +136,16 @@ abstract class step {
      *
      * @param array $input Everything the step needs.
      * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @param spend $spend Running total of what this node has cost, owned by the caller so that a
+     *                     limit reached midway still records the calls already made.
      * @return step_result
      * @throws budget_exceeded_exception When a limit stops a call before it is sent.
      * @throws connector_exception When the first call fails outright.
      */
-    protected function generate(array $input, string $nodekey): step_result {
+    protected function generate(array $input, string $nodekey, spend $spend): step_result {
         $system = $this->render_prompt($input, $nodekey);
         $request = $this->build_request($system, $this->user_message($input, $nodekey));
 
-        $spend = new spend();
         $result = $this->call($request, $spend);
         $output = json_repair::decode($result->content);
         $errors = $this->validate($output, $input, $nodekey);
@@ -251,6 +260,11 @@ abstract class step {
         }
         $this->context->budget->settle($reservation, $result->cost);
         $spend->add($result);
+
+        // The job's own limit is checked against what the job has spent, so a node that takes
+        // several calls has to report after each one. Otherwise its repairs are all measured
+        // against the total as it stood before the node began, and the limit is overshot by a node.
+        $this->context->add_job_cost($result->cost);
         return $result;
     }
 

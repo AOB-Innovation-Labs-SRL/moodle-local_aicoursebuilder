@@ -162,10 +162,31 @@ class pipeline_context {
     }
 
     /**
-     * Writes what the job has spent so far onto the job itself.
+     * Adds what one call cost to the job's running total.
      *
      * The per-job cost limit is checked against local_aicb_job.actualcost, which nothing else
-     * updates, so a job would never reach its own limit if the steps did not report back.
+     * updates, so a job would never reach its own limit if the calls did not report back. This runs
+     * per call rather than per step because a node that repairs itself makes several, and measuring
+     * them all against the total as it stood before the node began would overshoot the limit.
+     *
+     * @param float $costusd What the call cost, in USD.
+     */
+    public function add_job_cost(float $costusd): void {
+        global $DB;
+
+        if ($costusd <= 0.0) {
+            return;
+        }
+        $job = $DB->get_record('local_aicb_job', ['id' => $this->jobid], 'id, actualcost', MUST_EXIST);
+        $DB->set_field('local_aicb_job', 'actualcost', (float) $job->actualcost + $costusd, ['id' => $this->jobid]);
+    }
+
+    /**
+     * Writes what every finished step of the job has spent onto the job itself.
+     *
+     * Called when a step finishes, so the running total that add_job_cost() keeps is replaced by
+     * the sum of what was actually persisted, and a call that was made but never stored cannot
+     * drift the two apart.
      */
     public function record_job_cost(): void {
         global $DB;

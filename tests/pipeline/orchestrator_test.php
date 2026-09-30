@@ -397,6 +397,44 @@ final class orchestrator_test extends \advanced_testcase {
     }
 
     /**
+     * A limit reached during a repair still records what the calls already made cost.
+     *
+     * The first call of a node is paid for before the validator ever sees its answer. If the repair
+     * that follows is the call the budget refuses, that first call is already spent, and a step row
+     * saying it cost nothing would understate the job and the month.
+     */
+    public function test_a_limit_during_repair_still_records_the_first_call(): void {
+        global $DB;
+
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->connector->set_cost_per_call(1.0);
+
+        // Two calls' worth of budget: the brief, then the outline, whose repair is refused.
+        set_config('joblimitusd', '2', 'local_aicoursebuilder');
+        $DB->set_field('local_aicb_job', 'estimatedcost', 2, ['id' => $this->jobid]);
+
+        $broken = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/ai/outline.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+        $broken['sections'][0]['id'] = 'X1';
+        $this->connector->push(request::STEP_OUTLINE, $broken);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame(pipeline_outcome::REASON_BUDGET, $outcome->reason);
+        $this->assertSame(2, $this->connector->call_count(), 'the refused repair was never sent');
+
+        $row = $DB->get_record('local_aicb_step', ['jobid' => $this->jobid, 'step' => request::STEP_OUTLINE]);
+        $this->assertSame(step_store::STATUS_ERROR, $row->status);
+        $this->assertEqualsWithDelta(1.0, (float) $row->cost, 0.0001, 'the call that was made is still charged');
+        $this->assertEqualsWithDelta(2.0, $this->totals()['cost'], 0.0001);
+    }
+
+    /**
      * Source material stays inside its block, however hard a document tries to get out.
      */
     public function test_prompt_injection_stays_inside_the_source_block(): void {
