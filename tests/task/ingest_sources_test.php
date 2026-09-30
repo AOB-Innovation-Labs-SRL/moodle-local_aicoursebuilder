@@ -48,6 +48,7 @@ final class ingest_sources_test extends \advanced_testcase {
         global $DB;
         parent::setUp();
         $this->resetAfterTest();
+        set_config('defaultconnector', 'fake', 'local_aicoursebuilder');
         $this->user = $this->getDataGenerator()->create_user();
         $this->setUser($this->user);
         $this->jobid = $DB->insert_record('local_aicb_job', (object) [
@@ -116,7 +117,7 @@ final class ingest_sources_test extends \advanced_testcase {
         $this->run_task();
 
         $pdf = $this->reload('local_aicb_source', $sources['manual.pdf']->id);
-        $this->assertSame('extracted', $pdf->status);
+        $this->assertSame('digested', $pdf->status);
         $this->assertSame(extraction_result::EXTRACTOR_PDFPARSER, $pdf->extractor);
         $this->assertEquals(3, $pdf->pagecount);
         $this->assertNull($pdf->error);
@@ -130,7 +131,7 @@ final class ingest_sources_test extends \advanced_testcase {
         );
 
         $docx = $this->reload('local_aicb_source', $sources['guide.docx']->id);
-        $this->assertSame('extracted', $docx->status);
+        $this->assertSame('digested', $docx->status);
         $this->assertSame(extraction_result::EXTRACTOR_PHPWORD, $docx->extractor);
         $text = $manager->get_extracted_file($docx->id);
         $this->assertSame('guide.md', $text->get_filename());
@@ -177,7 +178,7 @@ final class ingest_sources_test extends \advanced_testcase {
         $this->assertEquals(7, $first->pagecount);
         $this->assertSame('EARLIER RUN', $manager->get_extracted_file($first->id)->get_content());
         $second = $this->reload('local_aicb_source', $second->id);
-        $this->assertSame('extracted', $second->status);
+        $this->assertSame('digested', $second->status);
         $this->assertSame(extraction_result::EXTRACTOR_PDFPARSER, $second->extractor);
         $this->assertEquals(100, $this->reload('local_aicb_job', $this->jobid)->progress);
 
@@ -203,7 +204,7 @@ final class ingest_sources_test extends \advanced_testcase {
         $this->run_task();
 
         $good = $this->reload('local_aicb_source', $sources['good.pdf']->id);
-        $this->assertSame('extracted', $good->status);
+        $this->assertSame('digested', $good->status);
         $broken = $this->reload('local_aicb_source', $sources['broken.docx']->id);
         $this->assertSame('failed', $broken->status);
         $this->assertNotEmpty($broken->error);
@@ -258,6 +259,130 @@ final class ingest_sources_test extends \advanced_testcase {
         $task = ingest_sources::instance($this->jobid + 1000, $this->user->id);
         $task->execute();
         $this->assertSame('pending', $this->reload('local_aicb_source', $sources['manual.pdf']->id)->status);
+    }
+
+    /**
+     * After the run a source has its chunks, its language and size and its digest, and the digest call is a checkpoint.
+     */
+    public function test_sources_get_chunks_and_a_digest(): void {
+        global $DB;
+        $sources = $this->add_sources(['manual.pdf' => source_fixtures::pdf(), 'guide.docx' => source_fixtures::docx()]);
+
+        $this->run_task();
+
+        foreach ($sources as $name => $source) {
+            $row = $this->reload('local_aicb_source', $source->id);
+            $this->assertSame('digested', $row->status, $name);
+            $this->assertNotEmpty($row->language, $name);
+            $chunks = array_values($DB->get_records('local_aicb_chunk', ['sourceid' => $source->id], 'chunkindex'));
+            $this->assertNotEmpty($chunks, $name);
+            $this->assertEquals(array_sum(array_column($chunks, 'tokencount')), $row->tokencount, $name);
+            foreach ($chunks as $position => $chunk) {
+                $this->assertEquals($position, $chunk->chunkindex);
+                $this->assertEquals($this->jobid, $chunk->jobid);
+                $this->assertSame(sha1($chunk->content), $chunk->contenthash);
+                $this->assertGreaterThan(0, $chunk->tokencount);
+            }
+            $digest = json_decode($row->digest, true);
+            $this->assertSame('src' . $source->id, $digest['source'], $name);
+            $this->assertNotEmpty($digest['concepts'], $name);
+        }
+
+        $pdfchunks = $DB->get_records('local_aicb_chunk', ['sourceid' => $sources['manual.pdf']->id]);
+        $this->assertStringContainsString('Gestionarea parolelor', reset($pdfchunks)->content);
+        $this->assertSame(
+            2,
+            $DB->count_records('local_aicb_step', ['jobid' => $this->jobid, 'step' => 'digest', 'status' => 'done'])
+        );
+    }
+
+    /**
+     * A run that stops after the chunks goes on with the digest: the chunks stay and the digest comes from its checkpoint.
+     */
+    public function test_resume_after_the_chunks(): void {
+        global $DB;
+        $sources = $this->add_sources(['manual.pdf' => source_fixtures::pdf()]);
+        $id = $sources['manual.pdf']->id;
+        $this->run_task();
+        $chunkids = $DB->get_fieldset_select('local_aicb_chunk', 'id', 'sourceid = ?', [$id]);
+        $digest = $this->reload('local_aicb_source', $id)->digest;
+
+        // As if the run had stopped before the digest was saved.
+        $DB->update_record('local_aicb_source', (object) ['id' => $id, 'status' => 'extracted', 'digest' => null]);
+        $this->run_task();
+
+        $this->assertSame($chunkids, $DB->get_fieldset_select('local_aicb_chunk', 'id', 'sourceid = ?', [$id]));
+        $this->assertSame(1, $DB->count_records('local_aicb_step', ['jobid' => $this->jobid]));
+        $row = $this->reload('local_aicb_source', $id);
+        $this->assertSame('digested', $row->status);
+        $this->assertSame($digest, $row->digest);
+    }
+
+    /**
+     * The chunks are made from the text in the extracted area, with its headings.
+     */
+    public function test_chunks_come_from_the_extracted_text(): void {
+        global $DB;
+        $sources = $this->add_sources(['manual.pdf' => source_fixtures::pdf()]);
+        $source = $sources['manual.pdf'];
+        $manager = new source_manager();
+        $manager->save_extracted($source, $manager->get_source_file($source->id), "# Titlu\n\nText nou al documentului.");
+        $DB->update_record('local_aicb_source', (object) ['id' => $source->id, 'status' => 'extracted', 'extractor' => 'test']);
+
+        $this->run_task();
+
+        $chunks = $DB->get_records('local_aicb_chunk', ['sourceid' => $source->id]);
+        $this->assertCount(1, $chunks);
+        $chunk = reset($chunks);
+        $this->assertSame('Titlu', $chunk->title);
+        $this->assertSame("# Titlu\n\nText nou al documentului.", $chunk->content);
+        $this->assertNull($chunk->pagefrom);
+    }
+
+    /**
+     * A source whose extracted text is missing fails on its own; the others are still digested.
+     */
+    public function test_missing_extracted_text_fails_only_that_source(): void {
+        global $DB;
+        $sources = $this->add_sources(['lost.pdf' => source_fixtures::pdf(), 'good.pdf' => source_fixtures::pdf()]);
+        $DB->update_record('local_aicb_source', (object) ['id' => $sources['lost.pdf']->id, 'status' => 'extracted']);
+        $this->expectOutputRegex('/Source \d+ failed/');
+
+        $this->run_task();
+
+        $lost = $this->reload('local_aicb_source', $sources['lost.pdf']->id);
+        $this->assertSame('failed', $lost->status);
+        $this->assertNotEmpty($lost->error);
+        $this->assertSame('digested', $this->reload('local_aicb_source', $sources['good.pdf']->id)->status);
+        $job = $this->reload('local_aicb_job', $this->jobid);
+        $this->assertSame('ingesting', $job->status);
+        $this->assertEquals(100, $job->progress);
+        $this->assertStringContainsString('2 of 2', $job->statusmessage);
+    }
+
+    /**
+     * When the digest cannot be made for any source the job fails with its own message, and the text and the chunks
+     * stay.
+     */
+    public function test_job_fails_when_no_source_can_be_digested(): void {
+        global $DB;
+        // The real connector without an API key cannot answer.
+        set_config('defaultconnector', 'deepseek', 'local_aicoursebuilder');
+        $sources = $this->add_sources(['manual.pdf' => source_fixtures::pdf()]);
+        $this->expectOutputRegex('/Source \d+ failed/');
+
+        $this->run_task();
+
+        $job = $this->reload('local_aicb_job', $this->jobid);
+        $this->assertSame('failed', $job->status);
+        $this->assertSame(get_string('ingestnodigest', 'local_aicoursebuilder'), $job->error);
+        $source = $this->reload('local_aicb_source', $sources['manual.pdf']->id);
+        $this->assertSame('failed', $source->status);
+        $this->assertNotEmpty($source->error);
+        $this->assertNotNull($source->extractor);
+        $this->assertNotNull((new source_manager())->get_extracted_file($source->id));
+        $this->assertTrue($DB->record_exists('local_aicb_chunk', ['sourceid' => $source->id]));
+        $this->assertSame('failed', $DB->get_field('local_aicb_step', 'status', ['jobid' => $this->jobid]));
     }
 
     /**

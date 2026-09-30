@@ -23,7 +23,8 @@ amd/src              JavaScript modules (ES modules, built with grunt)
 templates/           Mustache templates
 lang/{en,ro}/        the only place for user-visible strings
 schema/              JSON schemas
-prompts/             prompt templates
+prompts/             prompt templates (versioned: digest.v1.txt)
+cli/                 developer scripts run from the command line (golden_digest.php: the M1 check on the golden set)
 tests/               PHPUnit and Behat
 thirdparty/          vendored third-party code (with licence)
 ```

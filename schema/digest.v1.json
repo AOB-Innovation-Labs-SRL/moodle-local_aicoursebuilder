@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Digest of one source document",
+  "description": "Output of the digest step: what the document says, with references to the chunks of the source.",
+  "type": "object",
+  "required": ["title", "language", "concepts", "definitions", "objectives", "procedures"],
+  "properties": {
+    "source": {"type": "string", "description": "Id of the source, set by the plugin (src<id>)."},
+    "title": {"type": "string"},
+    "language": {"type": "string", "description": "ISO 639-1 code"},
+    "concepts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "chunks"],
+        "properties": {
+          "name": {"type": "string"},
+          "chunks": {"type": "array", "items": {"type": "integer", "minimum": 0}}
+        }
+      }
+    },
+    "definitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["term", "definition", "chunks"],
+        "properties": {
+          "term": {"type": "string"},
+          "definition": {"type": "string"},
+          "chunks": {"type": "array", "items": {"type": "integer", "minimum": 0}}
+        }
+      }
+    },
+    "objectives": {"type": "array", "items": {"type": "string"}},
+    "procedures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "steps", "chunks"],
+        "properties": {
+          "title": {"type": "string"},
+          "steps": {"type": "array", "items": {"type": "string"}},
+          "chunks": {"type": "array", "items": {"type": "integer", "minimum": 0}}
+        }
+      }
+    }
+  }
+}

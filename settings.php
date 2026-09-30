@@ -108,6 +108,14 @@ if ($hassiteconfig) {
             PARAM_RAW_TRIMMED
         ));
 
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/digest_maxinputtokens',
+            new lang_string('settings:digestmaxinputtokens', 'local_aicoursebuilder'),
+            new lang_string('settings:digestmaxinputtokens_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ingest\digest_builder::DEFAULT_MAX_INPUT_TOKENS,
+            PARAM_INT
+        ));
+
         $settings->add(new admin_setting_heading(
             'local_aicoursebuilder/limitsheading',
             new lang_string('settings:limitsheading', 'local_aicoursebuilder'),

@@ -54,6 +54,9 @@ final class extraction_result {
     /** @var string Warning: the OCR fallback failed or found no text. */
     public const WARNING_OCR_FAILED = 'ocr_failed';
 
+    /** @var string Warning: pdfparser gave text with control characters in place of letters. */
+    public const WARNING_PDFPARSER_GARBLED = 'pdfparser_garbled';
+
     /** @var string Warning: pdfparser failed or found no text. */
     public const WARNING_PDFPARSER_FAILED = 'pdfparser_failed';
 
