@@ -36,6 +36,8 @@ Create a directory only when it gets its first file.
 - Complete PHPDoc on every file, class, method, property and constant.
 - Namespace: `local_aicoursebuilder\...`, one class per file, PSR-4 under `classes/`.
 - User-visible strings only in `lang/en` and `lang/ro`, never in PHP, JS or templates.
+- Prompts in `prompts/` are versioned: once a version has run it is never edited again; any change is
+  a new `*.vN+1.md` file, and the version is part of the step hash.
 
 ## Allowed APIs
 
