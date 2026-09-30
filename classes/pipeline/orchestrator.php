@@ -110,7 +110,7 @@ class orchestrator {
      *
      * @param array $brief The confirmed brief.
      * @param array $outline The outline.
-     * @return array<string, step_result> Result per section id.
+     * @return array step_result per section id.
      * @throws budget_exceeded_exception When a limit stops the pipeline between sub-calls.
      */
     protected function run_sections(array $brief, array $outline): array {
@@ -145,8 +145,8 @@ class orchestrator {
      * job does not pay for answers it already has.
      *
      * @param step_sections $step The step the requests belong to.
-     * @param array<string, array> $inputs Input per section id.
-     * @return array<string, result> Answer per section id, for those that arrived.
+     * @param array $inputs Input per section id.
+     * @return array Answer per section id, for those that arrived.
      * @throws budget_exceeded_exception When a limit stops the batch before it is sent.
      */
     protected function first_answers(step_sections $step, array $inputs): array {
@@ -217,7 +217,7 @@ class orchestrator {
      * Returns every section and subsection of an outline, keyed by id.
      *
      * @param array $outline The outline.
-     * @return array<string, array>
+     * @return array Section or subsection per id.
      */
     protected function containers(array $outline): array {
         $containers = [];
@@ -239,7 +239,7 @@ class orchestrator {
      * Puts the activities of each sub-call back into the outline they belong to.
      *
      * @param array $outline The outline.
-     * @param array<string, step_result> $sections Result per section id.
+     * @param array $sections step_result per section id.
      * @return array The blueprint.
      */
     protected function assemble(array $outline, array $sections): array {
@@ -272,7 +272,7 @@ class orchestrator {
     /**
      * Returns the ids of the sections a human has to complete.
      *
-     * @param array<string, step_result> $sections Result per section id.
+     * @param array $sections step_result per section id.
      * @return string[]
      */
     protected function manual_nodes(array $sections): array {

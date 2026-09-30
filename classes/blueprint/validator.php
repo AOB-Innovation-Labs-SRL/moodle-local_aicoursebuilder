@@ -147,7 +147,7 @@ class validator {
      * Collects every declared id of a blueprint or fragment, with the path each was declared at.
      *
      * @param array $value Decoded blueprint or fragment.
-     * @return array<string, array<string, string[]>> Kind => id => paths it was declared at.
+     * @return array Kind => id => the paths that id was declared at.
      */
     protected function collect_ids(array $value): array {
         $ids = ['section' => [], 'activity' => [], 'objective' => [], 'question' => []];
@@ -178,7 +178,7 @@ class validator {
     /**
      * Returns one error per id declared more than once.
      *
-     * @param array<string, array<string, string[]>> $ids Output of collect_ids().
+     * @param array $ids Output of collect_ids(): kind => id => paths it was declared at.
      * @return validation_error[]
      */
     protected function duplicate_id_errors(array $ids): array {
@@ -252,7 +252,7 @@ class validator {
      * Returns the errors of every reference that does not resolve to a declared id.
      *
      * @param array $blueprint Decoded blueprint.
-     * @param array<string, array<string, string[]>> $ids Output of collect_ids().
+     * @param array $ids Output of collect_ids(): kind => id => paths it was declared at.
      * @param string[] $sourcetexts Text of each source document, keyed by source id.
      * @return validation_error[]
      */
