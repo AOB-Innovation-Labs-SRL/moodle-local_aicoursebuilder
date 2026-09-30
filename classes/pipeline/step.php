@@ -127,7 +127,21 @@ abstract class step {
             $this->context->record_job_cost();
             throw $e;
         } catch (connector_exception $e) {
-            $result = step_result::failed($e->getMessage(), calls: $spend->calls, cost: $spend->cost);
+            // A node whose calls all failed is left for a human exactly like one whose answer never
+            // validated: the teacher has to see the gap, and a section that silently vanished would
+            // not show them anything. A step with no placeholder of its own still fails outright.
+            $placeholder = $this->placeholder($nodekey, $input);
+            $result = $placeholder === null
+                ? step_result::failed($e->getMessage(), calls: $spend->calls, cost: $spend->cost)
+                : step_result::needs_manual(
+                    output: $placeholder,
+                    errors: [new validation_error('', validation_error::CODE_NOT_JSON, $e->getMessage())],
+                    tokensin: $spend->tokensin,
+                    tokensout: $spend->tokensout,
+                    tokenscached: $spend->tokenscached,
+                    cost: $spend->cost,
+                    calls: $spend->calls,
+                );
         }
         $this->context->steps->finish($id, $result);
         $this->context->record_job_cost();

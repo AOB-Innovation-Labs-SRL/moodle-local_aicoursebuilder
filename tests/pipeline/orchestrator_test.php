@@ -274,7 +274,9 @@ final class orchestrator_test extends \advanced_testcase {
         $sections = array_column($outcome->blueprint['sections'], 'activities', 'id');
         $this->assertNotEmpty($sections['s1'], 's1 was written');
         $this->assertNotEmpty($sections['s3'], 's3 was written');
-        $this->assertSame([], $sections['s2'], 's2 has no activities');
+        $this->assertCount(1, $sections['s2'], 's2 keeps its place with a placeholder');
+        $this->assertTrue($sections['s2'][0]['review_flag']);
+        $this->assertSame([], $outcome->errors, 'the placeholder validates');
     }
 
     /**
@@ -361,7 +363,9 @@ final class orchestrator_test extends \advanced_testcase {
         $this->assertSame([], $outcome->errors, 'the subsection placeholder validates');
 
         $activities = $outcome->blueprint['sections'][0]['subsections'][0]['activities'];
-        $this->assertSame([], $activities, 'a failed sub-call leaves the subsection empty');
+        $this->assertCount(1, $activities, 'the subsection keeps its place');
+        $this->assertSame('s1-1.label1', $activities[0]['id'], 'built from the subsection id, hyphen and all');
+        $this->assertTrue($activities[0]['review_flag']);
     }
 
     /**
