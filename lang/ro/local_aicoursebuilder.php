@@ -60,6 +60,7 @@ $string['deepseekheading'] = 'DeepSeek';
 $string['deepseekheading_desc'] = 'Conexiune directă la API-ul DeepSeek. DeepSeek procesează datele în China: trimite doar conținut public, fără date personale.';
 $string['defaultconnector'] = 'Conector implicit';
 $string['defaultconnector_desc'] = 'Conectorul folosit de fiecare pas care nu are un conector propriu.';
+$string['digestfailed'] = 'Rezumatul documentului nu a putut fi făcut: {$a}';
 $string['digestinvalid'] = 'Răspunsul AI pentru rezumatul documentului nu a putut fi folosit.';
 $string['extractionfailed'] = 'Textul nu a putut fi extras din fișier: {$a}';
 $string['extractionheading'] = 'Extragerea textului';

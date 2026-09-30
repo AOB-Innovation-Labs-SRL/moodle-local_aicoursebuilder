@@ -17,47 +17,42 @@
 namespace local_aicoursebuilder\ingest;
 
 use local_aicoursebuilder\ai\budget_guard;
-use local_aicoursebuilder\ai\request;
-use local_aicoursebuilder\ai\result;
 use local_aicoursebuilder\ai\router;
+use local_aicoursebuilder\blueprint\schema_store;
+use local_aicoursebuilder\blueprint\validator;
+use local_aicoursebuilder\pipeline\pipeline_context;
+use local_aicoursebuilder\pipeline\step_digest;
+use local_aicoursebuilder\pipeline\step_store;
 
 /**
- * Makes the digest of a source: one call to the AI connector of the digest step for the whole document.
+ * Makes the digest of a source: one AI call for the whole document, through the digest step.
  *
- * The digest lists the concepts, definitions, learning objectives and procedures of the document, each with
- * the chunks it comes from. The connector comes from the router, so the step runs on the fake connector in
- * development and on the real one when the settings say so. A document that is too long for one call
- * (more than the "digest_maxinputtokens" setting) is sent in windows of consecutive chunks and the digests of
- * the windows are merged.
+ * The digest lists the concepts, definitions, learning objectives and procedures of the document, each with the
+ * chunks it comes from. The call is made by pipeline\step_digest, so it has what every step has: the connector
+ * and model of the digest route (the fake connector in tests, the real one when the settings say so), a
+ * prompt that treats the document as data, a check of the answer against schema/steps/digest.v1.json with up to
+ * two repair calls, a reservation in the budget before the call and its settlement after it, and a checkpoint
+ * in local_aicb_step, so that a repeated or resumed run does not call the provider, or pay, again.
  *
- * Every call is a checkpoint in local_aicb_step, keyed by a hash of its input: a repeated or resumed run
- * finds the answer there and does not call the provider, or pay, again. Every call is reserved against the
- * budget before it is sent and settled with its real cost after it.
+ * A document that is too long for one call (more than the "digest_maxinputtokens" setting) is sent in windows
+ * of consecutive chunks, and the digests of the windows are merged. The answer of a step is then cleaned: the
+ * references to chunks that were not sent are dropped, text is trimmed, and every list is cut to its limit.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class digest_builder {
-    /** @var string Version of the prompt, kept in the step checkpoint and part of its input hash. */
-    public const PROMPT_VERSION = 'v1';
-
     /** @var int Most input tokens of one call when the setting does not say. */
     public const DEFAULT_MAX_INPUT_TOKENS = 60000;
-
-    /** @var int Most output tokens of one call. */
-    public const MAX_OUTPUT_TOKENS = 6000;
 
     /** @var int[] Most items of each list in the digest of one call, told to the model and enforced. */
     public const LIMITS = ['concepts' => 40, 'definitions' => 40, 'objectives' => 15, 'procedures' => 15];
 
-    /** @var string[] Names of the languages that the prompt can name, by ISO code. */
-    private const LANGUAGE_NAMES = [
-        'ro' => 'Romanian', 'en' => 'English', 'fr' => 'French', 'de' => 'German',
-        'es' => 'Spanish', 'it' => 'Italian', 'hu' => 'Hungarian',
-    ];
+    /** @var string Language code for a source whose language is not known, when the job gives none. */
+    private const UNDETERMINED = 'und';
 
-    /** @var router Chooses the connector of the step. */
+    /** @var router Chooses the connector of the digest step. */
     private router $router;
 
     /** @var budget_guard Reserves and settles the cost of the calls. */
@@ -81,19 +76,19 @@ final class digest_builder {
      * @param \stdClass $source The local_aicb_source row.
      * @param chunk[] $chunks The chunks of the source, in order.
      * @return array The digest: source, title, language, concepts, definitions, objectives and procedures.
-     * @throws ingest_exception When the source has no chunks or the answer is not a usable digest.
-     * @throws \local_aicoursebuilder\ai\connector_exception When the provider call fails.
+     * @throws ingest_exception When the source has no chunks, the step fails or the digest is empty.
      * @throws \local_aicoursebuilder\ai\budget_exceeded_exception When a cost limit would be passed.
      */
     public function build(\stdClass $job, \stdClass $source, array $chunks): array {
         if (!$chunks) {
             throw new ingest_exception(ingest_exception::DIGEST_INVALID, null, 'the source has no chunks');
         }
+        $context = $this->make_context($job, $source);
         $windows = $this->make_windows($chunks);
         $digests = [];
         foreach ($windows as $number => $window) {
             $nodekey = 's' . $source->id . (count($windows) > 1 ? 'w' . $number : '');
-            $digests[] = $this->digest_window($job, $source, $window, $nodekey);
+            $digests[] = $this->digest_window($context, $source, $window, $nodekey);
         }
         $digest = count($digests) === 1 ? $digests[0] : $this->merge($digests);
 
@@ -107,6 +102,33 @@ final class digest_builder {
             'objectives' => $digest['objectives'],
             'procedures' => $digest['procedures'],
         ];
+    }
+
+    /**
+     * Makes the context of the digest step: the job, the language of the document and the collaborators.
+     *
+     * The digest is written in the language of the document; when that is not known, in the language of the job.
+     *
+     * @param \stdClass $job The job.
+     * @param \stdClass $source The source.
+     * @return pipeline_context
+     */
+    private function make_context(\stdClass $job, \stdClass $source): pipeline_context {
+        $language = strtolower(trim((string) ($source->language ?? '')));
+        if (!preg_match('/^[a-z]{2}$/', $language) || $language === self::UNDETERMINED) {
+            $language = strtolower(substr(trim((string) ($job->language ?? '')), 0, 2));
+        }
+        $schemas = new schema_store();
+        return new pipeline_context(
+            jobid: (int) $job->id,
+            userid: (int) $job->userid,
+            language: preg_match('/^[a-z]{2}$/', $language) ? $language : pipeline_context::DEFAULT_LANGUAGE,
+            router: $this->router,
+            budget: $this->guard,
+            steps: new step_store(),
+            validator: new validator($schemas),
+            schemas: $schemas,
+        );
     }
 
     /**
@@ -136,198 +158,59 @@ final class digest_builder {
     }
 
     /**
-     * Makes the digest of one window: from its checkpoint when it has one, else with a call.
+     * Makes the digest of one window with the digest step, which finds it in its checkpoint when it was made before.
      *
-     * @param \stdClass $job The job.
+     * @param pipeline_context $context The context of the step.
      * @param \stdClass $source The source.
      * @param chunk[] $window The chunks of the window.
      * @param string $nodekey Key of the call in the job.
-     * @return array Validated digest of the window.
+     * @return array Cleaned digest of the window.
+     * @throws ingest_exception When the step fails or the digest is empty.
      */
-    private function digest_window(\stdClass $job, \stdClass $source, array $window, string $nodekey): array {
-        global $DB;
-
-        $route = $this->router->get_route(request::STEP_DIGEST);
-        $request = $this->make_request($job, $source, $window);
-        $inputhash = hash('sha256', json_encode([
-            $job->id,
-            request::STEP_DIGEST,
-            $nodekey,
-            self::PROMPT_VERSION,
-            $route,
-            array_map(fn($chunk) => [$chunk->index, sha1($chunk->content)], $window),
-        ], JSON_THROW_ON_ERROR));
+    private function digest_window(pipeline_context $context, \stdClass $source, array $window, string $nodekey): array {
         $indexes = array_map(fn($chunk) => $chunk->index, $window);
+        $result = (new step_digest($context))->run([
+            'document' => $this->render_window($source, $window),
+            'indexes' => $indexes,
+        ], $nodekey);
 
-        $step = $DB->get_record('local_aicb_step', ['jobid' => $job->id, 'inputhash' => $inputhash]);
-        if ($step && $step->status === 'done') {
-            $saved = json_decode((string) $step->output, true);
-            if (is_array($saved)) {
-                try {
-                    return $this->validate($saved, $indexes);
-                } catch (ingest_exception) {
-                    // The saved answer is no longer usable: ask again.
-                    $saved = null;
-                }
-            }
+        if (!$result->is_success()) {
+            throw new ingest_exception(ingest_exception::DIGEST_FAILED, $result->error);
         }
-
-        $step = $this->start_step($job, $step, $nodekey, $inputhash, $route);
-        $reservation = null;
-        try {
-            $connector = $this->router->for_step(request::STEP_DIGEST);
-            $reservation = $this->guard->reserve($job->id, $job->userid, $connector->estimate_cost($request));
-            $result = $connector->complete($request);
-            $this->guard->settle($reservation, $result->cost);
-            $reservation = null;
-        } catch (\Throwable $e) {
-            if ($reservation !== null) {
-                $this->guard->release($reservation);
-            }
-            $this->finish_step($step, 'failed', null, $e->getMessage());
-            throw $e;
-        }
-
-        // The call was paid for, valid or not.
-        $DB->execute(
-            'UPDATE {local_aicb_job} SET actualcost = actualcost + :cost WHERE id = :id',
-            ['cost' => $result->cost, 'id' => $job->id]
-        );
-        $data = $result->json ?? json_decode($result->content, true);
-        try {
-            if (!is_array($data)) {
-                throw new ingest_exception(ingest_exception::DIGEST_INVALID, null, 'the answer is not a JSON object');
-            }
-            $digest = $this->validate($data, $indexes);
-        } catch (ingest_exception $e) {
-            $this->finish_step($step, 'failed', $result, $e->getMessage());
-            throw $e;
-        }
-        $this->finish_step($step, 'done', $result, null);
-        return $digest;
+        return $this->clean($result->output, $indexes);
     }
 
     /**
-     * Makes the request of one window.
+     * Writes the chunks of a window as the text that goes into the prompt.
      *
-     * @param \stdClass $job The job.
      * @param \stdClass $source The source.
      * @param chunk[] $window The chunks of the window.
-     * @return request
+     * @return string
      */
-    private function make_request(\stdClass $job, \stdClass $source, array $window): request {
-        $language = (string) ($source->language ?? '');
-        $system = strtr((string) file_get_contents(dirname(__DIR__, 2) . '/prompts/digest.' . self::PROMPT_VERSION . '.txt'), [
-            '{{language}}' => self::LANGUAGE_NAMES[$language] ?? 'the language of the document',
-            '{{maxconcepts}}' => (string) self::LIMITS['concepts'],
-            '{{maxdefinitions}}' => (string) self::LIMITS['definitions'],
-            '{{maxobjectives}}' => (string) self::LIMITS['objectives'],
-            '{{maxprocedures}}' => (string) self::LIMITS['procedures'],
-        ]);
-
-        $schema = json_decode((string) file_get_contents(dirname(__DIR__, 2) . '/schema/digest.v1.json'), true);
-        unset($schema['$schema']);
-
+    private function render_window(\stdClass $source, array $window): string {
         $text = 'Document: ' . $source->filename . "\n";
         foreach ($window as $chunk) {
-            $pages = $chunk->pagefrom === null ? '' : ' | pages ' . ($chunk->pagefrom === $chunk->pageto
-                ? $chunk->pagefrom : $chunk->pagefrom . '-' . $chunk->pageto);
+            $pages = '';
+            if ($chunk->pagefrom !== null) {
+                $pages = ' | pages ' . ($chunk->pagefrom === $chunk->pageto
+                    ? $chunk->pagefrom : $chunk->pagefrom . '-' . $chunk->pageto);
+            }
             $title = $chunk->title === null ? '' : ' | title: ' . $chunk->title;
             $text .= "\n<<< chunk {$chunk->index}{$pages}{$title} >>>\n" . $chunk->content . "\n";
         }
-
-        return new request(
-            step: request::STEP_DIGEST,
-            system: $system,
-            messages: [['role' => 'user', 'content' => $text]],
-            schema: $schema,
-            maxtokens: self::MAX_OUTPUT_TOKENS,
-            jobid: (int) $job->id,
-            userid: (int) $job->userid,
-        );
+        return $text;
     }
 
     /**
-     * Creates the checkpoint row of a call, or marks the one of an earlier failed try as running again.
+     * Cleans the digest of a call: text is trimmed, every list is cut to its limit and the chunk references
+     * that are not in the window are removed.
      *
-     * @param \stdClass $job The job.
-     * @param \stdClass|false $step The existing row of this input, false when there is none.
-     * @param string $nodekey Key of the call in the job.
-     * @param string $inputhash Hash of the input.
-     * @param array $route The connector and model of the step.
-     * @return \stdClass The row.
-     */
-    private function start_step(
-        \stdClass $job,
-        \stdClass|false $step,
-        string $nodekey,
-        string $inputhash,
-        array $route
-    ): \stdClass {
-        global $DB;
-
-        $now = time();
-        if ($step) {
-            $step->status = 'running';
-            $step->attempts++;
-            $step->error = null;
-            $step->timemodified = $now;
-            $DB->update_record('local_aicb_step', $step);
-            return $step;
-        }
-        $step = (object) [
-            'jobid' => $job->id,
-            'step' => request::STEP_DIGEST,
-            'nodekey' => $nodekey,
-            'inputhash' => $inputhash,
-            'status' => 'running',
-            'connector' => $route['connector'],
-            'model' => $route['model'],
-            'promptversion' => self::PROMPT_VERSION,
-            'attempts' => 1,
-            'timecreated' => $now,
-            'timemodified' => $now,
-        ];
-        $step->id = $DB->insert_record('local_aicb_step', $step);
-        return $step;
-    }
-
-    /**
-     * Writes the outcome of a call in its checkpoint row.
-     *
-     * @param \stdClass $step The row.
-     * @param string $status done or failed.
-     * @param result|null $result The result of the call, null for a call that failed.
-     * @param string|null $error Message of the failure, without any content of the document.
-     */
-    private function finish_step(\stdClass $step, string $status, ?result $result, ?string $error): void {
-        global $DB;
-
-        $step->status = $status;
-        $step->error = $error;
-        $step->timemodified = time();
-        if ($result !== null) {
-            $step->connector = $result->connector !== '' ? $result->connector : $step->connector;
-            $step->model = $result->model;
-            $step->output = $result->content;
-            $step->tokensin = $result->tokensin;
-            $step->tokensout = $result->tokensout;
-            $step->tokenscached = $result->tokenscached;
-            $step->cost = $result->cost;
-        }
-        $DB->update_record('local_aicb_step', $step);
-    }
-
-    /**
-     * Checks the digest of a call and cleans it: text is trimmed, empty items are dropped, every list is cut to
-     * its limit and the chunk references that are not in the window are removed.
-     *
-     * @param array $data The JSON of the answer.
+     * @param array $data The digest the step validated.
      * @param int[] $indexes Indexes of the chunks that were sent.
      * @return array Digest with the keys title, language, concepts, definitions, objectives and procedures.
-     * @throws ingest_exception When the answer has nothing in any list.
+     * @throws ingest_exception When nothing is left in any list.
      */
-    private function validate(array $data, array $indexes): array {
+    private function clean(array $data, array $indexes): array {
         $refs = fn($value) => array_values(array_unique(array_filter(
             array_map('intval', array_filter(
                 is_array($value) ? $value : [],
@@ -384,7 +267,7 @@ final class digest_builder {
     /**
      * Merges the digests of the windows of a long document; an item that comes back under the same name is kept once.
      *
-     * @param array[] $digests Validated digests, in window order.
+     * @param array[] $digests Cleaned digests, in window order.
      * @return array Digest with the keys title, language, concepts, definitions, objectives and procedures.
      */
     private function merge(array $digests): array {

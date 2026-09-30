@@ -145,6 +145,7 @@ class pipeline_context {
      */
     public function step_instruction(string $step): string {
         return match ($step) {
+            request::STEP_DIGEST => 'Write the digest of this document as a json object.',
             request::STEP_BRIEF => 'Write the brief of this course as a json object.',
             request::STEP_OUTLINE => 'Write the outline of this course as a json object.',
             request::STEP_SECTIONS => 'Write the activities of this section as a json object.',

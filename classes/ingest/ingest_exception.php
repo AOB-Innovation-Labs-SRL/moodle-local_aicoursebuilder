@@ -56,6 +56,9 @@ class ingest_exception extends \moodle_exception {
     /** @var string The extraction failed. */
     public const EXTRACTION_FAILED = 'extractionfailed';
 
+    /** @var string The digest of a source could not be made: the calls failed or the answer never fitted the schema. */
+    public const DIGEST_FAILED = 'digestfailed';
+
     /** @var string The AI answer for the digest of a source is not a usable digest. */
     public const DIGEST_INVALID = 'digestinvalid';
 

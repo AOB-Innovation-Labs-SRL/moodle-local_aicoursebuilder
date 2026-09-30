@@ -60,6 +60,7 @@ $string['deepseekheading'] = 'DeepSeek';
 $string['deepseekheading_desc'] = 'Direct connection to the DeepSeek API. DeepSeek processes data in China: send only public, non-personal content.';
 $string['defaultconnector'] = 'Default connector';
 $string['defaultconnector_desc'] = 'Connector used by every step that has no connector of its own.';
+$string['digestfailed'] = 'The summary of the document could not be made: {$a}';
 $string['digestinvalid'] = 'The AI answer for the summary of the document could not be used.';
 $string['extractionfailed'] = 'The text could not be extracted from the file: {$a}';
 $string['extractionheading'] = 'Text extraction';

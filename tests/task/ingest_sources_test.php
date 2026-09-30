@@ -382,7 +382,7 @@ final class ingest_sources_test extends \advanced_testcase {
         $this->assertNotNull($source->extractor);
         $this->assertNotNull((new source_manager())->get_extracted_file($source->id));
         $this->assertTrue($DB->record_exists('local_aicb_chunk', ['sourceid' => $source->id]));
-        $this->assertSame('failed', $DB->get_field('local_aicb_step', 'status', ['jobid' => $this->jobid]));
+        $this->assertSame('error', $DB->get_field('local_aicb_step', 'status', ['jobid' => $this->jobid]));
     }
 
     /**
