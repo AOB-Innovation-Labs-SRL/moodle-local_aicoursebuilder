@@ -23,6 +23,7 @@ use core_privacy\local\request\contextlist;
 use core_privacy\local\request\transform;
 use core_privacy\local\request\userlist;
 use core_privacy\local\request\writer;
+use local_aicoursebuilder\ingest\source_manager;
 
 /**
  * Privacy API provider of local_aicoursebuilder.
@@ -212,10 +213,16 @@ class provider implements
                     'id, step, nodekey, status, connector, model, output, tokensin, tokensout, cost'
                 ),
             ];
-            writer::with_context($context)->export_data(
-                [$root, get_string('privacy:path:jobs', 'local_aicoursebuilder'), 'job_' . $job->id],
-                $data
-            );
+            $jobpath = [$root, get_string('privacy:path:jobs', 'local_aicoursebuilder'), 'job_' . $job->id];
+            writer::with_context($context)->export_data($jobpath, $data);
+
+            $sourceids = $DB->get_fieldset_select('local_aicb_source', 'id', 'jobid = ?', [$job->id]);
+            foreach (self::get_source_files($sourceids) as $file) {
+                writer::with_context($context)->export_file(
+                    array_merge($jobpath, [get_string('privacy:path:files', 'local_aicoursebuilder')]),
+                    $file
+                );
+            }
         }
 
         $logs = $DB->get_records('local_aicb_ailog', ['userid' => $user->id], 'id');
@@ -261,6 +268,42 @@ class provider implements
     private static function get_rows(string $table, int $jobid, string $sort, string $fields): array {
         global $DB;
         return array_values($DB->get_records($table, ['jobid' => $jobid], $sort, $fields));
+    }
+
+    /**
+     * Returns the stored files of sources: the uploaded file and the extracted text, in any context.
+     *
+     * @param int[] $sourceids Source ids, the item ids of the files.
+     * @return \stored_file[]
+     */
+    private static function get_source_files(array $sourceids): array {
+        global $DB;
+
+        if (!$sourceids) {
+            return [];
+        }
+        [$insql, $params] = $DB->get_in_or_equal($sourceids, SQL_PARAMS_NAMED);
+        [$areasql, $areaparams] = $DB->get_in_or_equal(
+            [source_manager::AREA_SOURCE, source_manager::AREA_EXTRACTED],
+            SQL_PARAMS_NAMED
+        );
+        $params = $params + $areaparams + ['component' => source_manager::COMPONENT];
+        $ids = $DB->get_fieldset_select(
+            'files',
+            'id',
+            "component = :component AND filearea $areasql AND itemid $insql AND filename <> '.'",
+            $params
+        );
+
+        $fs = get_file_storage();
+        $files = [];
+        foreach ($ids as $id) {
+            $file = $fs->get_file_by_id($id);
+            if ($file) {
+                $files[] = $file;
+            }
+        }
+        return $files;
     }
 
     /**
@@ -312,6 +355,10 @@ class provider implements
         $jobids = $DB->get_fieldset_select('local_aicb_job', 'id', 'userid = ?', [$userid]);
         if ($jobids) {
             [$insql, $params] = $DB->get_in_or_equal($jobids);
+            $sourceids = $DB->get_fieldset_select('local_aicb_source', 'id', "jobid $insql", $params);
+            foreach (self::get_source_files($sourceids) as $file) {
+                $file->delete();
+            }
             $tables = ['local_aicb_chunk', 'local_aicb_source', 'local_aicb_step', 'local_aicb_blueprint', 'local_aicb_ailog'];
             foreach ($tables as $table) {
                 $DB->delete_records_select($table, "jobid $insql", $params);

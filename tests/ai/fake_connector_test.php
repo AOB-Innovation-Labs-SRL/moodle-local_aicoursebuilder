@@ -144,6 +144,27 @@ final class fake_connector_test extends \basic_testcase {
     }
 
     /**
+     * User, context and JSON flag default to empty, and JSON is wanted with a schema or the flag.
+     */
+    public function test_request_user_context_and_json(): void {
+        $plain = new request(request::STEP_DIGEST, 'sys', []);
+        $this->assertNull($plain->userid);
+        $this->assertNull($plain->contextid);
+        $this->assertFalse($plain->json);
+        $this->assertFalse($plain->wants_json());
+
+        $this->assertTrue((new request(request::STEP_DIGEST, 'sys', [], json: true))->wants_json());
+        $this->assertTrue((new request(request::STEP_DIGEST, 'sys', [], schema: ['type' => 'object']))->wants_json());
+
+        $request = new request(request::STEP_DIGEST, 'sys', [], userid: 5, contextid: 1);
+        $this->assertSame(5, $request->userid);
+        $this->assertSame(1, $request->contextid);
+
+        $this->expectException(\coding_exception::class);
+        new request(request::STEP_DIGEST, 'sys', [], userid: 0);
+    }
+
+    /**
      * The input text joins the system prompt and the messages.
      */
     public function test_request_input_text(): void {

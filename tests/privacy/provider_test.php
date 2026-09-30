@@ -103,6 +103,14 @@ final class provider_test extends provider_testcase {
         $root = get_string('pluginname', 'local_aicoursebuilder');
         $job = $writer->get_data([$root, get_string('privacy:path:jobs', 'local_aicoursebuilder'), 'job_' . $jobid]);
         $this->assertSame('Explain photosynthesis', $job->prompt);
+
+        $files = $writer->get_files([
+            $root,
+            get_string('privacy:path:jobs', 'local_aicoursebuilder'),
+            'job_' . $jobid,
+            get_string('privacy:path:files', 'local_aicoursebuilder'),
+        ]);
+        $this->assertArrayHasKey('biology.pdf', $files);
         $this->assertCount(1, $job->sources);
         $this->assertCount(1, $job->chunks);
         $this->assertCount(1, $job->blueprints);
@@ -198,6 +206,14 @@ final class provider_test extends provider_testcase {
             'timecreated' => $now,
             'timemodified' => $now,
         ]);
+        get_file_storage()->create_file_from_string([
+            'contextid' => \context_system::instance()->id,
+            'component' => 'local_aicoursebuilder',
+            'filearea' => 'source',
+            'itemid' => $sourceid,
+            'filepath' => '/',
+            'filename' => 'biology.pdf',
+        ], 'Plants convert light into chemical energy.');
         $DB->insert_record('local_aicb_chunk', (object) [
             'jobid' => $jobid,
             'sourceid' => $sourceid,
@@ -289,6 +305,27 @@ final class provider_test extends provider_testcase {
                      WHERE NOT EXISTS (SELECT 1 FROM {local_aicb_job} j WHERE j.id = t.jobid)";
             $this->assertEquals(0, $DB->count_records_sql($sql), $table . ' orphans');
         }
+
+        // Stored files of the sources: the item id is the source id.
+        $counts['files'] = 0;
+        if ($jobids) {
+            [$insql, $params] = $DB->get_in_or_equal($jobids);
+            $sourceids = $DB->get_fieldset_select('local_aicb_source', 'id', "jobid $insql", $params);
+            if ($sourceids) {
+                [$insql, $params] = $DB->get_in_or_equal($sourceids, SQL_PARAMS_NAMED);
+                $counts['files'] = $DB->count_records_select(
+                    'files',
+                    "component = :component AND filearea = :filearea AND itemid $insql AND filename <> '.'",
+                    $params + ['component' => 'local_aicoursebuilder', 'filearea' => 'source']
+                );
+            }
+        }
+        $sql = "SELECT COUNT(1)
+                  FROM {files} f
+                 WHERE f.component = :component AND f.filename <> '.'
+                   AND NOT EXISTS (SELECT 1 FROM {local_aicb_source} s WHERE s.id = f.itemid)";
+        $orphans = $DB->count_records_sql($sql, ['component' => 'local_aicoursebuilder']);
+        $this->assertEquals(0, $orphans, 'file orphans');
         return $counts;
     }
 }

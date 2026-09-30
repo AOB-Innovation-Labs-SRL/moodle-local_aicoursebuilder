@@ -106,7 +106,7 @@ Commands (inside the container):
 # purge caches
 & $dc exec -T $DOCKER_SERVICE php admin/cli/purge_caches.php
 # code style (moodle-cs lives in the quality_tools volume, mounted at /quality)
-& $dc exec -T $DOCKER_SERVICE sh -c 'cd public/local/aicoursebuilder && /quality/vendor/bin/phpcs --standard=moodle --extensions=php --warning-severity=1 .'
+& $dc exec -T $DOCKER_SERVICE sh -c 'cd public/local/aicoursebuilder && /quality/vendor/bin/phpcs --standard=moodle --extensions=php --warning-severity=1 --ignore="*/thirdparty/*" .'
 # PHPUnit (init once, then run)
 & $dc exec -T $DOCKER_SERVICE php public/admin/tool/phpunit/cli/init.php --disable-composer
 & $dc exec -T $DOCKER_SERVICE vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite
