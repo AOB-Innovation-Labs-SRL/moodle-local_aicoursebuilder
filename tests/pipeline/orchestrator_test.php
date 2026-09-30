@@ -342,6 +342,29 @@ final class orchestrator_test extends \advanced_testcase {
     }
 
     /**
+     * A subsection that cannot be written gets a placeholder that validates too.
+     *
+     * Subsection ids carry a hyphen, so their activity ids do as well, and a placeholder built from
+     * the wrong one would be rejected by the very schema it exists to satisfy.
+     */
+    public function test_a_failed_subsection_gets_a_valid_placeholder(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections(['s1', 's2', 's3']);
+        for ($i = 0; $i < 4; $i++) {
+            $this->connector->push(request::STEP_SECTIONS, new connector_exception('http', 'fake', 500), 's1-1');
+        }
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame(['s1-1'], $outcome->manualnodes);
+        $this->assertSame([], $outcome->errors, 'the subsection placeholder validates');
+
+        $activities = $outcome->blueprint['sections'][0]['subsections'][0]['activities'];
+        $this->assertSame([], $activities, 'a failed sub-call leaves the subsection empty');
+    }
+
+    /**
      * A local repair costs no call at all: broken JSON that can be fixed here is fixed here.
      */
     public function test_locally_repairable_json_costs_no_repair_call(): void {
