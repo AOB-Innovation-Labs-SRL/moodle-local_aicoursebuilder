@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local_aicoursebuilder/steps/outline.v1",
+  "title": "Outline step output (v1)",
+  "description": "Output of pipeline step 2 (spec 3.6): the course and its sections, before any activity exists. Field shapes are referenced one by one from blueprint.v1.json so the two never drift. The whole section definition cannot be referenced instead, because it requires the activities that step 3 adds.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["course", "sections"],
+  "properties": {
+    "course": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/course"},
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/outline_section"}
+    }
+  },
+  "$defs": {
+    "outline_section": {
+      "description": "A blueprint section without its activities, which step 3 fills in.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "objectives"],
+      "properties": {
+        "id": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/sectionid"},
+        "title": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/name"},
+        "summary": {"type": "string"},
+        "objectives": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/objective"}
+        },
+        "duration_minutes": {"type": "integer", "minimum": 1},
+        "source_refs": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/source_refs"},
+        "availability": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/availability"},
+        "subsections": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/outline_subsection"}
+        }
+      }
+    },
+    "outline_subsection": {
+      "description": "A blueprint subsection without its activities.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/subsectionid"},
+        "title": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/name"},
+        "summary": {"type": "string"},
+        "availability": {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/availability"}
+      }
+    }
+  }
+}

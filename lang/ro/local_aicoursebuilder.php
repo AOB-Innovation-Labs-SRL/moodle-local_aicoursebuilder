@@ -76,6 +76,7 @@ $string['maxfilesize'] = 'Dimensiune maximă per fișier (MB)';
 $string['maxfilesize_desc'] = 'Cel mai mare fișier sursă acceptat, în megaocteți.';
 $string['messageprovider:jobfailed'] = 'Job AI Course Builder eșuat';
 $string['messageprovider:jobfinished'] = 'Job AI Course Builder finalizat';
+$string['needsmanualcompletion'] = 'Această parte nu a putut fi generată și trebuie completată manual.';
 $string['notimplemented'] = 'Această funcționalitate nu este încă implementată.';
 $string['notjobowner'] = 'Doar proprietarul acestui job îl poate modifica.';
 $string['ocrlanguage'] = 'Limba OCR';

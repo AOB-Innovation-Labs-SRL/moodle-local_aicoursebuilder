@@ -1,0 +1,16 @@
+{
+  "id": "s1-1",
+  "activities": [
+    {
+      "id": "s1-1.folder1",
+      "type": "folder",
+      "name": "Anexe",
+      "content": {
+        "sources": [
+          "src1",
+          "src2"
+        ]
+      }
+    }
+  ]
+}

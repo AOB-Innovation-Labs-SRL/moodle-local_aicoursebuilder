@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local_aicoursebuilder/steps/sections.v1",
+  "title": "Sections step output (v1)",
+  "description": "Output of one sub-call of pipeline step 3 (spec 3.6): the activities of a single section or subsection, whose id the orchestrator matches against the outline. Activities are referenced from blueprint.v1.json, so the per-type content rules apply unchanged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "activities"],
+  "properties": {
+    "id": {
+      "description": "Id of the section or subsection these activities belong to.",
+      "oneOf": [
+        {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/sectionid"},
+        {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/subsectionid"}
+      ]
+    },
+    "activities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/content_activity"}
+    }
+  },
+  "$defs": {
+    "content_activity": {
+      "description": "An activity of step 3: only the content types of this step (spec 3.6 row 3). Lesson, quiz and the other interactive types are added by the activities and questions steps.",
+      "allOf": [
+        {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/activity"},
+        {"properties": {"type": {"enum": ["page", "book", "label", "url", "resource", "folder"]}}}
+      ]
+    }
+  }
+}

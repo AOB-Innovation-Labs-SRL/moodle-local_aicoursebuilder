@@ -76,6 +76,7 @@ $string['maxfilesize'] = 'Maximum file size (MB)';
 $string['maxfilesize_desc'] = 'The largest source file accepted, in megabytes.';
 $string['messageprovider:jobfailed'] = 'AI Course Builder job failed';
 $string['messageprovider:jobfinished'] = 'AI Course Builder job finished';
+$string['needsmanualcompletion'] = 'This part could not be generated and needs to be completed by hand.';
 $string['notimplemented'] = 'This feature is not implemented yet.';
 $string['notjobowner'] = 'Only the owner of this job can change it.';
 $string['ocrlanguage'] = 'OCR language';
