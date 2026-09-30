@@ -63,6 +63,13 @@ if ($hassiteconfig) {
             \local_aicoursebuilder\ingest\source_manager::DEFAULT_MAXFILES,
             PARAM_INT
         ));
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/jobretentiondays',
+            new lang_string('settings:jobretentiondays', 'local_aicoursebuilder'),
+            new lang_string('settings:jobretentiondays_desc', 'local_aicoursebuilder'),
+            90,
+            PARAM_INT
+        ));
 
         $settings->add(new admin_setting_heading(
             'local_aicoursebuilder/extractionheading',
@@ -80,6 +87,40 @@ if ($hassiteconfig) {
             new lang_string('sofficepath', 'local_aicoursebuilder'),
             new lang_string('sofficepath_desc', 'local_aicoursebuilder'),
             ''
+        ));
+
+        $settings->add(new admin_setting_heading(
+            'local_aicoursebuilder/limitsheading',
+            new lang_string('settings:limitsheading', 'local_aicoursebuilder'),
+            new lang_string('settings:limitsheading_desc', 'local_aicoursebuilder')
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/joblimitusd',
+            new lang_string('settings:joblimitusd', 'local_aicoursebuilder'),
+            new lang_string('settings:joblimitusd_desc', 'local_aicoursebuilder'),
+            '5',
+            PARAM_FLOAT
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/userlimitusd',
+            new lang_string('settings:userlimitusd', 'local_aicoursebuilder'),
+            new lang_string('settings:userlimitusd_desc', 'local_aicoursebuilder'),
+            '20',
+            PARAM_FLOAT
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/sitelimitusd',
+            new lang_string('settings:sitelimitusd', 'local_aicoursebuilder'),
+            new lang_string('settings:sitelimitusd_desc', 'local_aicoursebuilder'),
+            '200',
+            PARAM_FLOAT
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/alertpercent',
+            new lang_string('settings:alertpercent', 'local_aicoursebuilder'),
+            new lang_string('settings:alertpercent_desc', 'local_aicoursebuilder'),
+            80,
+            PARAM_INT
         ));
     }
 
