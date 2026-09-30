@@ -205,11 +205,11 @@ final class extractor_pdf_test extends \advanced_testcase {
         );
         $this->assertSame('pdf', extractor_factory::type_for_filename('A.PDF'));
         $this->assertSame('docx', extractor_factory::type_for_filename('b.docx'));
-        $this->assertNull(extractor_factory::type_for_filename('notes.txt'));
+        $this->assertNull(extractor_factory::type_for_filename('photo.png'));
         $this->assertNull(extractor_factory::type_for_filename('pdf'));
 
         try {
-            extractor_factory::for_file($this->store('text', 'notes.txt'));
+            extractor_factory::for_file($this->store('text', 'photo.png'));
             $this->fail('Expected an ingest_exception');
         } catch (ingest_exception $e) {
             $this->assertSame(ingest_exception::UNSUPPORTED, $e->errorcode);

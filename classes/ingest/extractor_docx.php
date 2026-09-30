@@ -38,9 +38,6 @@ use PhpOffice\PhpWord\Element\Title;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 final class extractor_docx implements extractor {
-    /** @var int Seconds after which LibreOffice is killed. */
-    public const SOFFICE_TIMEOUT = 180;
-
     /** @var int Deepest Markdown heading level produced. */
     private const MAX_HEADING_LEVEL = 3;
 
@@ -328,37 +325,6 @@ final class extractor_docx implements extractor {
      * @throws ingest_exception When LibreOffice or pdftotext fails.
      */
     private function read_with_libreoffice(string $path): ?array {
-        $soffice = get_config('local_aicoursebuilder', 'sofficepath');
-        if (!command_runner::is_available($soffice)) {
-            return null;
-        }
-        $pdftotext = get_config('local_aicoursebuilder', 'pdftotextpath');
-        if (!command_runner::is_available($pdftotext)) {
-            return null;
-        }
-
-        // LibreOffice needs a .docx name, and a profile directory it can write to.
-        $directory = make_request_directory();
-        $profile = make_request_directory();
-        $source = $directory . '/source.docx';
-        if (!copy($path, $source)) {
-            throw new ingest_exception(ingest_exception::FILE_MISSING);
-        }
-        command_runner::run($soffice, [
-            '--headless',
-            '--norestore',
-            '-env:UserInstallation=file://' . $profile,
-            '--convert-to',
-            'pdf',
-            '--outdir',
-            $directory,
-            $source,
-        ], self::SOFFICE_TIMEOUT);
-
-        $pdf = $directory . '/source.pdf';
-        if (!is_file($pdf)) {
-            throw new ingest_exception(ingest_exception::COMMAND_FAILED, basename($soffice), 'no PDF written');
-        }
-        return (new extractor_pdf())->read_with_configured_pdftotext($pdf);
+        return libreoffice::read_pages($path, 'docx');
     }
 }

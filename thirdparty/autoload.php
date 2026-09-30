@@ -17,7 +17,8 @@
 /**
  * Class loader for the libraries in thirdparty/ (the plugin has no Composer vendor directory).
  *
- * Load it with require_once before using Smalot\PdfParser, PhpOffice\PhpWord or PhpOffice\Math.
+ * Load it with require_once before using Smalot\PdfParser, PhpOffice\PhpWord, PhpOffice\PhpPresentation,
+ * PhpOffice\Common or PhpOffice\Math. PhpOffice\PhpSpreadsheet is not here: Moodle core loads it.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -32,6 +33,8 @@ spl_autoload_register(function (string $class): void {
         'Smalot\\PdfParser\\' => __DIR__ . '/pdfparser/src/Smalot/PdfParser/',
         'PhpOffice\\PhpWord\\' => __DIR__ . '/phpword/src/PhpWord/',
         'PhpOffice\\Math\\' => __DIR__ . '/phpoffice-math/src/Math/',
+        'PhpOffice\\PhpPresentation\\' => __DIR__ . '/phppresentation/src/PhpPresentation/',
+        'PhpOffice\\Common\\' => __DIR__ . '/phpoffice-common/src/Common/',
     ];
 
     foreach ($map as $prefix => $directory) {

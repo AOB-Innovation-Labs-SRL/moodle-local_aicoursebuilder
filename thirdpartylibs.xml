@@ -25,6 +25,30 @@
     </copyrights>
   </library>
   <library>
+    <location>thirdparty/phppresentation</location>
+    <name>phpoffice/phppresentation</name>
+    <description>Reads PPTX files (slide text, tables, speaker notes); used by the PPTX source extractor. Only the reader is used.</description>
+    <version>1.2.0</version>
+    <license>LGPL</license>
+    <licenseversion>3.0</licenseversion>
+    <repository>https://github.com/PHPOffice/PHPPresentation</repository>
+    <copyrights>
+      <copyright>PHPPresentation contributors</copyright>
+    </copyrights>
+  </library>
+  <library>
+    <location>thirdparty/phpoffice-common</location>
+    <name>phpoffice/common</name>
+    <description>Shared helpers (XML reader, drawing) required by PhpPresentation.</description>
+    <version>1.1.0</version>
+    <license>LGPL</license>
+    <licenseversion>3.0</licenseversion>
+    <repository>https://github.com/PHPOffice/Common</repository>
+    <copyrights>
+      <copyright>PHPOffice contributors</copyright>
+    </copyrights>
+  </library>
+  <library>
     <location>thirdparty/phpoffice-math</location>
     <name>phpoffice/math</name>
     <description>Formula support required by PhpWord.</description>
