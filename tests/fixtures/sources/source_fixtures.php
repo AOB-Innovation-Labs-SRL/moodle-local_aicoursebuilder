@@ -228,6 +228,302 @@ final class source_fixtures {
         return implode("\n", $lines);
     }
 
+    /** @var string Title of the first slide of the PPTX. */
+    public const PPTX_TITLE_1 = 'Protecția datelor în organizație';
+
+    /** @var string[] Bulleted items of the first slide. */
+    public const PPTX_BULLETS = [
+        'Datele personale se colectează doar cu un scop clar',
+        'Accesul se acordă pe principiul minimului necesar',
+    ];
+
+    /** @var string Speaker notes of the first slide. */
+    public const PPTX_NOTES = 'Explicați diferența dintre date personale și date sensibile.';
+
+    /** @var string Title of the second slide. */
+    public const PPTX_TITLE_2 = 'Responsabilități';
+
+    /** @var string[][] Rows of the table on the second slide: the first row is the header. */
+    public const PPTX_TABLE = [
+        ['Rol', 'Responsabilitate'],
+        ['Angajat', 'Raportează incidentele'],
+        ['Administrator', 'Gestionează accesul'],
+    ];
+
+    /** @var string Name of the visible sheet of the XLSX. */
+    public const XLSX_SHEET = 'Participanți';
+
+    /** @var string[][] Rows of the visible sheet; the last column holds a date and the last row a formula. */
+    public const XLSX_ROWS = [
+        ['Nume', 'Departament', 'Ore instruire', 'Data finalizării'],
+        ['Ana Popescu', 'Vânzări', 8, '2026-03-14'],
+        ['Mihai Ionescu', 'Suport tehnic', 12, '2026-04-02'],
+    ];
+
+    /** @var string Text in the hidden sheet of the XLSX, which must not be extracted. */
+    public const XLSX_HIDDEN_TEXT = 'confidențial-ascuns';
+
+    /** @var string Paragraphs of the plain text, Markdown and HTML files. */
+    public const TEXT_PARAGRAPHS = [
+        'Politica de securitate se revizuiește în fiecare an, după o evaluare a riscurilor.',
+        'Angajații confirmă în scris că au citit politica și că o vor respecta.',
+    ];
+
+    /**
+     * Returns a PPTX with two slides: a title, bullets and speaker notes on the first, a title and a table on the second.
+     *
+     * PhpPresentation cannot write speaker notes, so the notes part is added to the file the way PowerPoint stores it.
+     *
+     * @return string PPTX content.
+     */
+    public static function pptx(): string {
+        global $CFG;
+        require_once($CFG->dirroot . '/local/aicoursebuilder/thirdparty/autoload.php');
+
+        $presentation = new \PhpOffice\PhpPresentation\PhpPresentation();
+        $slide = $presentation->getActiveSlide();
+        $title = $slide->createRichTextShape()->setHeight(80)->setWidth(800)->setOffsetX(50)->setOffsetY(20);
+        $title->setPlaceHolder(new \PhpOffice\PhpPresentation\Shape\Placeholder(
+            \PhpOffice\PhpPresentation\Shape\Placeholder::PH_TYPE_TITLE
+        ));
+        $title->createTextRun(self::PPTX_TITLE_1);
+        $body = $slide->createRichTextShape()->setHeight(300)->setWidth(800)->setOffsetX(50)->setOffsetY(120);
+        foreach (self::PPTX_BULLETS as $index => $bullet) {
+            $paragraph = $index === 0 ? $body->getActiveParagraph() : $body->createParagraph();
+            $paragraph->getBulletStyle()->setBulletType(\PhpOffice\PhpPresentation\Style\Bullet::TYPE_BULLET);
+            $paragraph->createTextRun($bullet);
+        }
+
+        $second = $presentation->createSlide();
+        $title = $second->createRichTextShape()->setHeight(80)->setWidth(800)->setOffsetX(50)->setOffsetY(20);
+        $title->setPlaceHolder(new \PhpOffice\PhpPresentation\Shape\Placeholder(
+            \PhpOffice\PhpPresentation\Shape\Placeholder::PH_TYPE_TITLE
+        ));
+        $title->createTextRun(self::PPTX_TITLE_2);
+        $table = $second->createTableShape(count(self::PPTX_TABLE[0]))->setHeight(200)->setWidth(800);
+        $table->setOffsetX(50)->setOffsetY(120);
+        foreach (self::PPTX_TABLE as $cells) {
+            $row = $table->createRow();
+            foreach ($cells as $text) {
+                $row->nextCell()->createTextRun($text);
+            }
+        }
+
+        $path = make_request_directory() . '/fixture.pptx';
+        \PhpOffice\PhpPresentation\IOFactory::createWriter($presentation, 'PowerPoint2007')->save($path);
+        return self::add_pptx_notes($path, 1, self::PPTX_NOTES);
+    }
+
+    /**
+     * Returns a PPTX whose only slide has no text.
+     *
+     * @return string PPTX content.
+     */
+    public static function empty_pptx(): string {
+        global $CFG;
+        require_once($CFG->dirroot . '/local/aicoursebuilder/thirdparty/autoload.php');
+
+        $presentation = new \PhpOffice\PhpPresentation\PhpPresentation();
+        $presentation->getActiveSlide();
+        $path = make_request_directory() . '/empty.pptx';
+        \PhpOffice\PhpPresentation\IOFactory::createWriter($presentation, 'PowerPoint2007')->save($path);
+        return file_get_contents($path);
+    }
+
+    /**
+     * Returns the text that the PPTX holds, as reference for the useful text metric.
+     *
+     * @return string
+     */
+    public static function pptx_reference(): string {
+        $lines = array_merge([self::PPTX_TITLE_1], self::PPTX_BULLETS, [self::PPTX_NOTES, self::PPTX_TITLE_2]);
+        foreach (self::PPTX_TABLE as $row) {
+            $lines = array_merge($lines, $row);
+        }
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Adds a notes part, made like the one PowerPoint writes, to a slide of a PPTX.
+     *
+     * @param string $path Path of the PPTX.
+     * @param int $slidenumber Number of the slide, from 1.
+     * @param string $text Speaker notes.
+     * @return string PPTX content.
+     */
+    private static function add_pptx_notes(string $path, int $slidenumber, string $text): string {
+        $zip = new \ZipArchive();
+        $zip->open($path);
+        $relspath = "ppt/slides/_rels/slide{$slidenumber}.xml.rels";
+        $rels = $zip->getFromName($relspath);
+        $relationship = '<Relationship Id="rIdNotes1" Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+            . 'relationships/notesSlide" Target="../notesSlides/notesSlide' . $slidenumber . '.xml"/>';
+        $zip->addFromString($relspath, str_replace('</Relationships>', $relationship . '</Relationships>', $rels));
+
+        $namespaces = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            . 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+            . 'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
+        $placeholder = fn(int $id, string $type, string $body) => '<p:sp><p:nvSpPr>'
+            . '<p:cNvPr id="' . $id . '" name="Placeholder ' . $id
+            . '"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="' . $type . '" idx="' . $id
+            . '"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>' . $body . '</a:p></p:txBody></p:sp>';
+        $notes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:notes ' . $namespaces . '><p:cSld><p:spTree>'
+            . '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>'
+            . $placeholder(2, 'body', '<a:r><a:rPr lang="ro-RO"/><a:t>' . htmlspecialchars($text) . '</a:t></a:r>')
+            . $placeholder(3, 'sldNum', '<a:fld id="{00000000-0000-0000-0000-000000000001}" type="slidenum">'
+                . '<a:rPr lang="ro-RO"/><a:t>' . $slidenumber . '</a:t></a:fld>')
+            . '</p:spTree></p:cSld></p:notes>';
+        $zip->addFromString("ppt/notesSlides/notesSlide{$slidenumber}.xml", $notes);
+        $zip->close();
+        return file_get_contents($path);
+    }
+
+    /**
+     * Returns an XLSX with a visible sheet (text, numbers, a date and a formula) and a hidden sheet.
+     *
+     * @return string XLSX content.
+     */
+    public static function xlsx(): string {
+        $workbook = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $workbook->getActiveSheet();
+        $sheet->setTitle(self::XLSX_SHEET);
+        foreach (self::XLSX_ROWS as $rowindex => $row) {
+            foreach ($row as $columnindex => $value) {
+                $coordinate = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($columnindex + 1) . ($rowindex + 1);
+                if ($rowindex > 0 && $columnindex === 3) {
+                    $sheet->setCellValue($coordinate, \PhpOffice\PhpSpreadsheet\Shared\Date::stringToExcel($value));
+                    $sheet->getStyle($coordinate)->getNumberFormat()->setFormatCode('dd.mm.yyyy');
+                } else {
+                    $sheet->setCellValue($coordinate, $value);
+                }
+            }
+        }
+        $total = count(self::XLSX_ROWS) + 1;
+        $sheet->setCellValue("A{$total}", 'Total ore');
+        $sheet->setCellValue("C{$total}", '=SUM(C2:C' . ($total - 1) . ')');
+
+        $hidden = $workbook->createSheet();
+        $hidden->setTitle('Ascuns');
+        $hidden->setCellValue('A1', self::XLSX_HIDDEN_TEXT);
+        $hidden->setSheetState(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet::SHEETSTATE_HIDDEN);
+
+        $path = make_request_directory() . '/fixture.xlsx';
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($workbook))->save($path);
+        return file_get_contents($path);
+    }
+
+    /**
+     * Returns an XLSX whose only sheet has no cells.
+     *
+     * @return string XLSX content.
+     */
+    public static function empty_xlsx(): string {
+        $path = make_request_directory() . '/empty.xlsx';
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx(new \PhpOffice\PhpSpreadsheet\Spreadsheet()))->save($path);
+        return file_get_contents($path);
+    }
+
+    /**
+     * Returns the text that the visible sheet of the XLSX shows, as reference for the useful text metric.
+     *
+     * @return string
+     */
+    public static function xlsx_reference(): string {
+        $lines = [self::XLSX_SHEET, 'Nume', 'Departament', 'Ore instruire', 'Data finalizării'];
+        $lines = array_merge($lines, ['Ana Popescu', 'Vânzări', '8', '14.03.2026']);
+        $lines = array_merge($lines, ['Mihai Ionescu', 'Suport tehnic', '12', '02.04.2026']);
+        return implode("\n", array_merge($lines, ['Total ore', '20']));
+    }
+
+    /**
+     * Returns the text of a plain text file.
+     *
+     * @return string
+     */
+    public static function text(): string {
+        return "Politica de securitate\n\n" . implode("\n\n", self::TEXT_PARAGRAPHS) . "\n";
+    }
+
+    /**
+     * Returns the text of a Markdown file.
+     *
+     * @return string
+     */
+    public static function markdown(): string {
+        return "# Politica de securitate\n\n" . self::TEXT_PARAGRAPHS[0] . "\n\n- primul punct\n- al doilea punct\n";
+    }
+
+    /**
+     * Returns an HTML page with headings, paragraphs, a list, a script and a stylesheet.
+     *
+     * @return string
+     */
+    public static function html(): string {
+        return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Titlu de pagină</title>'
+            . '<style>p { color: red; }</style></head><body><h1>Politica de securitate</h1>'
+            . '<p>' . self::TEXT_PARAGRAPHS[0] . '</p><h2>Confirmare</h2><p>' . self::TEXT_PARAGRAPHS[1] . '</p>'
+            . '<ul><li>primul punct</li><li>al doilea punct</li></ul><script>var ascuns = 1;</script></body></html>';
+    }
+
+    /**
+     * Returns the text that the plain text, Markdown and HTML files hold, for the useful text metric.
+     *
+     * @return string
+     */
+    public static function text_reference(): string {
+        $lines = array_merge(['Politica de securitate'], self::TEXT_PARAGRAPHS);
+        return implode("\n", array_merge($lines, ['Confirmare', 'primul punct', 'al doilea punct']));
+    }
+
+    /**
+     * Returns a scanned PDF: the pages of pdf() as images, with no text layer.
+     *
+     * @param string $pdftoppm Path of pdftoppm, which draws the pages.
+     * @return string PDF content.
+     */
+    public static function scanned_pdf(string $pdftoppm): string {
+        $directory = make_request_directory();
+        file_put_contents($directory . '/text.pdf', self::pdf());
+        command_runner::run($pdftoppm, ['-r', '200', '-png', $directory . '/text.pdf', $directory . '/scan'], 120);
+        $images = glob($directory . '/scan-*.png');
+        natsort($images);
+
+        // Built by hand, like blank_pdf(): every page is one JPEG image and nothing else, because TCPDF
+        // writes text of its own on the pages it makes.
+        $objects = ['', ''];
+        $pages = [];
+        foreach ($images as $image) {
+            [$width, $height] = getimagesize($image);
+            ob_start();
+            imagejpeg(imagecreatefrompng($image), null, 90);
+            $jpeg = ob_get_clean();
+            $objects[] = "<< /Type /XObject /Subtype /Image /Width {$width} /Height {$height} /ColorSpace /DeviceRGB "
+                . '/BitsPerComponent 8 /Filter /DCTDecode /Length ' . strlen($jpeg) . " >>\nstream\n" . $jpeg . "\nendstream";
+            $imageid = count($objects);
+            $content = 'q 595 0 0 842 0 0 cm /Im0 Do Q';
+            $objects[] = '<< /Length ' . strlen($content) . " >>\nstream\n" . $content . "\nendstream";
+            $contentid = count($objects);
+            $objects[] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] '
+                . "/Resources << /XObject << /Im0 {$imageid} 0 R >> >> /Contents {$contentid} 0 R >>";
+            $pages[] = count($objects) . ' 0 R';
+        }
+        $objects[0] = '<< /Type /Catalog /Pages 2 0 R >>';
+        $objects[1] = '<< /Type /Pages /Kids [' . implode(' ', $pages) . '] /Count ' . count($pages) . ' >>';
+
+        $pdf = "%PDF-1.4\n";
+        $offsets = [];
+        foreach ($objects as $index => $body) {
+            $offsets[] = strlen($pdf);
+            $pdf .= ($index + 1) . " 0 obj\n" . $body . "\nendobj\n";
+        }
+        $xref = strlen($pdf);
+        $pdf .= "xref\n0 " . (count($objects) + 1) . "\n0000000000 65535 f \n";
+        foreach ($offsets as $offset) {
+            $pdf .= sprintf("%010d 00000 n \n", $offset);
+        }
+        return $pdf . "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R >>\nstartxref\n{$xref}\n%%EOF\n";
+    }
+
     /**
      * Useful text metric: the share of the words of the reference text that the extracted text has.
      *

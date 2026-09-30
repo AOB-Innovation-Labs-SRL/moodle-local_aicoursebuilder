@@ -36,6 +36,24 @@ final class extraction_result {
     /** @var string Extractor: LibreOffice (to PDF) and pdftotext. */
     public const EXTRACTOR_LIBREOFFICE = 'libreoffice';
 
+    /** @var string Extractor: phpoffice/phppresentation. */
+    public const EXTRACTOR_PHPPRESENTATION = 'phppresentation';
+
+    /** @var string Extractor: PhpSpreadsheet. */
+    public const EXTRACTOR_PHPSPREADSHEET = 'phpspreadsheet';
+
+    /** @var string Extractor: plain text, Markdown or HTML read as text. */
+    public const EXTRACTOR_TEXT = 'text';
+
+    /** @var string Extractor: pdftoppm and tesseract (OCR). */
+    public const EXTRACTOR_OCR = 'ocr';
+
+    /** @var string Warning: PhpPresentation failed or found no text. */
+    public const WARNING_PHPPRESENTATION_FAILED = 'phppresentation_failed';
+
+    /** @var string Warning: the OCR fallback failed or found no text. */
+    public const WARNING_OCR_FAILED = 'ocr_failed';
+
     /** @var string Warning: pdfparser failed or found no text. */
     public const WARNING_PDFPARSER_FAILED = 'pdfparser_failed';
 

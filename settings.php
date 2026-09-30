@@ -88,6 +88,25 @@ if ($hassiteconfig) {
             new lang_string('sofficepath_desc', 'local_aicoursebuilder'),
             ''
         ));
+        $settings->add(new admin_setting_configexecutable(
+            'local_aicoursebuilder/pdftoppmpath',
+            new lang_string('pdftoppmpath', 'local_aicoursebuilder'),
+            new lang_string('pdftoppmpath_desc', 'local_aicoursebuilder'),
+            ''
+        ));
+        $settings->add(new admin_setting_configexecutable(
+            'local_aicoursebuilder/tesseractpath',
+            new lang_string('tesseractpath', 'local_aicoursebuilder'),
+            new lang_string('tesseractpath_desc', 'local_aicoursebuilder'),
+            ''
+        ));
+        $settings->add(new admin_setting_configtext(
+            'local_aicoursebuilder/ocrlanguage',
+            new lang_string('ocrlanguage', 'local_aicoursebuilder'),
+            new lang_string('ocrlanguage_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ingest\extractor_ocr::DEFAULT_LANGUAGE,
+            PARAM_RAW_TRIMMED
+        ));
 
         $settings->add(new admin_setting_heading(
             'local_aicoursebuilder/limitsheading',
