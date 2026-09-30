@@ -33,6 +33,7 @@ $string['aipolicynotaccepted'] = 'Utilizatorul nu a acceptat politica AI a Moodl
 $string['allowedtypes'] = 'Tipuri de surse permise';
 $string['allowedtypes_desc'] = 'Tipurile de fișiere pe care profesorii le pot încărca drept material sursă.';
 $string['budgetexceeded'] = 'S-a atins plafonul de cost AI la nivel de {$a->scope} (plafon {$a->limit} USD).';
+$string['budgetlocktimeout'] = 'Nu s-a putut obține blocarea bugetului {$a} la timp. Un alt proces rezervă chiar acum cheltuieli AI.';
 $string['commandfailed'] = 'Programul extern {$a} a eșuat.';
 $string['commandtimeout'] = 'Programul extern {$a} a durat prea mult și a fost oprit.';
 $string['connector_coreai'] = 'Subsistemul AI Moodle (core_ai)';

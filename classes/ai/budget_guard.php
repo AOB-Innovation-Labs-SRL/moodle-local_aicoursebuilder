@@ -20,10 +20,14 @@ namespace local_aicoursebuilder\ai;
  * Reserves and settles AI spend against the per-job, per-user and site monthly limits (spec 3.8).
  *
  * A reservation is made per sub-call, before it is sent, against local_aicb_budget.reservedusd of
- * the user row and the site row (userid 0), for the current calendar month. The reservation is an
- * atomic conditional UPDATE: its WHERE clause re-checks spentusd + reservedusd against the limit, so
- * two runners reserving against the same row at the same time cannot both push it over the limit
- * (the second UPDATE re-evaluates the condition against the row the first one already committed).
+ * the user row and the site row (userid 0), for the current calendar month. Read-check-write is not
+ * atomic by itself, so reserve_row() takes a Moodle lock (\core\lock\lock_config) on the row's own
+ * resource key (budget_{userid}_{period}) around the whole read, limit check and write: two runners
+ * reserving against the same row serialise on that lock, and the second one re-reads the row the
+ * first one already committed. The conditional UPDATE (WHERE spentusd + reservedusd + ? <= limit) is
+ * kept as a second safety net in case a lock is ever bypassed or misconfigured, but the lock is what
+ * actually guarantees correctness under concurrency; a lock that cannot be obtained within its
+ * timeout raises budget_lock_exception rather than silently racing.
  * The job's own limit has no persistent row: it is checked against local_aicb_job.estimatedcost and
  * actualcost, which the orchestrator maintains, so it is checked here but not reserved here.
  *
@@ -34,6 +38,25 @@ namespace local_aicoursebuilder\ai;
 class budget_guard {
     /** @var string userid used for the whole-site row. */
     public const SITE_USERID = 0;
+
+    /** @var string Lock type namespace passed to lock_config::get_lock_factory(). */
+    public const LOCK_TYPE = 'local_aicoursebuilder';
+
+    /** @var int Seconds to wait for a row's lock before giving up. */
+    public const LOCK_TIMEOUT = 5;
+
+    /** @var \core\lock\lock_factory Lock factory used to serialise reservations per row. */
+    protected \core\lock\lock_factory $lockfactory;
+
+    /**
+     * Creates the guard.
+     *
+     * @param \core\lock\lock_factory|null $lockfactory Lock factory, null for the site's configured
+     *                                                   one (\core\lock\lock_config::get_lock_factory()).
+     */
+    public function __construct(?\core\lock\lock_factory $lockfactory = null) {
+        $this->lockfactory = $lockfactory ?? \core\lock\lock_config::get_lock_factory(self::LOCK_TYPE);
+    }
 
     /**
      * Reserves the estimated cost of a sub-call against the job, the user and the site limits.
@@ -52,7 +75,7 @@ class budget_guard {
         $this->reserve_row($userid, $period, $estimatedusd, budget_exceeded_exception::SCOPE_USER);
         try {
             $this->reserve_row(self::SITE_USERID, $period, $estimatedusd, budget_exceeded_exception::SCOPE_SITE);
-        } catch (budget_exceeded_exception $e) {
+        } catch (budget_exceeded_exception | budget_lock_exception $e) {
             $this->release_row($userid, $period, $estimatedusd);
             throw $e;
         }
@@ -105,7 +128,26 @@ class budget_guard {
     }
 
     /**
-     * Atomically reserves an amount against a budget row, creating the row if it does not exist yet.
+     * Reserves an amount against a budget row under its lock, creating the row if needed.
+     *
+     * @param int $userid User id, or SITE_USERID for the site row.
+     * @param string $period Month, YYYY-MM.
+     * @param float $amountusd Amount to reserve, in USD.
+     * @param string $scope One of the budget_exceeded_exception::SCOPE_* constants, for the error.
+     * @throws budget_exceeded_exception When the reservation would exceed the row's limit.
+     * @throws budget_lock_exception When the row's lock cannot be obtained in time.
+     */
+    protected function reserve_row(int $userid, string $period, float $amountusd, string $scope): void {
+        $this->with_lock($userid, $period, function () use ($userid, $period, $amountusd, $scope): void {
+            $this->reserve_row_locked($userid, $period, $amountusd, $scope);
+        });
+    }
+
+    /**
+     * Reserves an amount against a budget row; only ever called with the row's lock already held.
+     *
+     * The conditional UPDATE (its WHERE clause re-checking spentusd + reservedusd against the limit)
+     * is kept as a second safety net alongside the lock, see the class docblock.
      *
      * @param int $userid User id, or SITE_USERID for the site row.
      * @param string $period Month, YYYY-MM.
@@ -113,10 +155,14 @@ class budget_guard {
      * @param string $scope One of the budget_exceeded_exception::SCOPE_* constants, for the error.
      * @throws budget_exceeded_exception When the reservation would exceed the row's limit.
      */
-    protected function reserve_row(int $userid, string $period, float $amountusd, string $scope): void {
+    protected function reserve_row_locked(int $userid, string $period, float $amountusd, string $scope): void {
         global $DB;
         $row = $this->get_or_create_row($userid, $period);
         $limit = $row->limitusd !== null ? (float) $row->limitusd : $this->default_limit($userid);
+
+        if ($limit > 0 && (float) $row->spentusd + (float) $row->reservedusd + $amountusd > $limit) {
+            throw new budget_exceeded_exception($scope, $limit);
+        }
 
         if ($limit > 0) {
             $sql = "UPDATE {local_aicb_budget}
@@ -140,6 +186,27 @@ class budget_guard {
             'UPDATE {local_aicb_budget} SET reservedusd = reservedusd + :amount, timemodified = :now WHERE id = :id',
             ['amount' => $amountusd, 'now' => time(), 'id' => $row->id]
         );
+    }
+
+    /**
+     * Runs a callback with the lock of a budget row held, released afterwards even on exception.
+     *
+     * @param int $userid User id, or SITE_USERID for the site row.
+     * @param string $period Month, YYYY-MM.
+     * @param callable $callback function(): void, run with the lock held.
+     * @throws budget_lock_exception When the lock cannot be obtained within LOCK_TIMEOUT.
+     */
+    protected function with_lock(int $userid, string $period, callable $callback): void {
+        $resource = "budget_{$userid}_{$period}";
+        $lock = $this->lockfactory->get_lock($resource, self::LOCK_TIMEOUT);
+        if ($lock === false) {
+            throw new budget_lock_exception($resource);
+        }
+        try {
+            $callback();
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

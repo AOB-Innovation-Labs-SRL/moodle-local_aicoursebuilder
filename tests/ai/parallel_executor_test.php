@@ -123,6 +123,34 @@ final class parallel_executor_test extends \advanced_testcase {
     }
 
     /**
+     * Regression test for a specific bug: run_concurrent() used to build each sub-call's Pool
+     * closure as `fn() => $logging->complete_async(...)->then(...)`. An arrow function auto-captures
+     * every variable used in its body by value, including ones only referenced inside a further
+     * nested closure — so the nested `function () use (&$round)` bound to a private copy of $round,
+     * not the $round declared in run_concurrent()'s loop. Every sub-call still fulfilled and its
+     * `then()` callback still ran, but every write to $round was invisible to the caller: run()
+     * returned an empty array and $oncomplete was never invoked, for any batch of requests, silently
+     * (no exception, no warning). This test sends a single request through run_concurrent() and would
+     * fail (0 outcomes, $oncomplete uncalled) if that bug were reintroduced, without depending on
+     * timing, concurrency count, or retry behaviour to surface it.
+     */
+    public function test_pool_results_are_not_lost_to_closure_capture(): void {
+        $this->mock->append(new Response(200, [], $this->completion_body('{"ok":true}')));
+
+        $completed = [];
+        $executor = new parallel_executor(new deepseek_connector(), deepseek_connector::NAME, new fake_clock());
+        $outcomes = $executor->run(['a' => $this->make_request('a')], function (string $key, $outcome) use (&$completed): void {
+            $completed[$key] = $outcome;
+        });
+
+        $this->assertCount(1, $outcomes, 'Pool result was lost: run() returned no outcomes');
+        $this->assertArrayHasKey('a', $outcomes);
+        $this->assertInstanceOf(result::class, $outcomes['a']);
+        $this->assertSame(['ok' => true], $outcomes['a']->json);
+        $this->assertCount(1, $completed, '$oncomplete was never called: the Pool result did not reach it');
+    }
+
+    /**
      * Six requests with concurrency 4 and one isolated failure: every $oncomplete callback fires, the
      * failure does not cancel the others, and outcomes keep their own keys.
      */

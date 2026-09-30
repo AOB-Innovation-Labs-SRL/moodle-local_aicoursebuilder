@@ -33,6 +33,7 @@ $string['aipolicynotaccepted'] = 'The user has not accepted the Moodle AI policy
 $string['allowedtypes'] = 'Allowed source types';
 $string['allowedtypes_desc'] = 'File types that teachers may upload as source material.';
 $string['budgetexceeded'] = 'The AI cost limit of the {$a->scope} was reached (limit {$a->limit} USD).';
+$string['budgetlocktimeout'] = 'Could not obtain the budget lock {$a} in time. Another process is reserving AI spend right now.';
 $string['commandfailed'] = 'The external program {$a} failed.';
 $string['commandtimeout'] = 'The external program {$a} took too long and was stopped.';
 $string['connector_coreai'] = 'Moodle AI subsystem (core_ai)';

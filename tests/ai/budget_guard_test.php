@@ -24,6 +24,8 @@ namespace local_aicoursebuilder\ai;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \local_aicoursebuilder\ai\budget_guard
  * @covers     \local_aicoursebuilder\ai\budget_exceeded_exception
+ * @covers     \local_aicoursebuilder\ai\budget_lock_exception
+ * @covers     \local_aicoursebuilder\ai\fake_lock_factory
  */
 final class budget_guard_test extends \advanced_testcase {
     /** @var int Test user id. */
@@ -187,8 +189,8 @@ final class budget_guard_test extends \advanced_testcase {
     }
 
     /**
-     * Two reservations against the same row cannot both push spentusd + reservedusd over the limit:
-     * the second one's guarded UPDATE re-evaluates against the row the first one already committed.
+     * Two reservations that together exceed the limit: exactly one succeeds, the other is refused,
+     * and the row ends up with exactly the accepted amount reserved (nothing lost, nothing doubled).
      */
     public function test_concurrent_reservations_cannot_both_exceed_limit(): void {
         set_config('userlimitusd', '10', 'local_aicoursebuilder');
@@ -204,6 +206,89 @@ final class budget_guard_test extends \advanced_testcase {
             $this->assertSame(budget_exceeded_exception::SCOPE_USER, $e->scope);
         }
         $this->assertSame(6.0, (float) $this->row($this->userid)->reservedusd);
+    }
+
+    /**
+     * Reserving against a row whose lock is already held by another process fails fast with
+     * budget_lock_exception, instead of racing the read-check-write with whoever holds the lock.
+     *
+     * Real lock factories (Postgres advisory locks, and the like) are scoped to the DB session, so
+     * a single PHPUnit run cannot simulate contention on the real factory: the test and the code
+     * under test share the same connection, and the "second" acquisition would simply reenter. A
+     * fake_lock_factory tracks held resources in PHP memory instead, so hold_externally() genuinely
+     * blocks the guard's own get_lock() call, as a second process would.
+     */
+    public function test_reserve_fails_when_lock_is_already_held(): void {
+        $period = budget_guard::current_period();
+        $resource = "budget_{$this->userid}_{$period}";
+        $lockfactory = new fake_lock_factory();
+        $lockfactory->hold_externally($resource);
+
+        try {
+            (new budget_guard($lockfactory))->reserve($this->jobid, $this->userid, 1.0);
+            $this->fail('Reservation succeeded while the row lock was held elsewhere');
+        } catch (budget_lock_exception $e) {
+            $this->assertSame($resource, $e->resource);
+        }
+
+        // Nothing was reserved: the row was never touched while the lock was unavailable.
+        global $DB;
+        $this->assertFalse($DB->record_exists('local_aicb_budget', ['userid' => $this->userid, 'period' => $period]));
+    }
+
+    /**
+     * The site row's lock is independent from a user row's lock: holding one does not block the
+     * other, but the user row's own reservation is rolled back when the site one then fails.
+     */
+    public function test_user_and_site_locks_are_independent(): void {
+        $period = budget_guard::current_period();
+        $lockfactory = new fake_lock_factory();
+        $lockfactory->hold_externally("budget_0_{$period}");
+
+        try {
+            (new budget_guard($lockfactory))->reserve($this->jobid, $this->userid, 1.0);
+            $this->fail('Reservation succeeded while the site row lock was held elsewhere');
+        } catch (budget_lock_exception $e) {
+            $this->assertSame("budget_0_{$period}", $e->resource);
+        }
+
+        // The user row was reserved (its own lock was free) and then rolled back when the site
+        // reservation failed: it must not be left with a stray reservation.
+        $this->assertSame(0.0, (float) $this->row($this->userid)->reservedusd);
+    }
+
+    /**
+     * The lock is released after a successful reservation: a second reservation against the same
+     * row, using the same fake lock factory, is not blocked by the first one's now-released lock.
+     */
+    public function test_lock_is_released_after_a_successful_reservation(): void {
+        $lockfactory = new fake_lock_factory();
+        $guard = new budget_guard($lockfactory);
+
+        $guard->reserve($this->jobid, $this->userid, 1.0);
+        $guard->reserve($this->jobid, $this->userid, 1.0);
+
+        $this->assertSame(2.0, (float) $this->row($this->userid)->reservedusd);
+    }
+
+    /**
+     * The lock is released even when the reservation is refused for exceeding the limit.
+     */
+    public function test_lock_is_released_after_a_refused_reservation(): void {
+        set_config('userlimitusd', '1', 'local_aicoursebuilder');
+        $lockfactory = new fake_lock_factory();
+        $guard = new budget_guard($lockfactory);
+
+        try {
+            $guard->reserve($this->jobid, $this->userid, 2.0);
+            $this->fail('Reservation over the limit accepted');
+        } catch (budget_exceeded_exception $e) {
+            $this->assertSame(budget_exceeded_exception::SCOPE_USER, $e->scope);
+        }
+
+        // A second attempt (small enough to fit) must not be blocked by a leftover lock.
+        $guard->reserve($this->jobid, $this->userid, 0.5);
+        $this->assertSame(0.5, (float) $this->row($this->userid)->reservedusd);
     }
 
     /**
