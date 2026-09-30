@@ -174,6 +174,65 @@ if ($hassiteconfig) {
         ));
 
         $connectors->add(new admin_setting_heading(
+            'local_aicoursebuilder/parallelismheading',
+            new lang_string('parallelismheading', 'local_aicoursebuilder'),
+            new lang_string('parallelismheading_desc', 'local_aicoursebuilder')
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/pool_concurrency',
+            new lang_string('pool_concurrency', 'local_aicoursebuilder'),
+            new lang_string('pool_concurrency_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ai\parallel_executor::DEFAULT_CONCURRENCY,
+            PARAM_INT
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/retry_maxattempts',
+            new lang_string('retry_maxattempts', 'local_aicoursebuilder'),
+            new lang_string('retry_maxattempts_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ai\retrying_connector::DEFAULT_MAXATTEMPTS,
+            PARAM_INT
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/retry_basedelayms',
+            new lang_string('retry_basedelayms', 'local_aicoursebuilder'),
+            new lang_string('retry_basedelayms_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ai\retrying_connector::DEFAULT_BASEDELAYMS,
+            PARAM_INT
+        ));
+
+        $connectors->add(new admin_setting_heading(
+            'local_aicoursebuilder/pricingheading',
+            new lang_string('pricingheading', 'local_aicoursebuilder'),
+            new lang_string('pricingheading_desc', 'local_aicoursebuilder')
+        ));
+        foreach (\local_aicoursebuilder\ai\router::CONNECTORS as $name) {
+            $connectors->add(new admin_setting_configtext(
+                "local_aicoursebuilder/token_estimator_charsperfactor_{$name}",
+                new lang_string('token_estimator_charsperfactor', 'local_aicoursebuilder', $choices[$name]),
+                new lang_string('token_estimator_charsperfactor_desc', 'local_aicoursebuilder'),
+                \local_aicoursebuilder\ai\deepseek_connector::DEFAULT_CHARS_PER_TOKEN,
+                PARAM_FLOAT
+            ));
+            $connectors->add(new \local_aicoursebuilder\ai\admin_setting_pricing(
+                "local_aicoursebuilder/pricing_{$name}",
+                new lang_string('pricing_json', 'local_aicoursebuilder', $choices[$name]),
+                new lang_string('pricing_json_desc', 'local_aicoursebuilder', json_encode(
+                    \local_aicoursebuilder\ai\pricing::DEFAULT_PRICES[$name] ?? new \stdClass(),
+                    JSON_PRETTY_PRINT
+                )),
+                '',
+                PARAM_RAW
+            ));
+            $connectors->add(new \local_aicoursebuilder\ai\admin_setting_pricing(
+                "local_aicoursebuilder/peakwindows_{$name}",
+                new lang_string('peakwindows_json', 'local_aicoursebuilder', $choices[$name]),
+                new lang_string('peakwindows_json_desc', 'local_aicoursebuilder'),
+                '',
+                PARAM_RAW
+            ));
+        }
+
+        $connectors->add(new admin_setting_heading(
             'local_aicoursebuilder/routesheading',
             new lang_string('routesheading', 'local_aicoursebuilder'),
             new lang_string('routesheading_desc', 'local_aicoursebuilder')
