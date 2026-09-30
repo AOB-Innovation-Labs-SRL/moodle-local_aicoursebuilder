@@ -1,0 +1,96 @@
+{
+  "id": "s1",
+  "activities": [
+    {
+      "id": "s1.label1",
+      "type": "label",
+      "name": "Bun venit",
+      "content": {
+        "text": "<p>Bine ați venit! Parcurgeți materialele în ordinea de mai jos.</p>"
+      }
+    },
+    {
+      "id": "s1.page1",
+      "type": "page",
+      "name": "Ce este energia regenerabilă",
+      "intro": "<p>Definiții și exemple.</p>",
+      "content": {
+        "text": "<p>Energia regenerabilă provine din surse care se refac natural: soare, vânt, apă, biomasă și căldura Pământului.</p>"
+      },
+      "completion": {
+        "mode": "auto",
+        "view": true
+      },
+      "source_refs": [
+        {
+          "source": "src1",
+          "chunk": 0,
+          "page": 1
+        }
+      ]
+    },
+    {
+      "id": "s1.book1",
+      "type": "book",
+      "name": "Ghidul surselor regenerabile",
+      "content": {
+        "chapters": [
+          {
+            "title": "Energia solară",
+            "content": "<p>Panourile fotovoltaice transformă lumina în electricitate.</p>"
+          },
+          {
+            "title": "Celule fotovoltaice",
+            "content": "<p>O celulă produce o tensiune mică; celulele se leagă în module.</p>",
+            "subchapter": true
+          },
+          {
+            "title": "Energia eoliană",
+            "content": "<p>Turbinele eoliene transformă mișcarea aerului în electricitate.</p>"
+          }
+        ]
+      },
+      "completion": {
+        "mode": "auto",
+        "view": true
+      },
+      "source_refs": [
+        {
+          "source": "src1",
+          "chunk": 1,
+          "page": 3
+        }
+      ]
+    },
+    {
+      "id": "s1.url1",
+      "type": "url",
+      "name": "Articol de referință",
+      "content": {
+        "externalurl": "https://ro.wikipedia.org/wiki/Energie_regenerabil%C4%83"
+      },
+      "completion": {
+        "mode": "manual"
+      },
+      "source_refs": [
+        {
+          "source": "src1",
+          "chunk": 2,
+          "page": 5
+        }
+      ]
+    },
+    {
+      "id": "s1.resource1",
+      "type": "resource",
+      "name": "Material de curs (PDF)",
+      "content": {
+        "source": "src1"
+      },
+      "completion": {
+        "mode": "auto",
+        "view": true
+      }
+    }
+  ]
+}

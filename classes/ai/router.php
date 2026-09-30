@@ -34,6 +34,9 @@ class router {
     /** @var string[] Connectors an administrator can choose. */
     public const CONNECTORS = [deepseek_connector::NAME, coreai_connector::NAME];
 
+    /** @var connector|null Connector every fake route answers with, set by tests only. */
+    protected static ?connector $testconnector = null;
+
     /**
      * Returns the connector of a step, configured with the model of its route.
      *
@@ -73,11 +76,31 @@ class router {
      */
     public function raw_connector(string $step): connector {
         ['connector' => $name, 'model' => $model] = $this->get_route($step);
+        if ($name === fake_connector::NAME && self::$testconnector !== null) {
+            return self::$testconnector;
+        }
         return match ($name) {
             deepseek_connector::NAME => new deepseek_connector($model),
             coreai_connector::NAME => new coreai_connector(),
             fake_connector::NAME => new fake_connector(),
         };
+    }
+
+    /**
+     * Makes every fake route answer with one given connector, so a test can programme it.
+     *
+     * The router builds a connector per call, which is right in production and useless in a test
+     * that has to queue answers or count calls. Only ever honoured under PHPUnit and Behat, and
+     * only for the fake route, so no real route can be redirected this way.
+     *
+     * @param connector|null $connector The connector every fake route returns, null to stop.
+     * @throws \coding_exception When called outside a test run.
+     */
+    public static function set_test_connector(?connector $connector): void {
+        if (!self::is_test_run()) {
+            throw new \coding_exception('The test connector can only be set in a test run');
+        }
+        self::$testconnector = $connector;
     }
 
     /**

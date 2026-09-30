@@ -1,0 +1,33 @@
+{
+  "id": "s2",
+  "activities": [
+    {
+      "id": "s2.label1",
+      "type": "label",
+      "name": "Surse de energie în practică",
+      "content": {
+        "text": "<p>Materialele acestei secțiuni.</p>"
+      }
+    },
+    {
+      "id": "s2.page1",
+      "type": "page",
+      "name": "Surse de energie în practică",
+      "intro": "<p>Rezumatul secțiunii.</p>",
+      "content": {
+        "text": "<p>Conținut generat din sursele încărcate.</p>"
+      },
+      "completion": {
+        "mode": "auto",
+        "view": true
+      },
+      "source_refs": [
+        {
+          "source": "src1",
+          "chunk": 0,
+          "page": 1
+        }
+      ]
+    }
+  ]
+}
