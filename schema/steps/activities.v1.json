@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local_aicoursebuilder/steps/activities.v1",
+  "title": "Activities step output (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "activities"],
+  "properties": {
+    "id": {
+      "oneOf": [
+        {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/sectionid"},
+        {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/subsectionid"}
+      ]
+    },
+    "activities": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/activity"},
+          {"properties": {"type": {"enum": ["lesson", "assign", "forum", "glossary", "wiki", "choice", "feedback"]}}}
+        ]
+      }
+    }
+  }
+}

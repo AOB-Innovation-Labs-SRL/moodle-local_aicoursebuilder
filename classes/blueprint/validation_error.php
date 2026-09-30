@@ -46,6 +46,9 @@ final class validation_error {
     /** @var string A text is longer than the Moodle column that will hold it. */
     public const CODE_MAX_LENGTH = 'max_length';
 
+    /** @var string A question gap marker or an activity option is not usable in Moodle. */
+    public const CODE_MOODLE_LIMIT = 'moodle_limit';
+
     /** @var string The output is not the JSON object the step asked for. */
     public const CODE_NOT_JSON = 'not_json';
 
@@ -58,6 +61,7 @@ final class validation_error {
         self::CODE_FRACTION_SUM,
         self::CODE_URL_NOT_IN_SOURCES,
         self::CODE_MAX_LENGTH,
+        self::CODE_MOODLE_LIMIT,
     ];
 
     /**

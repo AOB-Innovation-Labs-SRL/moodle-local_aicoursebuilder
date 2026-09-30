@@ -89,10 +89,14 @@ class validator {
         $errors = $this->validate_against($fragment, $this->schemas->step_uri($step));
 
         // Ids must already be unique inside the fragment, and URLs must already come from a source.
-        $errors = array_merge($errors, $this->duplicate_id_errors($this->collect_ids($fragment)));
-        foreach ($this->walk_activities($fragment) as $path => $activity) {
+        $semantic = $step === 'questions' && isset($fragment['quiz'])
+            ? ['activities' => [$fragment['quiz']]]
+            : $fragment;
+        $errors = array_merge($errors, $this->duplicate_id_errors($this->collect_ids($semantic)));
+        foreach ($this->walk_activities($semantic) as $path => $activity) {
             $errors = array_merge($errors, $this->url_errors($activity, $path, $sourcetexts));
             $errors = array_merge($errors, $this->fraction_errors($activity, $path));
+            $errors = array_merge($errors, $this->moodle_content_errors($activity, $path));
         }
         return $errors;
     }
@@ -139,6 +143,7 @@ class validator {
         foreach ($this->walk_activities($blueprint) as $path => $activity) {
             $errors = array_merge($errors, $this->url_errors($activity, $path, $sourcetexts));
             $errors = array_merge($errors, $this->fraction_errors($activity, $path));
+            $errors = array_merge($errors, $this->moodle_content_errors($activity, $path));
         }
         return $errors;
     }
@@ -433,6 +438,75 @@ class validator {
                         validation_error::CODE_FRACTION_SUM,
                         'A truefalse question needs exactly one of its two answers to have fraction 1, found '
                             . count($full) . '.',
+                    );
+                }
+            }
+        }
+        return $errors;
+    }
+
+    /**
+     * Checks Moodle limits and relations that the blueprint schema cannot express.
+     *
+     * @param array $activity Activity to check.
+     * @param string $path JSON Pointer of the activity.
+     * @return validation_error[]
+     */
+    protected function moodle_content_errors(array $activity, string $path): array {
+        $errors = [];
+        $type = $activity['type'] ?? '';
+        $content = $activity['content'] ?? [];
+        if (!is_array($content)) {
+            return [];
+        }
+        if ($type === 'feedback') {
+            foreach ($content['items'] ?? [] as $index => $item) {
+                if (!is_array($item)) {
+                    continue;
+                }
+                if (($item['type'] ?? '') === 'numeric' && isset($item['min'], $item['max'])
+                    && $item['min'] > $item['max']) {
+                    $errors[] = new validation_error(
+                        "{$path}/content/items/{$index}",
+                        validation_error::CODE_MOODLE_LIMIT,
+                        'A numeric feedback item needs min less than or equal to max.',
+                    );
+                }
+            }
+        }
+        if ($type === 'lesson') {
+            $pageids = array_column($content['pages'] ?? [], 'id');
+            foreach ($content['pages'] ?? [] as $pageindex => $page) {
+                foreach ($page['answers'] ?? [] as $answerindex => $answer) {
+                    $jump = $answer['jumpto'] ?? '';
+                    if ($jump !== '' && !in_array($jump, ['next', 'end', 'this'], true)
+                        && !in_array($jump, $pageids, true)) {
+                        $errors[] = new validation_error(
+                            "{$path}/content/pages/{$pageindex}/answers/{$answerindex}/jumpto",
+                            validation_error::CODE_BROKEN_REF,
+                            'The lesson jump must name a page in this lesson.',
+                        );
+                    }
+                }
+            }
+        }
+        if ($type === 'quiz') {
+            foreach ($content['questions'] ?? [] as $index => $question) {
+                if (!is_array($question) || !in_array($question['qtype'] ?? '', ['gapselect', 'ddwtos'], true)) {
+                    continue;
+                }
+                $text = $question['questiontext'] ?? '';
+                preg_match_all('/\[\[([0-9]+)\]\]/', is_string($text) ? $text : '', $matches);
+                $numbers = array_map('intval', $matches[1]);
+                $unique = array_values(array_unique($numbers));
+                sort($unique);
+                $expected = range(1, count($unique));
+                if ($numbers === [] || count($numbers) !== count($unique) || $unique !== $expected
+                    || max($numbers) > count($question['choices'] ?? [])) {
+                    $errors[] = new validation_error(
+                        "{$path}/content/questions/{$index}/questiontext",
+                        validation_error::CODE_MOODLE_LIMIT,
+                        'Gap markers must be [[1]], [[2]], and so on, once each, and refer to existing choices.',
                     );
                 }
             }

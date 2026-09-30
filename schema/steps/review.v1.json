@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local_aicoursebuilder/steps/review.v1",
+  "title": "Critic review output (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "issues"],
+  "properties": {
+    "verdict": {"enum": ["approve", "revise"]},
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["node", "severity", "message"],
+        "properties": {
+          "node": {"type": "string", "minLength": 1},
+          "severity": {"enum": ["minor", "major", "critical"]},
+          "message": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}
