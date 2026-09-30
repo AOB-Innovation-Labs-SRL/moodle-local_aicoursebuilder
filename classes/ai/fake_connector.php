@@ -26,14 +26,13 @@ namespace local_aicoursebuilder\ai;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class fake_connector implements connector {
+    use token_estimator;
+
     /** @var string Connector name. */
     public const NAME = 'fake';
 
     /** @var string Model name reported in results. */
     public const MODEL = 'fake';
-
-    /** @var float Characters per token, heuristic for Romanian (spec 3.3). */
-    public const CHARS_PER_TOKEN = 3.5;
 
     /** @var string Directory holding the fixture files. */
     protected string $fixturedir;
@@ -93,15 +92,5 @@ class fake_connector implements connector {
      */
     public function estimate_cost(request $request): float {
         return 0.0;
-    }
-
-    /**
-     * Estimates tokens as characters / 3.5, rounded up.
-     *
-     * @param string $text The text.
-     * @return int
-     */
-    public function count_tokens(string $text): int {
-        return (int) ceil(\core_text::strlen($text) / self::CHARS_PER_TOKEN);
     }
 }
