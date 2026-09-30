@@ -76,9 +76,9 @@ class parallel_executor {
     /**
      * Runs a set of requests, calling $oncomplete once per key as soon as that sub-call is final.
      *
-     * @param array<string|int, request> $requests Requests keyed by an arbitrary sub-call key.
-     * @param callable $oncomplete function(string|int $key, result|connector_exception $outcome): void
-     * @return array<string|int, result|connector_exception> Final outcome per key, same keys as $requests.
+     * @param request[] $requests Requests keyed by an arbitrary sub-call key.
+     * @param callable $oncomplete Called for each key as function(string|int, result|connector_exception): void.
+     * @return array Final outcome (result or connector_exception) per key, same keys as $requests.
      */
     public function run(array $requests, callable $oncomplete): array {
         if ($requests === []) {
@@ -95,9 +95,9 @@ class parallel_executor {
      * Runs the requests one at a time, through retrying_connector.
      *
      * @param connector $logging The logging-wrapped connector.
-     * @param array<string|int, request> $requests Requests keyed by an arbitrary sub-call key.
+     * @param request[] $requests Requests keyed by an arbitrary sub-call key.
      * @param callable $oncomplete Callback, see run().
-     * @return array<string|int, result|connector_exception>
+     * @return array Final outcome (result or connector_exception) per key.
      */
     protected function run_sequential(connector $logging, array $requests, callable $oncomplete): array {
         $retrying = new retrying_connector($logging, $this->clock, $this->get_maxattempts(), $this->get_basedelayms());
@@ -116,10 +116,10 @@ class parallel_executor {
     /**
      * Runs the requests concurrently, in rounds, through the connector's complete_async().
      *
-     * @param async_connector&connector $logging The logging-wrapped connector.
-     * @param array<string|int, request> $requests Requests keyed by an arbitrary sub-call key.
+     * @param connector $logging The logging-wrapped connector, also an async_connector.
+     * @param request[] $requests Requests keyed by an arbitrary sub-call key.
      * @param callable $oncomplete Callback, see run().
-     * @return array<string|int, result|connector_exception>
+     * @return array Final outcome (result or connector_exception) per key.
      */
     protected function run_concurrent(connector $logging, array $requests, callable $oncomplete): array {
         $concurrency = $this->get_concurrency();
