@@ -169,16 +169,20 @@ class pipeline_context {
      * per call rather than per step because a node that repairs itself makes several, and measuring
      * them all against the total as it stood before the node began would overshoot the limit.
      *
-     * @param float $costusd What the call cost, in USD.
+     * A negative amount takes one off again, which is how the orchestrator holds the estimates of a
+     * batch against the job while it is in flight and releases them as the answers are settled.
+     *
+     * @param float $costusd What to add, in USD; negative to take an amount off again.
      */
     public function add_job_cost(float $costusd): void {
         global $DB;
 
-        if ($costusd <= 0.0) {
+        if ($costusd === 0.0) {
             return;
         }
         $job = $DB->get_record('local_aicb_job', ['id' => $this->jobid], 'id, actualcost', MUST_EXIST);
-        $DB->set_field('local_aicb_job', 'actualcost', (float) $job->actualcost + $costusd, ['id' => $this->jobid]);
+        $total = max(0.0, (float) $job->actualcost + $costusd);
+        $DB->set_field('local_aicb_job', 'actualcost', $total, ['id' => $this->jobid]);
     }
 
     /**

@@ -365,7 +365,8 @@ final class orchestrator_test extends \advanced_testcase {
     public function test_the_budget_stops_the_job_and_it_resumes(): void {
         global $DB;
 
-        // Three calls' worth of budget: the brief, the outline and one section.
+        // Three calls' worth of budget: the brief and the outline fit, the batch of four sections
+        // does not, so it is refused before any of it is sent.
         $this->connector->set_cost_per_call(1.0);
         set_config('joblimitusd', '3', 'local_aicoursebuilder');
         $DB->set_field('local_aicb_job', 'estimatedcost', 3, ['id' => $this->jobid]);
@@ -374,14 +375,14 @@ final class orchestrator_test extends \advanced_testcase {
 
         $this->assertSame(pipeline_outcome::REASON_BUDGET, $stopped->reason);
         $this->assertNull($stopped->blueprint, 'no blueprint is assembled from a stopped run');
-        $this->assertSame(3, $this->connector->call_count(), 'it stopped before paying for the fourth call');
+        $this->assertSame(2, $this->connector->call_count(), 'the batch it could not afford was never sent');
 
         $done = $DB->count_records('local_aicb_step', [
             'jobid' => $this->jobid,
             'status' => step_store::STATUS_DONE,
         ]);
-        $this->assertSame(3, $done, 'what was finished stays finished');
-        $this->assertEqualsWithDelta(3.0, $this->totals()['cost'], 0.0001);
+        $this->assertSame(2, $done, 'what was finished stays finished');
+        $this->assertEqualsWithDelta(2.0, $this->totals()['cost'], 0.0001);
 
         // Raise the limit and run again: only the steps that never ran are paid for.
         set_config('joblimitusd', '100', 'local_aicoursebuilder');
@@ -392,7 +393,39 @@ final class orchestrator_test extends \advanced_testcase {
         $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
 
         $this->assertSame(pipeline_outcome::REASON_COMPLETED, $outcome->reason, $outcome->message);
-        $this->assertSame(3, $this->connector->call_count(), 'only the three unfinished sections are paid for');
+        $this->assertSame(
+            4,
+            $this->connector->call_count(),
+            'the four sections are paid for, the brief and the outline are resumed',
+        );
+        $this->assertSame([], $outcome->errors);
+    }
+
+    /**
+     * The first call of every section goes out in one batch, and a resumed section is left out.
+     *
+     * The batch is what makes the sections step worth parallelising; leaving the finished ones out
+     * of it is what stops a resumed job paying for answers it already has.
+     */
+    public function test_the_sections_are_sent_as_one_batch(): void {
+        (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $sent = array_map(
+            fn(request $r) => $r->step,
+            $this->connector->requests(request::STEP_SECTIONS),
+        );
+        $this->assertCount(4, $sent, 'one first call per section and subsection');
+
+        // Forget one section only, and the next run asks for that one alone.
+        global $DB;
+        $DB->delete_records('local_aicb_step', ['jobid' => $this->jobid, 'nodekey' => 's2']);
+        $this->connector->reset_counts();
+        $this->queue_sections(['s2']);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame(1, $this->connector->call_count(), 'only the forgotten section is asked for again');
+        $this->assertSame(pipeline_outcome::REASON_COMPLETED, $outcome->reason, $outcome->message);
         $this->assertSame([], $outcome->errors);
     }
 

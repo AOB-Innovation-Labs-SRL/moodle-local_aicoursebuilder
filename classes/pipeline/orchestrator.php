@@ -17,6 +17,8 @@
 namespace local_aicoursebuilder\pipeline;
 
 use local_aicoursebuilder\ai\budget_exceeded_exception;
+use local_aicoursebuilder\ai\parallel_executor;
+use local_aicoursebuilder\ai\result;
 
 /**
  * Runs the generation pipeline: brief, then outline, then the sections (spec 3.6).
@@ -25,6 +27,9 @@ use local_aicoursebuilder\ai\budget_exceeded_exception;
  * and pays only for what is left. Stopping happens in one of two ways, and both leave the work done
  * so far intact: a budget limit, which stops the pipeline between sub-calls, and a step that could
  * not be produced at all.
+ *
+ * The sections are independent of one another, so their first calls go out as one concurrent batch;
+ * everything after the first answer, the checking, the repairs and the persistence, stays per node.
  *
  * A section that cannot be written does not stop anything. It is kept as a node marked for a human
  * to complete, and the rest of the course is built around it.
@@ -110,15 +115,102 @@ class orchestrator {
      */
     protected function run_sections(array $brief, array $outline): array {
         $step = new step_sections($this->context);
-        $results = [];
-
+        $inputs = [];
         foreach ($this->containers($outline) as $id => $container) {
-            $results[$id] = $step->run(
-                ['brief' => $brief, 'outline' => $outline, 'section' => $container],
-                $id,
-            );
+            $inputs[$id] = ['brief' => $brief, 'outline' => $outline, 'section' => $container];
+        }
+        if ($inputs === []) {
+            return [];
+        }
+
+        $answers = $this->first_answers($step, $inputs);
+
+        $results = [];
+        foreach ($inputs as $id => $input) {
+            // A sub-call whose first answer never arrived is run again on its own, so it still gets
+            // its repair attempts and its placeholder rather than being dropped for a network fault.
+            $results[$id] = $step->run($input, $id, $answers[$id] ?? null);
         }
         return $results;
+    }
+
+    /**
+     * Sends the first call of every section at once and returns the answers that arrived.
+     *
+     * The sections of a course are independent, so their first calls are sent concurrently rather
+     * than one after another (spec 3.8). Only the first call of each is batched: what follows it,
+     * the validation, the repairs and the persistence, is per node and stays in the step.
+     *
+     * A section already finished by an earlier run is left out of the batch entirely, so resuming a
+     * job does not pay for answers it already has.
+     *
+     * @param step_sections $step The step the requests belong to.
+     * @param array<string, array> $inputs Input per section id.
+     * @return array<string, result> Answer per section id, for those that arrived.
+     * @throws budget_exceeded_exception When a limit stops the batch before it is sent.
+     */
+    protected function first_answers(step_sections $step, array $inputs): array {
+        $requests = [];
+        $reservations = [];
+        foreach ($inputs as $id => $input) {
+            if ($step->has_finished($input, $id)) {
+                continue;
+            }
+            $requests[$id] = $step->request_for($input, $id);
+        }
+        if ($requests === []) {
+            return [];
+        }
+
+        $route = $this->context->router->get_route($step->get_step());
+        $connector = $this->context->router->raw_connector($step->get_step());
+
+        // Every sub-call of the batch is reserved before any of it is sent, so a batch that cannot
+        // be afforded stops the job here rather than halfway through its own answers.
+        //
+        // The job's own limit has no reservation row of its own: budget_guard checks it against
+        // what the job has already spent. That is enough when calls are made one at a time, but a
+        // batch would reserve every sub-call against the same starting total and sail past the
+        // limit, so what this batch has reserved so far is added to the job as it goes and taken
+        // off again once each answer is settled at its real cost.
+        try {
+            foreach ($requests as $id => $request) {
+                $estimate = $connector->estimate_cost($request);
+                $reservations[$id] = $this->context->budget->reserve(
+                    $this->context->jobid,
+                    $this->context->userid,
+                    $estimate,
+                );
+                $this->context->add_job_cost($estimate);
+                $reservations[$id]['jobestimate'] = $estimate;
+            }
+        } catch (budget_exceeded_exception $e) {
+            foreach ($reservations as $reservation) {
+                $this->context->budget->release($reservation);
+                $this->context->add_job_cost(-$reservation['jobestimate']);
+            }
+            throw $e;
+        }
+
+        $executor = new parallel_executor($connector, $route['connector']);
+        $outcomes = $executor->run($requests, fn() => null);
+
+        $answers = [];
+        foreach ($outcomes as $id => $outcome) {
+            // The estimate this sub-call was holding against the job comes off either way; a real
+            // answer then puts its actual cost on in its place.
+            $this->context->add_job_cost(-$reservations[$id]['jobestimate']);
+
+            if ($outcome instanceof result) {
+                // Settled and charged here, because this is where the call was actually made.
+                $this->context->budget->settle($reservations[$id], $outcome->cost);
+                $this->context->add_job_cost($outcome->cost);
+                $answers[$id] = $outcome;
+            } else {
+                $this->context->budget->release($reservations[$id]);
+            }
+        }
+        return $answers;
     }
 
     /**

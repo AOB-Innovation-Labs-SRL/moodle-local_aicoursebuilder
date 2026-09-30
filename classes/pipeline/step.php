@@ -87,18 +87,15 @@ abstract class step {
      *
      * @param array $input Everything the step needs, which also decides its hash.
      * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @param result|null $first First answer, when a caller already fetched it in a batch and has
+     *                           reserved and settled its cost; null to call for it here.
      * @return step_result
      * @throws budget_exceeded_exception When a limit stops the call before it is sent.
      */
-    public function run(array $input, string $nodekey = ''): step_result {
+    public function run(array $input, string $nodekey = '', ?result $first = null): step_result {
         $step = $this->get_step();
         $route = $this->context->router->get_route($step);
-        $hashcontext = [
-            'promptversion' => $this->context->promptversion,
-            'connector' => $route['connector'],
-            'model' => $route['model'],
-            'schemaversion' => $this->context->get_schemaversion(),
-        ];
+        $hashcontext = $this->hash_context($route);
         $hash = step_store::hash($this->context->jobid, $step, $nodekey, $input, $hashcontext);
 
         $done = $this->context->steps->find_output($this->context->jobid, $hash);
@@ -112,7 +109,13 @@ abstract class step {
         // its first call and a repair, still records what the calls already made really cost.
         $spend = new spend();
         try {
-            $result = $this->generate($input, $nodekey, $spend);
+            if ($first !== null) {
+                // The first answer was fetched in a batch, and was reserved and settled there.
+                $spend->add($first);
+                $result = $this->finish_node($first->content, $input, $nodekey, $spend);
+            } else {
+                $result = $this->generate($input, $nodekey, $spend);
+            }
         } catch (budget_exceeded_exception $e) {
             // The job stops here, but the row must not stay marked running, or a resume would
             // treat this step as one that was never attempted and lose its attempt count.
@@ -132,6 +135,53 @@ abstract class step {
     }
 
     /**
+     * Tells whether a step or sub-call already finished in an earlier run of this job.
+     *
+     * Lets a caller leave the finished ones out of a batch, so resuming a job does not pay for
+     * answers it already has.
+     *
+     * @param array $input Everything the step needs, which also decides its hash.
+     * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @return bool
+     */
+    public function has_finished(array $input, string $nodekey = ''): bool {
+        return $this->context->steps->find_output($this->context->jobid, $this->hash_of($input, $nodekey)) !== null;
+    }
+
+    /**
+     * Returns the hash identifying this step or sub-call of the job.
+     *
+     * @param array $input Everything the step needs.
+     * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @return string
+     */
+    protected function hash_of(array $input, string $nodekey): string {
+        $route = $this->context->router->get_route($this->get_step());
+        return step_store::hash(
+            $this->context->jobid,
+            $this->get_step(),
+            $nodekey,
+            $input,
+            $this->hash_context($route),
+        );
+    }
+
+    /**
+     * Returns everything besides the input that decides a step's answer, and so its hash.
+     *
+     * @param array $route The route of this step, as router::get_route() returns it.
+     * @return array
+     */
+    protected function hash_context(array $route): array {
+        return [
+            'promptversion' => $this->context->promptversion,
+            'connector' => $route['connector'],
+            'model' => $route['model'],
+            'schemaversion' => $this->context->get_schemaversion(),
+        ];
+    }
+
+    /**
      * Sends the step's prompt and insists on an answer that validates.
      *
      * @param array $input Everything the step needs.
@@ -143,15 +193,44 @@ abstract class step {
      * @throws connector_exception When the first call fails outright.
      */
     protected function generate(array $input, string $nodekey, spend $spend): step_result {
-        $system = $this->render_prompt($input, $nodekey);
-        $request = $this->build_request($system, $this->user_message($input, $nodekey));
+        $result = $this->call($this->request_for($input, $nodekey), $spend);
+        return $this->finish_node($result->content, $input, $nodekey, $spend);
+    }
 
-        $result = $this->call($request, $spend);
-        $output = json_repair::decode($result->content);
+    /**
+     * Returns the request of this step for one input, so a caller can batch several of them.
+     *
+     * @param array $input Everything the step needs.
+     * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @return request
+     */
+    public function request_for(array $input, string $nodekey = ''): request {
+        return $this->build_request(
+            $this->render_prompt($input, $nodekey),
+            $this->user_message($input, $nodekey),
+        );
+    }
+
+    /**
+     * Takes a node from its first answer to a result: validate, repair, or hand it to a human.
+     *
+     * Split out of generate() so that a caller which already has the first answer, because it sent
+     * a batch of them concurrently, goes through exactly the same checking and repair as one that
+     * called for it here.
+     *
+     * @param string $content The first answer of the node.
+     * @param array $input Everything the step needs.
+     * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @param spend $spend Running total of what this node has cost, the first answer included.
+     * @return step_result
+     * @throws budget_exceeded_exception When a limit stops a repair call before it is sent.
+     */
+    protected function finish_node(string $content, array $input, string $nodekey, spend $spend): step_result {
+        $output = json_repair::decode($content);
         $errors = $this->validate($output, $input, $nodekey);
 
         for ($attempt = 0; $errors !== [] && $attempt < self::MAX_REPAIR_CALLS; $attempt++) {
-            $repaired = $this->repair($output, $result->content, $errors, $spend);
+            $repaired = $this->repair($output, $content, $errors, $spend);
             if ($repaired === null) {
                 break;
             }
