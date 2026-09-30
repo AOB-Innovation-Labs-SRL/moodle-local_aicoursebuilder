@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local_aicoursebuilder/steps/brief.v1",
+  "title": "Brief step output (v1)",
+  "description": "Output of pipeline step 1 (spec 3.6). The brief is the confirmed intent of the course, not part of the blueprint, so it has no counterpart in blueprint.v1.json and defines its own shapes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "audience", "level", "duration_minutes", "language", "objectives"],
+  "properties": {
+    "target": {
+      "description": "Whether the job builds a new course or extends an existing one.",
+      "enum": ["newcourse", "existingcourse"]
+    },
+    "audience": {"type": "string", "minLength": 1, "maxLength": 500},
+    "level": {"type": "string", "minLength": 1, "maxLength": 100},
+    "duration_minutes": {"type": "integer", "minimum": 1},
+    "language": {
+      "description": "Language of the course, defaulting to Romanian upstream of this schema.",
+      "type": "string",
+      "pattern": "^[a-z]{2}(_[A-Z]{2})?$"
+    },
+    "tone": {"type": "string", "maxLength": 200},
+    "objectives": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "constraints": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}
