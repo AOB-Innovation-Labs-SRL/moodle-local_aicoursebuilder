@@ -18,7 +18,8 @@
  * Class loader for the libraries in thirdparty/ (the plugin has no Composer vendor directory).
  *
  * Load it with require_once before using Smalot\PdfParser, PhpOffice\PhpWord, PhpOffice\PhpPresentation,
- * PhpOffice\Common or PhpOffice\Math. PhpOffice\PhpSpreadsheet is not here: Moodle core loads it.
+ * PhpOffice\Common, PhpOffice\Math, Opis\JsonSchema, Opis\String or Opis\Uri.
+ * PhpOffice\PhpSpreadsheet is not here: Moodle core loads it.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -35,6 +36,9 @@ spl_autoload_register(function (string $class): void {
         'PhpOffice\\Math\\' => __DIR__ . '/phpoffice-math/src/Math/',
         'PhpOffice\\PhpPresentation\\' => __DIR__ . '/phppresentation/src/PhpPresentation/',
         'PhpOffice\\Common\\' => __DIR__ . '/phpoffice-common/src/Common/',
+        'Opis\\JsonSchema\\' => __DIR__ . '/opis-json-schema/src/',
+        'Opis\\String\\' => __DIR__ . '/opis-string/src/',
+        'Opis\\Uri\\' => __DIR__ . '/opis-uri/src/',
     ];
 
     foreach ($map as $prefix => $directory) {

@@ -49,6 +49,42 @@
     </copyrights>
   </library>
   <library>
+    <location>thirdparty/opis-json-schema</location>
+    <name>opis/json-schema</name>
+    <description>Validates the blueprint and the per-step fragments against the JSON Schema 2020-12 documents in schema/.</description>
+    <version>2.6.0</version>
+    <license>Apache</license>
+    <licenseversion>2.0</licenseversion>
+    <repository>https://github.com/opis/json-schema</repository>
+    <copyrights>
+      <copyright>Opis Project</copyright>
+    </copyrights>
+  </library>
+  <library>
+    <location>thirdparty/opis-string</location>
+    <name>opis/string</name>
+    <description>Multibyte string handling required by opis/json-schema and opis/uri.</description>
+    <version>2.1.0</version>
+    <license>Apache</license>
+    <licenseversion>2.0</licenseversion>
+    <repository>https://github.com/opis/string</repository>
+    <copyrights>
+      <copyright>Opis Project</copyright>
+    </copyrights>
+  </library>
+  <library>
+    <location>thirdparty/opis-uri</location>
+    <name>opis/uri</name>
+    <description>URI and URI template parsing required by opis/json-schema to resolve schema references.</description>
+    <version>1.1.0</version>
+    <license>Apache</license>
+    <licenseversion>2.0</licenseversion>
+    <repository>https://github.com/opis/uri</repository>
+    <copyrights>
+      <copyright>Opis Project</copyright>
+    </copyrights>
+  </library>
+  <library>
     <location>thirdparty/phpoffice-math</location>
     <name>phpoffice/math</name>
     <description>Formula support required by PhpWord.</description>
