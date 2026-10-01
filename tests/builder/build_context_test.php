@@ -147,4 +147,48 @@ final class build_context_test extends \advanced_testcase {
         $this->expectException(\coding_exception::class);
         new build_result('s1', 'done');
     }
+
+    /**
+     * In a new course the context starts without a course, and the course node fixes it exactly once.
+     */
+    public function test_course_is_set_once(): void {
+        $this->resetAfterTest();
+        $context = new build_context();
+
+        $this->assertFalse($context->has_course());
+        $context->set_course((object) ['id' => 42]);
+        $this->assertTrue($context->has_course());
+        $this->assertSame(42, (int) $context->get_course()->id);
+
+        $this->expectException(\coding_exception::class);
+        $context->set_course((object) ['id' => 43]);
+    }
+
+    /**
+     * Reading the course before the course node has built it is a programming error, not a null.
+     */
+    public function test_course_before_the_course_node(): void {
+        $this->resetAfterTest();
+        $context = new build_context();
+
+        $this->assertNull($context->get_qbankcontext());
+        $this->expectException(\coding_exception::class);
+        $context->get_course();
+    }
+
+    /**
+     * The question bank context is set once too, the same way as the course.
+     */
+    public function test_qbankcontext_is_set_once(): void {
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course();
+        $context = new build_context($course);
+        $qbankcontext = \context_course::instance($course->id);
+
+        $context->set_qbankcontext($qbankcontext);
+        $this->assertSame($qbankcontext, $context->get_qbankcontext());
+
+        $this->expectException(\coding_exception::class);
+        $context->set_qbankcontext($qbankcontext);
+    }
 }
