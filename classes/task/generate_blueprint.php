@@ -20,7 +20,6 @@ use local_aicoursebuilder\ai\budget_guard;
 use local_aicoursebuilder\ai\router;
 use local_aicoursebuilder\blueprint\schema_store;
 use local_aicoursebuilder\blueprint\validator;
-use local_aicoursebuilder\ingest\source_manager;
 use local_aicoursebuilder\job_manager;
 use local_aicoursebuilder\pipeline\orchestrator;
 use local_aicoursebuilder\pipeline\pipeline_context;
@@ -126,22 +125,7 @@ class generate_blueprint extends \core\task\adhoc_task {
      * @return pipeline_context
      */
     private function make_context(\stdClass $job): pipeline_context {
-        global $DB;
-
-        $manager = new source_manager();
-        $sourcetexts = [];
-        $digests = [];
-        $sources = $DB->get_records('local_aicb_source', ['jobid' => $job->id, 'status' => ingest_sources::STATUS_DIGESTED], 'id');
-        foreach ($sources as $source) {
-            $key = 'src' . $source->id;
-            $file = $manager->get_extracted_file((int) $source->id);
-            $digest = json_decode((string) $source->digest, true);
-            if (!$file || !is_array($digest)) {
-                continue;
-            }
-            $sourcetexts[$key] = $file->get_content();
-            $digests[$key] = $digest;
-        }
+        $sources = (new job_manager())->load_sources((int) $job->id);
 
         $schemas = new schema_store();
         return new pipeline_context(
@@ -153,8 +137,8 @@ class generate_blueprint extends \core\task\adhoc_task {
             steps: new step_store(),
             validator: new validator($schemas),
             schemas: $schemas,
-            sourcetexts: $sourcetexts,
-            digests: $digests,
+            sourcetexts: $sources['texts'],
+            digests: $sources['digests'],
             contextid: job_manager::get_context($job)->id,
         );
     }
@@ -270,7 +254,9 @@ class generate_blueprint extends \core\task\adhoc_task {
         if (!$user) {
             return;
         }
-        $url = new \moodle_url('/local/aicoursebuilder/wizard.php', ['jobid' => $job->id]);
+        // A finished job leads to the editor, a failed one to the page that says what happened.
+        $page = $provider === 'jobfinished' ? 'review' : 'job';
+        $url = new \moodle_url('/local/aicoursebuilder/' . $page . '.php', ['id' => $job->id]);
         $a = (object) ['url' => $url->out(false), 'error' => (string) $job->error];
         $subject = get_string('message:' . $provider . '_subject', 'local_aicoursebuilder');
         $body = get_string('message:' . $provider . '_body', 'local_aicoursebuilder', $a);

@@ -61,13 +61,4 @@ abstract class job_api extends external_api {
     public static function get_job_context(\stdClass $job): \context {
         return \local_aicoursebuilder\job_manager::get_context($job);
     }
-
-    /**
-     * Stops a function whose implementation belongs to a later task.
-     *
-     * @return never
-     */
-    protected static function not_implemented(): never {
-        throw new \moodle_exception('notimplemented', 'local_aicoursebuilder');
-    }
 }

@@ -142,16 +142,17 @@ final class external_functions_test extends \core_external\tests\externallib_tes
     }
 
     /**
-     * Asserts that a call stops at the notimplemented exception, after the access checks.
+     * Asserts that a call is refused with a given error of the plugin.
      *
+     * @param string $errorcode The error code.
      * @param callable $call The call.
      */
-    private function assert_not_implemented(callable $call): void {
+    private function assert_refused(string $errorcode, callable $call): void {
         try {
             $call();
-            $this->fail('Expected notimplemented');
+            $this->fail("Expected {$errorcode}");
         } catch (\moodle_exception $e) {
-            $this->assertSame('notimplemented', $e->errorcode);
+            $this->assertSame($errorcode, $e->errorcode);
             $this->assertSame('local_aicoursebuilder', $e->module);
         }
     }
@@ -169,9 +170,10 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $hash = self::HASH;
         $this->assertSame($jobid, get_job_status::execute($jobid)['jobid']);
         $this->assertArrayHasKey('estimatedcost', estimate_cost::execute($jobid));
-        $this->assert_not_implemented(fn() => get_blueprint::execute($jobid, 0));
-        $this->assert_not_implemented(fn() => save_blueprint::execute($jobid, '{"version": "1.0"}', 1));
-        $this->assert_not_implemented(fn() => approve_blueprint::execute($jobid, 1, $hash));
+        // The access checks pass; what stops the calls is that the job has no blueprint to read or to review yet.
+        $this->assert_refused('blueprintnotfound', fn() => get_blueprint::execute($jobid, 0));
+        $this->assert_refused('blueprintnotreviewable', fn() => save_blueprint::execute($jobid, '{"version": "1.0"}', 1));
+        $this->assert_refused('blueprintnotreviewable', fn() => approve_blueprint::execute($jobid, 1, $hash));
         try {
             regenerate_node::execute($jobid, 's1.quiz1', '');
             $this->fail('Expected the missing blueprint error');
@@ -242,7 +244,7 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         // Reading passes the access checks.
         $this->assertSame($jobid, get_job_status::execute($jobid)['jobid']);
         $this->assertArrayHasKey('estimatedcost', estimate_cost::execute($jobid));
-        $this->assert_not_implemented(fn() => get_blueprint::execute($jobid, 0));
+        $this->assert_refused('blueprintnotfound', fn() => get_blueprint::execute($jobid, 0));
 
         // Changing is for the owner only.
         $hash = self::HASH;
@@ -423,5 +425,69 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $this->assertSame(['jobid' => $jobid, 'status' => 'queued'], $started);
         $this->assertSame('queued', $DB->get_field('local_aicb_job', 'status', ['id' => $jobid]));
         $this->assertCount(1, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\generate_blueprint::class));
+    }
+
+    /**
+     * The teacher reads the blueprint, edits it, saves it and approves it through the web services.
+     */
+    public function test_blueprint_round_trip_through_the_web_services(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $jobid = $this->create_job_record($teacher->id, $course->id);
+        $DB->set_field('local_aicb_job', 'status', 'review', ['id' => $jobid]);
+        $golden = file_get_contents(__DIR__ . '/../fixtures/blueprint_golden.json');
+        $DB->insert_record('local_aicb_blueprint', (object) [
+            'jobid' => $jobid,
+            'version' => 1,
+            'content' => $golden,
+            'contenthash' => hash('sha256', $golden),
+            'usermodified' => $teacher->id,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $this->setUser($teacher);
+
+        $read = external_api::clean_returnvalue(get_blueprint::execute_returns(), get_blueprint::execute($jobid, 0));
+        $this->assertSame(1, $read['version']);
+        $this->assertSame('draft', $read['status']);
+        $this->assertSame(hash('sha256', $golden), $read['contenthash']);
+
+        $edited = json_decode($read['blueprint'], true);
+        $edited['sections'][0]['title'] = 'Titlu nou';
+        $saved = external_api::clean_returnvalue(
+            save_blueprint::execute_returns(),
+            save_blueprint::execute($jobid, json_encode($edited), 1)
+        );
+        $this->assertSame(2, $saved['version']);
+        $this->assertTrue($saved['valid']);
+        $this->assertSame([], $saved['errors']);
+
+        $edited['sections'] = [];
+        $broken = external_api::clean_returnvalue(
+            save_blueprint::execute_returns(),
+            save_blueprint::execute($jobid, json_encode($edited), 2)
+        );
+        $this->assertSame(3, $broken['version']);
+        $this->assertFalse($broken['valid']);
+        $this->assertNotEmpty($broken['errors'][0]['message']);
+
+        $this->assert_refused(
+            'blueprintnotvalid',
+            fn() => approve_blueprint::execute($jobid, 3, $broken['contenthash'])
+        );
+
+        $fixed = json_decode($read['blueprint'], true);
+        $fixed['sections'][0]['title'] = 'Titlu final';
+        $final = save_blueprint::execute($jobid, json_encode($fixed), 3);
+        $approved = external_api::clean_returnvalue(
+            approve_blueprint::execute_returns(),
+            approve_blueprint::execute($jobid, $final['version'], $final['contenthash'])
+        );
+        $this->assertSame(4, $approved['version']);
+        $this->assertSame('approved', $approved['status']);
+        $this->assertSame('approved', get_blueprint::execute($jobid, 4)['status']);
+        $this->assertSame('approved', $DB->get_field('local_aicb_job', 'status', ['id' => $jobid]));
     }
 }
