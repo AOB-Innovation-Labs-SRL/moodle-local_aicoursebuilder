@@ -370,6 +370,38 @@ final class quiz_test extends \advanced_testcase {
     }
 
     /**
+     * Rebuilding one quiz leaves the questions of the other quizzes of the same bank alone.
+     */
+    public function test_rebuilding_one_quiz_spares_the_others(): void {
+        $node = $this->golden_quiz_node();
+        $context = $this->make_context();
+        $builder = new quiz();
+        $builder->build($node, $context);
+
+        $second = $node;
+        $second['id'] = 's1.quiz2';
+        $second['name'] = 'Al doilea test';
+        $secondresult = $builder->build($second, $context);
+        $secondkey = build_key::for_node($this->jobid, 's1.quiz2');
+        $untouched = array_column($this->questions_in_category($secondkey), 'questionid');
+
+        // The first quiz is built again, as a resumed run would: its own questions are replaced.
+        $firstkey = build_key::for_node($this->jobid, 's1.quiz1');
+        $before = array_column($this->questions_in_category($firstkey), 'questionid');
+        $rebuilt = (new quiz())->build($node, $context);
+
+        $this->assertSame(build_result::STATUS_CREATED, $rebuilt->status);
+        $after = array_column($this->questions_in_category($firstkey), 'questionid');
+        $this->assertCount(8, $after);
+        $this->assertSame([], array_intersect($before, $after), 'The first quiz got fresh questions');
+
+        // The second quiz kept its questions, its slots and its module.
+        $this->assertSame($untouched, array_column($this->questions_in_category($secondkey), 'questionid'));
+        $this->assertCount(8, $this->slots_with_questions((int) $secondresult->instanceid, (int) $secondresult->cmid));
+        $this->assertSame(2, $this->quiz_count());
+    }
+
+    /**
      * While the site is still migrating its questions, a bank of our own is used and the admin is warned.
      */
     public function test_incomplete_migration_uses_our_own_bank(): void {

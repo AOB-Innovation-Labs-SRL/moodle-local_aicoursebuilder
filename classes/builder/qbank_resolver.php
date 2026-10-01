@@ -107,8 +107,25 @@ class qbank_resolver {
         }
         return question_bank_helper::create_default_open_instance(
             $course,
-            get_string('qbankname', 'local_aicoursebuilder', $course->shortname),
+            $this->own_bank_name($course),
             question_bank_helper::TYPE_STANDARD,
+        );
+    }
+
+    /**
+     * Returns the name of the question bank this plugin creates in a course.
+     *
+     * get_bank_name_string() is what shortens the name to what the column can hold, which
+     * create_default_open_instance() refuses to do for us.
+     *
+     * @param \stdClass $course The course.
+     * @return string
+     */
+    protected function own_bank_name(\stdClass $course): string {
+        return question_bank_helper::get_bank_name_string(
+            'qbankname',
+            'local_aicoursebuilder',
+            $course->shortname
         );
     }
 
@@ -122,7 +139,7 @@ class qbank_resolver {
         global $DB;
 
         $modinfo = get_fast_modinfo($course);
-        $wantedname = get_string('qbankname', 'local_aicoursebuilder', $course->shortname);
+        $wantedname = $this->own_bank_name($course);
         foreach ($modinfo->get_instances_of('qbank') as $cminfo) {
             if ($DB->get_field('qbank', 'name', ['id' => $cminfo->instance]) === $wantedname) {
                 return $cminfo;
