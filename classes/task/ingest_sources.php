@@ -37,8 +37,8 @@ use local_aicoursebuilder\ingest\source_manager;
  * result is already there (the status of the source, the chunk rows, and for the digest the checkpoint in
  * local_aicb_step), so a repeated or resumed run does not repeat work, and does not pay for an AI call twice.
  * A source that fails is marked failed with its error and is not tried again by this task; it does not stop
- * the others. The job fails only when none of its sources is digested. The job progress is the share of the
- * phases that were done, within the ingest stage.
+ * the others. The job fails only when none of its sources is digested; otherwise the task queues generate_blueprint.
+ * The job progress is the share of the phases that were done, within the ingest stage.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -114,7 +114,10 @@ class ingest_sources extends \core\task\adhoc_task {
             gc_collect_cycles();
         }
 
-        $this->fail_job_without_digest($job);
+        if (!$this->fail_job_without_digest($job)) {
+            // At least one source has a digest: the blueprint is generated from what there is.
+            \core\task\manager::queue_adhoc_task(generate_blueprint::instance((int) $job->id, (int) $job->userid), true);
+        }
     }
 
     /**
@@ -284,12 +287,13 @@ class ingest_sources extends \core\task\adhoc_task {
      * Fails the job when none of its sources is digested, with the reason.
      *
      * @param \stdClass $job The local_aicb_job row.
+     * @return bool True when the job was failed.
      */
-    private function fail_job_without_digest(\stdClass $job): void {
+    private function fail_job_without_digest(\stdClass $job): bool {
         global $DB;
 
         if ($DB->record_exists('local_aicb_source', ['jobid' => $job->id, 'status' => self::STATUS_DIGESTED])) {
-            return;
+            return false;
         }
         // Some text was extracted: the sources failed later, in the chunks or the digest.
         $extracted = $DB->record_exists_select(
@@ -304,6 +308,7 @@ class ingest_sources extends \core\task\adhoc_task {
             'statusmessage' => null,
             'timefinished' => time(),
         ]);
+        return true;
     }
 
     /**

@@ -386,6 +386,33 @@ final class ingest_sources_test extends \advanced_testcase {
     }
 
     /**
+     * When the sources are digested the task queues the generation of the blueprint, once, for the same owner.
+     */
+    public function test_queues_the_generation_when_the_sources_are_digested(): void {
+        $this->add_sources(['notes.txt' => 'Energia regenerabilă provine din surse care se refac natural.']);
+
+        $this->run_task();
+        $this->run_task();
+
+        $this->assertSame('ingesting', $this->reload('local_aicb_job', $this->jobid)->status);
+        $tasks = \core\task\manager::get_adhoc_tasks(generate_blueprint::class);
+        $this->assertCount(1, $tasks);
+        $task = reset($tasks);
+        $this->assertEquals($this->jobid, $task->get_custom_data()->jobid);
+        $this->assertEquals($this->user->id, $task->get_userid());
+    }
+
+    /**
+     * A job that failed has nothing to generate from, so no generation is queued.
+     */
+    public function test_does_not_queue_the_generation_when_the_job_fails(): void {
+        $this->run_task();
+
+        $this->assertSame('failed', $this->reload('local_aicb_job', $this->jobid)->status);
+        $this->assertCount(0, \core\task\manager::get_adhoc_tasks(generate_blueprint::class));
+    }
+
+    /**
      * The task runs as the job owner and has a readable name.
      */
     public function test_task_definition(): void {

@@ -1,0 +1,67 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_aicoursebuilder/wizard_progress
+
+    The progress of a job: a bar, what it is doing and, when it ends, how.
+
+    Context variables required for this template:
+    * percent - Progress, 0 to 100
+    * stage - What the job is doing now, as text
+    * message - The short message of the job
+    * cost - What it has cost so far, formatted, in USD
+    * running - Whether the job is still working
+    * finished - Whether the blueprint is ready
+    * failed - Whether the job stopped for good
+    * error - Why it stopped
+
+    Example context (json):
+    {
+        "percent": 40,
+        "stage": "Generating the course",
+        "message": "Processed 1 of 2 source files.",
+        "cost": "0.0500",
+        "running": true,
+        "finished": false,
+        "failed": false,
+        "error": ""
+    }
+}}
+<div data-region="aicb-progress-body">
+    <h3 class="h5">{{#str}} wizard:progresstitle, local_aicoursebuilder {{/str}}</h3>
+    <div class="progress mb-2" style="height: 1.25rem;">
+        <div class="progress-bar {{#running}}progress-bar-striped progress-bar-animated{{/running}}"
+             role="progressbar" style="width: {{percent}}%;"
+             aria-valuenow="{{percent}}" aria-valuemin="0" aria-valuemax="100">{{percent}}%</div>
+    </div>
+    <p class="mb-1" data-region="aicb-stage">{{stage}}</p>
+    {{#message}}<p class="text-muted mb-1">{{message}}</p>{{/message}}
+    <p class="text-muted">{{#str}} wizard:costsofar, local_aicoursebuilder, {{cost}} {{/str}}</p>
+    {{#finished}}
+        <div class="alert alert-success" role="status" data-region="aicb-finished">
+            {{#str}} wizard:finished, local_aicoursebuilder {{/str}}
+        </div>
+    {{/finished}}
+    {{#failed}}
+        <div class="alert alert-danger" role="alert" data-region="aicb-failed">
+            {{#str}} wizard:failed, local_aicoursebuilder {{/str}} {{error}}
+        </div>
+    {{/failed}}
+    {{#running}}
+        <p class="text-muted">{{#str}} wizard:canclose, local_aicoursebuilder {{/str}}</p>
+    {{/running}}
+</div>

@@ -20,6 +20,7 @@ use core_external\external_function_parameters;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_aicoursebuilder\pipeline\step_store;
 
 /**
  * Web service local_aicoursebuilder_get_job_status.
@@ -41,15 +42,41 @@ class get_job_status extends job_api {
     }
 
     /**
-     * Validates the request; the status read is implemented in a later task.
+     * Returns the state and progress of a job, with the pipeline steps that have run.
      *
      * @param int $jobid Job id.
      * @return array
      */
     public static function execute(int $jobid): array {
+        global $DB;
+
         $params = self::validate_parameters(self::execute_parameters(), ['jobid' => $jobid]);
-        self::validate_job($params['jobid']);
-        self::not_implemented();
+        $job = self::validate_job($params['jobid']);
+
+        $version = $DB->get_field_sql('SELECT MAX(version) FROM {local_aicb_blueprint} WHERE jobid = ?', [$job->id]);
+        $steps = [];
+        foreach ((new step_store())->all_for_job((int) $job->id) as $step) {
+            $steps[] = [
+                'step' => $step->step,
+                'nodekey' => (string) $step->nodekey,
+                'status' => $step->status,
+            ];
+        }
+
+        return [
+            'jobid' => (int) $job->id,
+            'status' => $job->status,
+            'stage' => (string) $job->stage,
+            'progress' => (int) $job->progress,
+            'message' => (string) $job->statusmessage,
+            'courseid' => (int) $job->courseid,
+            'blueprintversion' => (int) $version,
+            'estimatedcost' => (float) $job->estimatedcost,
+            'actualcost' => (float) $job->actualcost,
+            'error' => (string) $job->error,
+            'timemodified' => (int) $job->timemodified,
+            'steps' => $steps,
+        ];
     }
 
     /**

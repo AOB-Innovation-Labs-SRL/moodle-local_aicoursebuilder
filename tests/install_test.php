@@ -67,7 +67,7 @@ final class install_test extends \advanced_testcase {
     }
 
     /**
-     * The seven web services and the two message providers are registered.
+     * The eight web services and the two message providers are registered.
      */
     public function test_services_and_message_providers(): void {
         global $DB;
@@ -78,7 +78,7 @@ final class install_test extends \advanced_testcase {
             ['local_aicoursebuilder']
         );
         $expected = ['create_job', 'get_job_status', 'get_blueprint', 'save_blueprint', 'approve_blueprint',
-            'estimate_cost', 'regenerate_node'];
+            'estimate_cost', 'regenerate_node', 'start_job'];
         $this->assertEqualsCanonicalizing(
             array_map(fn($name) => 'local_aicoursebuilder_' . $name, $expected),
             $functions

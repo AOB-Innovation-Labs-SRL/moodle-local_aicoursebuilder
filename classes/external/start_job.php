@@ -22,13 +22,13 @@ use core_external\external_value;
 use local_aicoursebuilder\job_manager;
 
 /**
- * Web service local_aicoursebuilder_estimate_cost.
+ * Web service local_aicoursebuilder_start_job.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class estimate_cost extends job_api {
+class start_job extends job_api {
     /**
      * Describes the parameters.
      *
@@ -41,25 +41,21 @@ class estimate_cost extends job_api {
     }
 
     /**
-     * Estimates the cost of the job and checks it against the cost limits.
+     * Starts a draft job, after the teacher has seen its estimated cost.
+     *
+     * The job must have been created by the current user, who must have accepted the Moodle AI policy, and its
+     * estimated cost must fit the cost limits. Only the ad-hoc task is queued here, no AI call is made.
      *
      * @param int $jobid Job id.
-     * @return array
+     * @return array The job id and its status.
      */
     public static function execute(int $jobid): array {
         $params = self::validate_parameters(self::execute_parameters(), ['jobid' => $jobid]);
-        $job = self::validate_job($params['jobid']);
+        $job = self::validate_job($params['jobid'], true);
 
-        $estimate = (new job_manager())->estimate($job);
-        return [
-            'estimatedcost' => $estimate['estimatedcost'],
-            'currency' => 'USD',
-            'tokensin' => $estimate['tokensin'],
-            'tokensout' => $estimate['tokensout'],
-            'withinbudget' => $estimate['withinbudget'],
-            'joblimit' => $estimate['joblimit'],
-            'userremaining' => $estimate['userremaining'],
-        ];
+        (new job_manager())->start($job);
+
+        return ['jobid' => (int) $job->id, 'status' => job_manager::STATUS_QUEUED];
     }
 
     /**
@@ -69,13 +65,8 @@ class estimate_cost extends job_api {
      */
     public static function execute_returns(): external_single_structure {
         return new external_single_structure([
-            'estimatedcost' => new external_value(PARAM_FLOAT, 'Estimated cost'),
-            'currency' => new external_value(PARAM_ALPHA, 'Currency code (USD)'),
-            'tokensin' => new external_value(PARAM_INT, 'Estimated input tokens'),
-            'tokensout' => new external_value(PARAM_INT, 'Estimated output tokens'),
-            'withinbudget' => new external_value(PARAM_BOOL, 'Whether the job fits the job and monthly limits'),
-            'joblimit' => new external_value(PARAM_FLOAT, 'Per-job limit, 0 when unlimited'),
-            'userremaining' => new external_value(PARAM_FLOAT, 'Monthly budget left for the user, -1 when unlimited'),
+            'jobid' => new external_value(PARAM_INT, 'Job id'),
+            'status' => new external_value(PARAM_ALPHA, 'Job status'),
         ]);
     }
 }
