@@ -1,0 +1,92 @@
+{
+  "id": "s2",
+  "quiz": {
+    "id": "s2.quiz1",
+    "type": "quiz",
+    "name": "Test s2",
+    "content": {
+      "questions": [
+        {
+          "qtype": "essay",
+          "questiontext": "<p>Explica?i ideea principal?.</p>",
+          "id": "q1001",
+          "name": "?ntrebarea 1 din s2",
+          "generalfeedback": "Compara?i r?spunsul cu obiectivul ?i sursa indicat?.",
+          "difficulty": "medium",
+          "objective_ref": "s2.o1",
+          "source_refs": [
+            {
+              "source": "src2",
+              "chunk": 0,
+              "page": 1
+            }
+          ]
+        },
+        {
+          "qtype": "essay",
+          "questiontext": "<p>Explica?i ideea principal?.</p>",
+          "id": "q1002",
+          "name": "?ntrebarea 2 din s2",
+          "generalfeedback": "Compara?i r?spunsul cu obiectivul ?i sursa indicat?.",
+          "difficulty": "medium",
+          "objective_ref": "s2.o1",
+          "source_refs": [
+            {
+              "source": "src2",
+              "chunk": 0,
+              "page": 1
+            }
+          ]
+        },
+        {
+          "qtype": "essay",
+          "questiontext": "<p>Explica?i ideea principal?.</p>",
+          "id": "q1003",
+          "name": "?ntrebarea 3 din s2",
+          "generalfeedback": "Compara?i r?spunsul cu obiectivul ?i sursa indicat?.",
+          "difficulty": "medium",
+          "objective_ref": "s2.o1",
+          "source_refs": [
+            {
+              "source": "src2",
+              "chunk": 0,
+              "page": 1
+            }
+          ]
+        },
+        {
+          "qtype": "essay",
+          "questiontext": "<p>Explica?i ideea principal?.</p>",
+          "id": "q1004",
+          "name": "?ntrebarea 4 din s2",
+          "generalfeedback": "Compara?i r?spunsul cu obiectivul ?i sursa indicat?.",
+          "difficulty": "medium",
+          "objective_ref": "s2.o1",
+          "source_refs": [
+            {
+              "source": "src2",
+              "chunk": 0,
+              "page": 1
+            }
+          ]
+        },
+        {
+          "qtype": "essay",
+          "questiontext": "<p>Explica?i ideea principal?.</p>",
+          "id": "q1005",
+          "name": "?ntrebarea 5 din s2",
+          "generalfeedback": "Compara?i r?spunsul cu obiectivul ?i sursa indicat?.",
+          "difficulty": "medium",
+          "objective_ref": "s2.o1",
+          "source_refs": [
+            {
+              "source": "src2",
+              "chunk": 0,
+              "page": 1
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

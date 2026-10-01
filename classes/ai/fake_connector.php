@@ -232,6 +232,9 @@ class fake_connector implements connector {
      * @return string The sub-call key, empty when the request is not a sub-call.
      */
     protected function nodekey(request $request): string {
+        if (preg_match('/<<<TARGET_ID\R([^\r\n]+)\RTARGET_ID/', $request->system, $target)) {
+            return $target[1];
+        }
         if (!preg_match('/<<<SECTION\R(.*?)\RSECTION\s*$/ms', $request->system, $block)) {
             return '';
         }

@@ -19,6 +19,7 @@ namespace local_aicoursebuilder\pipeline;
 use local_aicoursebuilder\ai\budget_exceeded_exception;
 use local_aicoursebuilder\ai\parallel_executor;
 use local_aicoursebuilder\ai\result;
+use local_aicoursebuilder\blueprint\version_store;
 
 /**
  * Runs the generation pipeline: brief, then outline, then the sections (spec 3.6).
@@ -91,13 +92,48 @@ class orchestrator {
         }
 
         $sections = $this->run_sections($brief->output, $outline->output);
-        $blueprint = $this->assemble($outline->output, $sections);
+        $containers = $this->containers($outline->output);
+        $activityinputs = [];
+        $questioninputs = [];
+        $questionstep = new step_questions($this->context);
+        $index = 0;
+        foreach ($containers as $id => $container) {
+            $activityinputs[$id] = [
+                'section' => $container,
+                'activities' => $sections[$id]->output['activities'] ?? [],
+            ];
+            if (!empty($container['objectives'])) {
+                $questioninputs[$id] = $questionstep->input_for($container, $index++ * 1000 + 1);
+            }
+        }
+        $activities = $this->run_parallel(new step_activities($this->context), $activityinputs);
+        $questions = $this->run_parallel($questionstep, $questioninputs);
+        $blueprint = $this->assemble($outline->output, $sections, $activities, $questions);
+        $review = (new step_review($this->context))->run(['blueprint' => $blueprint]);
+        if ($review->is_success()) {
+            $blueprint = $this->apply_review_flags($blueprint, $review->output);
+        }
+        $errors = $this->context->validator->validate($blueprint, $this->context->sourcetexts);
+        if ($errors === []) {
+            (new version_store())->save(
+                $this->context->jobid,
+                $this->context->userid,
+                $blueprint,
+                $this->context->validator,
+                $this->context->sourcetexts,
+                true,
+            );
+        }
 
         return pipeline_outcome::completed(
             blueprint: $blueprint,
             brief: $brief->output,
-            manualnodes: $this->manual_nodes($sections),
-            errors: $this->context->validator->validate($blueprint, $this->context->sourcetexts),
+            manualnodes: array_values(array_unique(array_merge(
+                $this->manual_nodes($sections),
+                $this->manual_nodes($activities),
+                $this->manual_nodes($questions),
+            ))),
+            errors: $errors,
             totals: $this->context->steps->totals($this->context->jobid),
         );
     }
@@ -114,21 +150,27 @@ class orchestrator {
      * @throws budget_exceeded_exception When a limit stops the pipeline between sub-calls.
      */
     protected function run_sections(array $brief, array $outline): array {
-        $step = new step_sections($this->context);
         $inputs = [];
         foreach ($this->containers($outline) as $id => $container) {
             $inputs[$id] = ['brief' => $brief, 'outline' => $outline, 'section' => $container];
         }
+        return $this->run_parallel(new step_sections($this->context), $inputs);
+    }
+
+    /**
+     * Runs one step independently for every section, batching its first answers.
+     *
+     * @param step $step The step to run.
+     * @param array $inputs Input keyed by section id.
+     * @return array Results keyed by section id.
+     */
+    protected function run_parallel(step $step, array $inputs): array {
         if ($inputs === []) {
             return [];
         }
-
         $answers = $this->first_answers($step, $inputs);
-
         $results = [];
         foreach ($inputs as $id => $input) {
-            // A sub-call whose first answer never arrived is run again on its own, so it still gets
-            // its repair attempts and its placeholder rather than being dropped for a network fault.
             $results[$id] = $step->run($input, $id, $answers[$id] ?? null);
         }
         return $results;
@@ -144,12 +186,12 @@ class orchestrator {
      * A section already finished by an earlier run is left out of the batch entirely, so resuming a
      * job does not pay for answers it already has.
      *
-     * @param step_sections $step The step the requests belong to.
+     * @param step $step The step the requests belong to.
      * @param array $inputs Input per section id.
      * @return array Answer per section id, for those that arrived.
      * @throws budget_exceeded_exception When a limit stops the batch before it is sent.
      */
-    protected function first_answers(step_sections $step, array $inputs): array {
+    protected function first_answers(step $step, array $inputs): array {
         $requests = [];
         $reservations = [];
         foreach ($inputs as $id => $input) {
@@ -239,13 +281,25 @@ class orchestrator {
      * Puts the activities of each sub-call back into the outline they belong to.
      *
      * @param array $outline The outline.
-     * @param array $sections step_result per section id.
+     * @param array $sections Teaching material per section id.
+     * @param array $interactive Interactive activities per section id.
+     * @param array $questions Quiz per section id.
      * @return array The blueprint.
      */
-    protected function assemble(array $outline, array $sections): array {
+    protected function assemble(array $outline, array $sections, array $interactive = [], array $questions = []): array {
         $activities = [];
         foreach ($sections as $id => $result) {
             $activities[$id] = $result->is_success() ? ($result->output['activities'] ?? []) : [];
+        }
+        foreach ($interactive as $id => $result) {
+            if ($result->is_success()) {
+                $activities[$id] = array_merge($activities[$id] ?? [], $result->output['activities'] ?? []);
+            }
+        }
+        foreach ($questions as $id => $result) {
+            if ($result->is_success() && isset($result->output['quiz'])) {
+                $activities[$id][] = $result->output['quiz'];
+            }
         }
 
         $blueprint = [
@@ -266,6 +320,53 @@ class orchestrator {
             }
             $blueprint['sections'][] = $section;
         }
+        return $blueprint;
+    }
+
+    /**
+     * Applies only review flags to the ids named by the critic, keeping its observations in step output.
+     *
+     * @param array $blueprint Assembled blueprint.
+     * @param array $review Critic output.
+     * @return array Blueprint with flags only.
+     */
+    protected function apply_review_flags(array $blueprint, array $review): array {
+        $flagged = array_fill_keys(array_column($review['issues'] ?? [], 'node'), true);
+        foreach ($blueprint['sections'] as &$section) {
+            if (isset($flagged[$section['id']])) {
+                // The schema has no section review_flag, so mark each activity of that section.
+                foreach ($section['activities'] as &$activity) {
+                    $activity['review_flag'] = true;
+                }
+                unset($activity);
+            }
+            foreach ($section['activities'] as &$activity) {
+                if (isset($flagged[$activity['id']])) {
+                    $activity['review_flag'] = true;
+                }
+                foreach ($activity['content']['questions'] ?? [] as $question) {
+                    if (isset($flagged[$question['id'] ?? ''])) {
+                        $activity['review_flag'] = true;
+                    }
+                }
+            }
+            unset($activity);
+            foreach ($section['subsections'] ?? [] as &$subsection) {
+                foreach ($subsection['activities'] as &$activity) {
+                    if (isset($flagged[$subsection['id']]) || isset($flagged[$activity['id']])) {
+                        $activity['review_flag'] = true;
+                    }
+                    foreach ($activity['content']['questions'] ?? [] as $question) {
+                        if (isset($flagged[$question['id'] ?? ''])) {
+                            $activity['review_flag'] = true;
+                        }
+                    }
+                }
+                unset($activity);
+            }
+            unset($subsection);
+        }
+        unset($section);
         return $blueprint;
     }
 

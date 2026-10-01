@@ -1,0 +1,163 @@
+{
+  "id": "s2",
+  "activities": [
+    {
+      "id": "s2.lesson1",
+      "type": "lesson",
+      "name": "Lecție: alegerea sursei",
+      "content": {
+        "pages": [
+          {
+            "id": "p1",
+            "type": "content",
+            "title": "Introducere",
+            "contents": "<p>Alegerea sursei depinde de climă și de relief.</p>",
+            "answers": [
+              {
+                "text": "Continuă",
+                "jumpto": "next"
+              }
+            ]
+          },
+          {
+            "id": "p2",
+            "type": "truefalse",
+            "title": "Verificare",
+            "contents": "<p>Energia eoliană este potrivită în zonele cu vânt constant.</p>",
+            "answers": [
+              {
+                "text": "Adevărat",
+                "response": "Corect.",
+                "jumpto": "next",
+                "score": 1
+              },
+              {
+                "text": "Fals",
+                "response": "Mai citiți pagina anterioară.",
+                "jumpto": "p1",
+                "score": 0
+              }
+            ]
+          },
+          {
+            "id": "p3",
+            "type": "multichoice",
+            "title": "Alegere",
+            "contents": "<p>Ce sursă este potrivită pentru o zonă însorită?</p>",
+            "answers": [
+              {
+                "text": "Solară",
+                "response": "Corect.",
+                "jumpto": "next",
+                "score": 1
+              },
+              {
+                "text": "Hidro",
+                "response": "Hidro cere un curs de apă.",
+                "jumpto": "this",
+                "score": 0
+              }
+            ]
+          },
+          {
+            "id": "p4",
+            "type": "shortanswer",
+            "title": "Termen",
+            "contents": "<p>Scrieți numele sursei care folosește căldura Pământului.</p>",
+            "answers": [
+              {
+                "text": "geotermală",
+                "response": "Corect.",
+                "jumpto": "end",
+                "score": 1
+              }
+            ]
+          }
+        ]
+      },
+      "completion": {
+        "mode": "auto",
+        "view": true
+      },
+      "source_refs": [
+        {
+          "source": "src2",
+          "chunk": 1,
+          "page": 2
+        }
+      ]
+    },
+    {
+      "id": "s2.assign1",
+      "type": "assign",
+      "name": "Temă: comparație între două surse",
+      "intro": "<p>Comparați două surse regenerabile, în maximum o pagină.</p>",
+      "content": {
+        "submission_types": [
+          "onlinetext",
+          "file"
+        ],
+        "grade": 100,
+        "duedate": "2026-11-15",
+        "maxfiles": 1,
+        "filetypes": [
+          ".pdf",
+          ".docx"
+        ]
+      },
+      "completion": {
+        "mode": "auto",
+        "usegrade": true,
+        "rules": {
+          "completionsubmit": 1
+        }
+      },
+      "availability": {
+        "min_grade": {
+          "activity": "s1.quiz1",
+          "min": 50
+        }
+      }
+    },
+    {
+      "id": "s2.forum1",
+      "type": "forum",
+      "name": "Forum de discuții",
+      "content": {
+        "forumtype": "general",
+        "discussions": [
+          {
+            "subject": "Ce sursă folosiți acasă?",
+            "message": "<p>Spuneți-ne ce surse regenerabile folosiți.</p>"
+          }
+        ]
+      },
+      "completion": {
+        "mode": "auto",
+        "rules": {
+          "completionposts": 1
+        }
+      }
+    },
+    {
+      "id": "s2.wiki1",
+      "type": "wiki",
+      "name": "Wiki colaborativ",
+      "content": {
+        "pages": [
+          {
+            "title": "Pagina principală",
+            "content": "<p>Adăugați exemple de proiecte regenerabile din regiunea voastră.</p>"
+          },
+          {
+            "title": "Exemple solare",
+            "content": "<p>Listați proiecte solare cunoscute.</p>"
+          }
+        ]
+      },
+      "completion": {
+        "mode": "manual"
+      }
+    }
+  ]
+}

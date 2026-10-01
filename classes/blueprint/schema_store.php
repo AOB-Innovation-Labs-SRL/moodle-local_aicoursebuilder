@@ -47,6 +47,9 @@ class schema_store {
         'brief' => 'steps/brief.v1',
         'outline' => 'steps/outline.v1',
         'sections' => 'steps/sections.v1',
+        'activities' => 'steps/activities.v1',
+        'questions' => 'steps/questions.v1',
+        'review' => 'steps/review.v1',
     ];
 
     /** @var string|null Directory holding the schema files, null for the plugin's schema/. */

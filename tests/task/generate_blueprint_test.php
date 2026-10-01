@@ -20,9 +20,11 @@ use local_aicoursebuilder\ai\connector_exception;
 use local_aicoursebuilder\ai\fake_connector;
 use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\ai\router;
+use local_aicoursebuilder\blueprint\validation_error;
 use local_aicoursebuilder\blueprint\validator;
 use local_aicoursebuilder\ingest\source_manager;
 use local_aicoursebuilder\job_manager;
+use local_aicoursebuilder\pipeline\pipeline_outcome;
 
 /**
  * Tests of the generate_blueprint task, on the fake connector.
@@ -86,6 +88,12 @@ final class generate_blueprint_test extends \advanced_testcase {
         foreach (['s1', 's1-1', 's2', 's3'] as $id) {
             $path = dirname(__DIR__) . '/fixtures/ai/sections/' . $id . '.json';
             $this->connector->push(request::STEP_SECTIONS, strtr(file_get_contents($path), $renames), $id);
+            $path = dirname(__DIR__) . '/fixtures/ai/activities/' . $id . '.json';
+            $this->connector->push(request::STEP_ACTIVITIES, strtr(file_get_contents($path), $renames), $id);
+        }
+        foreach (['s1', 's2', 's3'] as $id) {
+            $path = dirname(__DIR__) . '/fixtures/ai/questions/' . $id . '.json';
+            $this->connector->push(request::STEP_QUESTIONS, strtr(file_get_contents($path), $renames), $id);
         }
     }
 
@@ -214,18 +222,6 @@ final class generate_blueprint_test extends \advanced_testcase {
     }
 
     /**
-     * A job with no sources is written from the request alone, and the blueprint is still saved.
-     */
-    public function test_a_job_without_sources_is_written_from_the_request(): void {
-        global $DB;
-
-        $this->run_task();
-
-        $this->assertSame(job_manager::STATUS_REVIEW, $this->job()->status);
-        $this->assertSame(1, $DB->count_records('local_aicb_blueprint', ['jobid' => $this->jobid]));
-    }
-
-    /**
      * A source that was not digested is left out.
      */
     public function test_sources_without_a_digest_are_left_out(): void {
@@ -299,6 +295,7 @@ final class generate_blueprint_test extends \advanced_testcase {
      */
     public function test_a_cost_limit_fails_the_job_and_a_new_run_resumes(): void {
         global $DB;
+        $this->add_energy_sources();
         $this->connector->set_cost_per_call(1.0);
         set_config('joblimitusd', '2.5', 'local_aicoursebuilder');
 
@@ -368,6 +365,7 @@ final class generate_blueprint_test extends \advanced_testcase {
      */
     public function test_it_resumes_a_job_left_generating(): void {
         global $DB;
+        $this->add_energy_sources();
         $DB->set_field('local_aicb_job', 'status', generate_blueprint::STATUS_GENERATING, ['id' => $this->jobid]);
 
         $this->run_task();
@@ -376,9 +374,42 @@ final class generate_blueprint_test extends \advanced_testcase {
     }
 
     /**
+     * A blueprint the validator still finds fault with is kept as a draft and the job goes to review, flagged.
+     *
+     * The orchestrator saves only blueprints that validate, so the task keeps the others itself.
+     */
+    public function test_a_blueprint_that_does_not_validate_is_kept_for_review(): void {
+        global $DB;
+        $blueprint = ['version' => '1.0', 'language' => 'ro', 'course' => [], 'sections' => []];
+        $outcome = pipeline_outcome::completed(
+            blueprint: $blueprint,
+            brief: [],
+            manualnodes: [],
+            errors: [new validation_error('/course', validation_error::CODE_SCHEMA, 'course is incomplete')],
+            totals: ['cost' => 0.25],
+        );
+        $task = generate_blueprint::instance($this->jobid, (int) $this->user->id);
+        $sink = $this->redirectMessages();
+
+        (new \ReflectionMethod($task, 'finish'))->invoke($task, $this->job(), $outcome);
+
+        $job = $this->job();
+        $this->assertSame(job_manager::STATUS_REVIEW, $job->status);
+        $this->assertSame(get_string('generatereviewattention', 'local_aicoursebuilder'), $job->statusmessage);
+        $this->assertEqualsWithDelta(0.25, (float) $job->actualcost, 0.000001);
+        $rows = $DB->get_records('local_aicb_blueprint', ['jobid' => $this->jobid]);
+        $this->assertCount(1, $rows);
+        $this->assertEquals(1, reset($rows)->version);
+        $this->assertSame('draft', reset($rows)->status);
+        $this->assertSame($blueprint, json_decode(reset($rows)->content, true));
+        $this->assertCount(1, $sink->get_messages());
+    }
+
+    /**
      * The cost of the job is the cost of its steps.
      */
     public function test_the_actual_cost_is_recorded(): void {
+        $this->add_energy_sources();
         $this->connector->set_cost_per_call(0.01);
 
         $this->run_task();

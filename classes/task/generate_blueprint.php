@@ -191,28 +191,17 @@ class generate_blueprint extends \core\task\adhoc_task {
     }
 
     /**
-     * Saves the blueprint as the next version of the job and puts the job in review.
+     * Puts the job in review, with the blueprint the pipeline produced.
      *
      * @param \stdClass $job The local_aicb_job row, updated in place.
      * @param pipeline_outcome $outcome What the pipeline produced.
      */
     private function finish(\stdClass $job, pipeline_outcome $outcome): void {
-        global $DB;
-
-        $content = json_encode($outcome->blueprint, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-        $latest = $DB->get_field_sql('SELECT MAX(version) FROM {local_aicb_blueprint} WHERE jobid = ?', [$job->id]);
-        $now = time();
-        $DB->insert_record('local_aicb_blueprint', (object) [
-            'jobid' => $job->id,
-            'version' => 1 + (int) $latest,
-            'schemaversion' => $outcome->blueprint['version'] ?? schema_store::SCHEMA_VERSION,
-            'content' => $content,
-            'contenthash' => hash('sha256', $content),
-            'status' => 'draft',
-            'usermodified' => $job->userid,
-            'timecreated' => $now,
-            'timemodified' => $now,
-        ]);
+        // The orchestrator saves the blueprint itself when it validates. One it could not save, because the
+        // validator still finds something in it, is kept here as a draft, so the teacher can fix it in review.
+        if ($outcome->errors !== []) {
+            $this->save_invalid_draft($job, $outcome->blueprint);
+        }
 
         $needsattention = count($outcome->manualnodes) + ($outcome->errors ? 1 : 0);
         $this->update_job($job, [
@@ -220,9 +209,34 @@ class generate_blueprint extends \core\task\adhoc_task {
             'progress' => 100,
             'actualcost' => $outcome->totals['cost'] ?? $job->actualcost,
             'statusmessage' => get_string($needsattention ? 'generatereviewattention' : 'generatereview', 'local_aicoursebuilder'),
-            'timefinished' => $now,
+            'timefinished' => time(),
         ]);
         $this->notify($job, 'jobfinished');
+    }
+
+    /**
+     * Keeps a blueprint that does not validate as the next draft version of the job.
+     *
+     * @param \stdClass $job The local_aicb_job row.
+     * @param array $blueprint The blueprint.
+     */
+    private function save_invalid_draft(\stdClass $job, array $blueprint): void {
+        global $DB;
+
+        $content = json_encode($blueprint, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $latest = $DB->get_field_sql('SELECT MAX(version) FROM {local_aicb_blueprint} WHERE jobid = ?', [$job->id]);
+        $now = time();
+        $DB->insert_record('local_aicb_blueprint', (object) [
+            'jobid' => $job->id,
+            'version' => 1 + (int) $latest,
+            'schemaversion' => $blueprint['version'] ?? schema_store::SCHEMA_VERSION,
+            'content' => $content,
+            'contenthash' => hash('sha256', $content),
+            'status' => 'draft',
+            'usermodified' => $job->userid,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
     }
 
     /**

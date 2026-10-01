@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local_aicoursebuilder/steps/questions.v1",
+  "title": "Questions step output (v1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "quiz"],
+  "properties": {
+    "id": {
+      "oneOf": [
+        {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/sectionid"},
+        {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/subsectionid"}
+      ]
+    },
+    "quiz": {
+      "allOf": [
+        {"$ref": "local_aicoursebuilder/blueprint.v1#/$defs/activity"},
+        {"properties": {"type": {"const": "quiz"}}}
+      ]
+    }
+  }
+}
