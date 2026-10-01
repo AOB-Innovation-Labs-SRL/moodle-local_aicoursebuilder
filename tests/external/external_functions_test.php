@@ -30,6 +30,7 @@ use local_aicoursebuilder\task\regenerate_node as regenerate_task;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \local_aicoursebuilder\external\job_api
  * @covers     \local_aicoursebuilder\external\create_job
+ * @covers     \local_aicoursebuilder\external\start_job
  * @covers     \local_aicoursebuilder\external\get_job_status
  * @covers     \local_aicoursebuilder\external\get_blueprint
  * @covers     \local_aicoursebuilder\external\save_blueprint
@@ -53,6 +54,10 @@ final class external_functions_test extends \core_external\tests\externallib_tes
                 'params' => ['mode' => 'newcourse', 'categoryid' => 1, 'courseid' => 0, 'sectionnum' => 0,
                     'prompt' => 'Curs despre energie regenerabilă', 'language' => 'ro', 'draftitemid' => 123,
                     'brief' => '{"level": "începător"}', 'offpeak' => true],
+                'returns' => ['jobid' => 7, 'status' => 'queued'],
+            ],
+            start_job::class => [
+                'params' => ['jobid' => 7],
                 'returns' => ['jobid' => 7, 'status' => 'queued'],
             ],
             get_job_status::class => [
@@ -162,18 +167,19 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $this->setUser($teacher);
 
         $hash = self::HASH;
-        $this->assert_not_implemented(fn() => get_job_status::execute($jobid));
+        $this->assertSame($jobid, get_job_status::execute($jobid)['jobid']);
+        $this->assertArrayHasKey('estimatedcost', estimate_cost::execute($jobid));
         $this->assert_not_implemented(fn() => get_blueprint::execute($jobid, 0));
         $this->assert_not_implemented(fn() => save_blueprint::execute($jobid, '{"version": "1.0"}', 1));
         $this->assert_not_implemented(fn() => approve_blueprint::execute($jobid, 1, $hash));
-        $this->assert_not_implemented(fn() => estimate_cost::execute($jobid));
         try {
             regenerate_node::execute($jobid, 's1.quiz1', '');
             $this->fail('Expected the missing blueprint error');
         } catch (\moodle_exception $e) {
             $this->assertSame('regenerationnoblueprint', $e->errorcode);
         }
-        $this->assert_not_implemented(fn() => create_job::execute('existingcourse', 0, $course->id, 1, 'Test', 'ro', 0, '', true));
+        $created = create_job::execute('existingcourse', 0, $course->id, 1, 'Test', 'ro', 0, '', true);
+        $this->assertSame('draft', $created['status']);
     }
 
     /**
@@ -234,9 +240,9 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $this->setUser($manager);
 
         // Reading passes the access checks.
-        $this->assert_not_implemented(fn() => get_job_status::execute($jobid));
+        $this->assertSame($jobid, get_job_status::execute($jobid)['jobid']);
+        $this->assertArrayHasKey('estimatedcost', estimate_cost::execute($jobid));
         $this->assert_not_implemented(fn() => get_blueprint::execute($jobid, 0));
-        $this->assert_not_implemented(fn() => estimate_cost::execute($jobid));
 
         // Changing is for the owner only.
         $hash = self::HASH;
@@ -244,6 +250,7 @@ final class external_functions_test extends \core_external\tests\externallib_tes
             'approve_blueprint' => fn() => approve_blueprint::execute($jobid, 1, $hash),
             'save_blueprint' => fn() => save_blueprint::execute($jobid, '{"version": "1.0"}', 1),
             'regenerate_node' => fn() => regenerate_node::execute($jobid, 's1.quiz1', ''),
+            'start_job' => fn() => start_job::execute($jobid),
         ];
         foreach ($writes as $name => $call) {
             try {
@@ -291,6 +298,130 @@ final class external_functions_test extends \core_external\tests\externallib_tes
                 $this->assertInstanceOf(invalid_parameter_exception::class, $e, $name);
             }
         }
-        $this->assert_not_implemented(fn() => create_job::execute('newcourse', 1, 0, 0, 'Test', 'ro', 0, '', true));
+        $this->assertGreaterThan(0, create_job::execute('newcourse', 1, 0, 0, 'Test', 'ro', 0, '', true)['jobid']);
+    }
+
+    /**
+     * Creating a job saves a draft with what the wizard sent, and queues nothing.
+     */
+    public function test_create_job_saves_a_draft(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $created = create_job::execute('newcourse', 1, 0, 0, '  Curs despre energie  ', 'ro', 0, '{"level": "avansat"}', false);
+
+        $this->assertSame('draft', $created['status']);
+        $job = $DB->get_record('local_aicb_job', ['id' => $created['jobid']], '*', MUST_EXIST);
+        $this->assertSame('Curs despre energie', $job->prompt);
+        $this->assertSame('{"level": "avansat"}', $job->brief);
+        $this->assertEquals(0, $job->offpeak);
+        $this->assertCount(0, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\ingest_sources::class));
+        $this->assertCount(0, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\generate_blueprint::class));
+    }
+
+    /**
+     * The status of a job is what the job holds, with the steps that ran and the latest blueprint version.
+     */
+    public function test_get_job_status_reports_the_job(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $jobid = $this->create_job_record($teacher->id, $course->id);
+        $DB->update_record('local_aicb_job', (object) [
+            'id' => $jobid,
+            'status' => 'generating',
+            'stage' => 'generate',
+            'progress' => 40,
+            'statusmessage' => 'In lucru',
+            'actualcost' => 0.05,
+            'error' => 'oops',
+        ]);
+        foreach (['outline' => '', 'sections' => 's2'] as $step => $nodekey) {
+            $DB->insert_record('local_aicb_step', (object) [
+                'jobid' => $jobid,
+                'step' => $step,
+                'nodekey' => $nodekey === '' ? null : $nodekey,
+                'inputhash' => hash('sha256', $step),
+                'status' => $step === 'outline' ? 'done' : 'running',
+                'timecreated' => time(),
+                'timemodified' => time(),
+            ]);
+        }
+        $DB->insert_record('local_aicb_blueprint', (object) [
+            'jobid' => $jobid,
+            'version' => 2,
+            'content' => '{}',
+            'contenthash' => self::HASH,
+            'usermodified' => $teacher->id,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+        $this->setUser($teacher);
+
+        $status = external_api::clean_returnvalue(get_job_status::execute_returns(), get_job_status::execute($jobid));
+
+        $this->assertSame('generating', $status['status']);
+        $this->assertSame('generate', $status['stage']);
+        $this->assertSame(40, $status['progress']);
+        $this->assertSame('In lucru', $status['message']);
+        $this->assertSame((int) $course->id, $status['courseid']);
+        $this->assertSame(2, $status['blueprintversion']);
+        $this->assertEqualsWithDelta(0.05, $status['actualcost'], 0.000001);
+        $this->assertSame('oops', $status['error']);
+        $this->assertSame([
+            ['step' => 'outline', 'nodekey' => '', 'status' => 'done'],
+            ['step' => 'sections', 'nodekey' => 's2', 'status' => 'running'],
+        ], $status['steps']);
+    }
+
+    /**
+     * The estimate answers with the shape the wizard needs.
+     */
+    public function test_estimate_cost_returns_an_estimate(): void {
+        $this->resetAfterTest();
+        set_config('defaultconnector', 'deepseek', 'local_aicoursebuilder');
+        set_config('joblimitusd', '5', 'local_aicoursebuilder');
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $jobid = $this->create_job_record($teacher->id, $course->id);
+        $this->setUser($teacher);
+
+        $estimate = external_api::clean_returnvalue(estimate_cost::execute_returns(), estimate_cost::execute($jobid));
+
+        $this->assertGreaterThan(0, $estimate['estimatedcost']);
+        $this->assertSame('USD', $estimate['currency']);
+        $this->assertGreaterThan(0, $estimate['tokensin']);
+        $this->assertEquals(5, $estimate['joblimit']);
+        $this->assertTrue($estimate['withinbudget']);
+    }
+
+    /**
+     * Starting a job queues its task, once the owner has accepted the AI policy.
+     */
+    public function test_start_job_queues_the_task(): void {
+        global $DB;
+        $this->resetAfterTest();
+        set_config('defaultconnector', 'fake', 'local_aicoursebuilder');
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $jobid = $this->create_job_record($teacher->id, $course->id);
+        $DB->set_field('local_aicb_job', 'status', 'draft', ['id' => $jobid]);
+        $this->setUser($teacher);
+
+        try {
+            start_job::execute($jobid);
+            $this->fail('A job was started without the AI policy');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('aipolicynotaccepted', $e->errorcode);
+        }
+
+        \core_ai\manager::user_policy_accepted((int) $teacher->id, \context_system::instance()->id);
+        $started = start_job::execute($jobid);
+
+        $this->assertSame(['jobid' => $jobid, 'status' => 'queued'], $started);
+        $this->assertSame('queued', $DB->get_field('local_aicb_job', 'status', ['id' => $jobid]));
+        $this->assertCount(1, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\generate_blueprint::class));
     }
 }

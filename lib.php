@@ -21,3 +21,28 @@
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+
+/**
+ * Adds the course generation wizard to the navigation of a course, for those who may add generated content to it.
+ *
+ * @param navigation_node $navigation The navigation node of the course.
+ * @param stdClass $course The course.
+ * @param context $context The context of the course.
+ */
+function local_aicoursebuilder_extend_navigation_course(navigation_node $navigation, stdClass $course, context $context): void {
+    if (
+        !has_capability('local/aicoursebuilder:use', $context)
+        || !has_capability('local/aicoursebuilder:generateincourse', $context)
+        || !has_capability('moodle/course:manageactivities', $context)
+    ) {
+        return;
+    }
+    $navigation->add(
+        get_string('wizard:title', 'local_aicoursebuilder'),
+        new moodle_url('/local/aicoursebuilder/wizard.php', ['courseid' => $course->id]),
+        navigation_node::TYPE_SETTING,
+        null,
+        'local_aicoursebuilder_wizard',
+        new pix_icon('i/settings', '')
+    );
+}

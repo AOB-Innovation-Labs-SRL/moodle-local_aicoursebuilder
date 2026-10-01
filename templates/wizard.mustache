@@ -1,0 +1,57 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_aicoursebuilder/wizard
+
+    The course generation wizard: the form with one step shown at a time, the buttons that move between the
+    steps, and the places where the wizard script shows the error and the progress of the job.
+
+    Context variables required for this template:
+    * form - The HTML of the wizard form
+    * jobid - The job to follow, 0 for a new one
+
+    Example context (json):
+    {
+        "form": "<form class=\"mform\"><fieldset><legend>Step</legend></fieldset></form>",
+        "jobid": 0
+    }
+}}
+<div data-region="aicb-wizard" data-jobid="{{jobid}}">
+    <div data-region="aicb-error" class="alert alert-danger d-none" role="alert"></div>
+
+    <div data-region="aicb-steps">
+        <p class="text-muted" data-region="aicb-stepindicator" aria-live="polite"></p>
+        <div data-region="aicb-form">
+            {{{form}}}
+        </div>
+        <div class="d-flex justify-content-between mt-3" data-region="aicb-nav">
+            <button type="button" class="btn btn-secondary" data-action="aicb-back">
+                {{#str}} wizard:back, local_aicoursebuilder {{/str}}
+            </button>
+            <div>
+                <button type="button" class="btn btn-primary" data-action="aicb-next">
+                    {{#str}} wizard:next, local_aicoursebuilder {{/str}}
+                </button>
+                <button type="button" class="btn btn-primary d-none" data-action="aicb-start">
+                    {{#str}} wizard:start, local_aicoursebuilder {{/str}}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div data-region="aicb-progress" class="d-none" aria-live="polite"></div>
+</div>

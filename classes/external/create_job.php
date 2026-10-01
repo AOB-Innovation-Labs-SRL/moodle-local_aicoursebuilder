@@ -20,6 +20,7 @@ use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
 use invalid_parameter_exception;
+use local_aicoursebuilder\job_manager;
 
 /**
  * Web service local_aicoursebuilder_create_job.
@@ -55,7 +56,10 @@ class create_job extends job_api {
     }
 
     /**
-     * Validates the request; the job creation is implemented in a later task.
+     * Validates the request and creates the job as a draft, with its source files.
+     *
+     * Nothing is queued and nothing is spent: the teacher sees the cost estimate and starts the job with
+     * local_aicoursebuilder_start_job.
      *
      * @param string $mode newcourse or existingcourse.
      * @param int $categoryid Category of the new course.
@@ -66,7 +70,7 @@ class create_job extends job_api {
      * @param int $draftitemid Draft area with the source files.
      * @param string $brief Brief JSON.
      * @param bool $offpeak Schedule off-peak.
-     * @return array
+     * @return array The job id and its status.
      */
     public static function execute(
         string $mode,
@@ -79,6 +83,8 @@ class create_job extends job_api {
         string $brief,
         bool $offpeak
     ): array {
+        global $USER;
+
         $params = self::validate_parameters(self::execute_parameters(), [
             'mode' => $mode,
             'categoryid' => $categoryid,
@@ -119,7 +125,18 @@ class create_job extends job_api {
             throw new invalid_parameter_exception('mode must be newcourse or existingcourse');
         }
 
-        self::not_implemented();
+        $jobid = (new job_manager())->create_draft((int) $USER->id, [
+            'mode' => $params['mode'],
+            'categoryid' => $params['categoryid'],
+            'courseid' => $params['courseid'],
+            'sectionnum' => $params['sectionnum'],
+            'prompt' => trim($params['prompt']),
+            'language' => $params['language'],
+            'brief' => $params['brief'],
+            'offpeak' => $params['offpeak'],
+        ], $params['draftitemid']);
+
+        return ['jobid' => $jobid, 'status' => job_manager::STATUS_DRAFT];
     }
 
     /**
