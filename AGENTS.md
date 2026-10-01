@@ -68,6 +68,15 @@ Create a directory only when it gets its first file.
 - Privacy API provider for every new table holding `userid`.
 - CI green (`.github/workflows/ci.yml`).
 
+## Verification before pushing
+
+- Before a push: PHPUnit and phpcs green locally.
+- CI green on the pull request. CI runs on pull requests to `main` and on demand, never on a push:
+  a pull request runs a reduced matrix of two combinations, which between them cover both PHP
+  versions, both Moodle branches and both databases.
+- The full matrix of eight is run by hand, from the Actions tab (`workflow_dispatch`, `full=true`),
+  before every Friday integration and before every release.
+
 ## Local environment (Docker)
 
 Variables used by the commands below (set them once per shell):
