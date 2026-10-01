@@ -31,7 +31,19 @@ use Psr\Http\Message\ResponseInterface;
  * https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools#forcing-tool-use and
  * https://platform.claude.com/docs/en/build-with-claude/structured-outputs). Input files are sent as
  * document content blocks (PDF only); cache_control is placed on the system prompt and on the last
- * source document, so a repeated prefix of instructions and source material is served from cache. See
+ * source document, so a repeated prefix of instructions and source material is served from cache.
+ * Usage mapping: input_tokens (never cached) and cache_creation_input_tokens (written to the cache
+ * on this call) both count as tokensin, since neither was served from the cache; cost splits them,
+ * pricing cache_creation_input_tokens at the pricing table's optional cache_write rate (falls back
+ * to input_miss) instead of input_miss, reflecting Anthropic's own, usually higher, cache-write
+ * price. cache_read_input_tokens maps to tokenscached.
+ *
+ * Thinking defaults to omitted (the model's own default, which several current models always have
+ * on and cannot turn off) rather than an explicit thinking: {type: disabled}: several current models
+ * (Fable 5.1, Mythos 5.1, Fable 5, Mythos 5, Opus 5.5, Mythos Preview, and Sonnet 5.5, which instead
+ * needs between_tools) reject that value outright with a 400 ("thinking cannot be disabled"), so it
+ * is never sent; anthropic_thinking only ever adds thinking: {type: enabled} when turned on, never
+ * turns it off. See https://platform.claude.com/docs/en/api/errors#thinking-cannot-be-disabled and
  * https://platform.claude.com/docs/en/api/messages.
  *
  * @package    local_aicoursebuilder
@@ -221,7 +233,9 @@ class anthropic_connector implements async_connector, connector {
         if ($request->temperature !== null) {
             $body['temperature'] = $request->temperature;
         }
-        $body['thinking'] = ['type' => $this->thinking ? 'enabled' : 'disabled'];
+        if ($this->thinking) {
+            $body['thinking'] = ['type' => 'enabled'];
+        }
         if ($request->schema !== null) {
             $body['output_config'] = ['format' => [
                 'type' => 'json_schema',
@@ -317,7 +331,12 @@ class anthropic_connector implements async_connector, connector {
 
         $usage = $data['usage'] ?? [];
         $cachewrite = (int) ($usage['cache_creation_input_tokens'] ?? 0);
-        $tokensin = (int) ($usage['input_tokens'] ?? 0) + $cachewrite;
+        $uncached = (int) ($usage['input_tokens'] ?? 0);
+        // The tokensin field keeps the project convention (every input token not served from the
+        // cache), while the cost split keeps cache-write tokens separate, so they price at the
+        // pricing table's optional cache_write rate instead of input_miss when set (spec: the
+        // mapping of each provider's usage fields is connector-specific and documented here).
+        $tokensin = $uncached + $cachewrite;
         $tokenscached = (int) ($usage['cache_read_input_tokens'] ?? 0);
         $model = (string) ($data['model'] ?? $this->model);
         $tokensout = (int) ($usage['output_tokens'] ?? 0);
@@ -328,7 +347,7 @@ class anthropic_connector implements async_connector, connector {
             tokensin: $tokensin,
             tokensout: $tokensout,
             tokenscached: $tokenscached,
-            cost: pricing::cost_for(self::NAME, $model, $tokensin, $tokensout, $tokenscached),
+            cost: pricing::cost_for(self::NAME, $model, $uncached, $tokensout, $tokenscached, tokenscachewrite: $cachewrite),
             model: $model,
             durationms: $durationms,
             finishreason: $stopreason,

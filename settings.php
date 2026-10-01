@@ -247,6 +247,12 @@ if ($hassiteconfig) {
             new lang_string('gemini_thinking_desc', 'local_aicoursebuilder'),
             0
         ));
+        $connectors->add(new admin_setting_configcheckbox(
+            'local_aicoursebuilder/gemini_native_json_schema',
+            new lang_string('gemini_native_json_schema', 'local_aicoursebuilder'),
+            new lang_string('gemini_native_json_schema_desc', 'local_aicoursebuilder'),
+            0
+        ));
 
         $connectors->add(new admin_setting_heading(
             'local_aicoursebuilder/openaicompatheading',

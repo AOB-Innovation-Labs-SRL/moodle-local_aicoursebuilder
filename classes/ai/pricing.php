@@ -20,11 +20,15 @@ namespace local_aicoursebuilder\ai;
  * Per-model USD pricing, with an optional off-peak window (spec 3.3, 8).
  *
  * Prices are read from a per-connector JSON setting (pricing_{connector}), a map of model name to
- * ['input_miss' => float, 'input_hit' => float, 'output' => float, 'offpeak' => [same 3 keys]],
- * prices per 1M tokens. The setting is validated at save time by admin_setting_configpricingjson;
- * an invalid or missing setting falls back to DEFAULT_PRICES. The peak window (spec 8: 01:00-04:00
- * and 06:00-10:00 UTC, Monday to Friday) is also a setting, so it can be adjusted without code
- * changes; outside that window, or on Saturday/Sunday, pricing is off-peak.
+ * ['input_miss' => float, 'input_hit' => float, 'output' => float, 'cache_write' => float (optional),
+ * 'offpeak' => [same keys]], prices per 1M tokens. 'cache_write' prices the tokens a connector bills
+ * at the moment a prompt prefix is written to the cache (Anthropic's cache_creation_input_tokens);
+ * when absent, those tokens are priced like any other cache miss, at 'input_miss' (the default for
+ * every connector that has no such tokens at all). The setting is validated at save time by
+ * admin_setting_configpricingjson; an invalid or missing setting falls back to DEFAULT_PRICES. The
+ * peak window (spec 8: 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday) is also a setting, so it
+ * can be adjusted without code changes; outside that window, or on Saturday/Sunday, pricing is
+ * off-peak.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -66,10 +70,16 @@ class pricing {
      *
      * @param string $connector Connector name.
      * @param string $model Model name.
-     * @param int $tokensin Input tokens not served from the prompt cache.
+     * @param int $tokensin Input tokens not served from the prompt cache (cache-write tokens
+     *                       included: pass them separately through $tokenscachewrite instead to
+     *                       price them at 'cache_write' rather than 'input_miss').
      * @param int $tokensout Output tokens.
      * @param int $tokenscached Input tokens served from the prompt cache.
      * @param int|null $timestamp Unix timestamp of the call, null for now.
+     * @param int $tokenscachewrite Input tokens billed at the moment they are written to the prompt
+     *                              cache (Anthropic's cache_creation_input_tokens), priced at
+     *                              'cache_write' when the pricing table has it, at 'input_miss'
+     *                              otherwise; 0 for connectors with no such tokens.
      * @return float Cost in USD.
      */
     public static function cost_for(
@@ -78,7 +88,8 @@ class pricing {
         int $tokensin,
         int $tokensout,
         int $tokenscached = 0,
-        ?int $timestamp = null
+        ?int $timestamp = null,
+        int $tokenscachewrite = 0
     ): float {
         $prices = self::prices_for($connector, $model);
         if ($prices === null) {
@@ -87,8 +98,10 @@ class pricing {
         if (self::is_offpeak($connector, $timestamp) && isset($prices['offpeak'])) {
             $prices = $prices['offpeak'];
         }
+        $cachewriteprice = $prices['cache_write'] ?? $prices['input_miss'];
         $cost = ($tokensin / self::PER_TOKENS) * $prices['input_miss']
             + ($tokenscached / self::PER_TOKENS) * $prices['input_hit']
+            + ($tokenscachewrite / self::PER_TOKENS) * $cachewriteprice
             + ($tokensout / self::PER_TOKENS) * $prices['output'];
         return round($cost, 6);
     }
@@ -147,10 +160,8 @@ class pricing {
      * @return bool
      */
     protected static function is_valid_prices(array $prices): bool {
-        foreach (['input_miss', 'input_hit', 'output'] as $key) {
-            if (!isset($prices[$key]) || !is_numeric($prices[$key]) || $prices[$key] < 0) {
-                return false;
-            }
+        if (!self::is_valid_prices_offpeak($prices)) {
+            return false;
         }
         if (isset($prices['offpeak'])) {
             if (!is_array($prices['offpeak']) || !self::is_valid_prices_offpeak($prices['offpeak'])) {
@@ -163,6 +174,9 @@ class pricing {
     /**
      * Tells whether a decoded off-peak prices entry has the expected keys and non-negative values.
      *
+     * cache_write is optional (spec: connectors without a separate cache-write price fall back to
+     * input_miss), so it is only checked when present.
+     *
      * @param array $prices The decoded off-peak prices entry.
      * @return bool
      */
@@ -171,6 +185,9 @@ class pricing {
             if (!isset($prices[$key]) || !is_numeric($prices[$key]) || $prices[$key] < 0) {
                 return false;
             }
+        }
+        if (isset($prices['cache_write']) && (!is_numeric($prices['cache_write']) || $prices['cache_write'] < 0)) {
+            return false;
         }
         return true;
     }

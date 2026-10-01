@@ -24,12 +24,27 @@ use Psr\Http\Message\ResponseInterface;
 /**
  * Direct connector to the Gemini API (Google AI Studio).
  *
- * Schema is sent through generationConfig.responseSchema, which only accepts a documented subset of
- * JSON Schema: gemini_schema_transformer inlines $refs and drops what that subset does not support,
- * our own validator being the real check on every answer regardless. Input files are sent inline
- * (PDF only, base64 inside the request, no File API). Gemini has no explicit prompt_cache API in
- * scope here (spec 3.3: only the provider's own implicit caching, reported through
- * usageMetadata.cachedContentTokenCount). See https://ai.google.dev/api/generate-content.
+ * Schema is sent one of two ways, chosen by the gemini_native_json_schema setting:
+ * - generationConfig.responseJsonSchema: standard JSON Schema, unconverted, but documented only for
+ *   Gemini 2.5 and later and with a confusing, self-referential field description in the official
+ *   API reference (see the sources below) — not safe as the unconditional default across whatever
+ *   model an admin configures.
+ * - generationConfig.responseSchema (the default): only a documented OpenAPI 3.0 subset of JSON
+ *   Schema, works on every Gemini model; gemini_schema_transformer inlines $refs and drops what that
+ *   subset does not support.
+ * Our own validator is the real check on every answer regardless of which path produced it. Input
+ * files are sent inline (PDF only, base64 inside the request, no File API). Gemini has no explicit
+ * prompt_cache API in scope here (spec 3.3: only the provider's own implicit caching, reported
+ * through usageMetadata.cachedContentTokenCount).
+ *
+ * responseJsonSchema could not be confirmed from Google's prose guides alone (repeated fetches of
+ * https://ai.google.dev/gemini-api/docs/structured-output and
+ * https://firebase.google.com/docs/ai-logic/generate-structured-output found no mention of it,
+ * contradicting several independent sources that describe and use it); its existence is corroborated
+ * instead by the Google AI forum thread quoting the actual API reference's field description
+ * (https://discuss.ai.google.dev/t/error-in-api-reference-doco-re-generationconfig-responsejsonschema-structured-output/125182)
+ * and by independent third-party SDK integrations (Vercel AI SDK, python-genai, langchain4j) that all
+ * describe and ship it consistently. See https://ai.google.dev/api/generate-content for the rest.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -71,6 +86,9 @@ class gemini_connector implements async_connector, connector {
     /** @var bool Whether thinking mode is enabled. */
     protected bool $thinking;
 
+    /** @var bool Whether to send the schema unconverted, through responseJsonSchema. */
+    protected bool $nativejsonschema;
+
     /** @var gemini_schema_transformer Turns a request schema into Gemini's responseSchema subset. */
     protected gemini_schema_transformer $schematransformer;
 
@@ -87,6 +105,7 @@ class gemini_connector implements async_connector, connector {
         $config = get_config('local_aicoursebuilder');
         $this->model = trim($model) !== '' ? trim($model) : trim((string) ($config->gemini_model ?? ''));
         $this->thinking = !empty($config->gemini_thinking);
+        $this->nativejsonschema = !empty($config->gemini_native_json_schema);
         $this->schematransformer = new gemini_schema_transformer();
     }
 
@@ -223,7 +242,11 @@ class gemini_connector implements async_connector, connector {
         $generationconfig = [];
         if ($request->schema !== null) {
             $generationconfig['responseMimeType'] = 'application/json';
-            $generationconfig['responseSchema'] = $this->schematransformer->transform($request->schema, $request->step);
+            if ($this->nativejsonschema) {
+                $generationconfig['responseJsonSchema'] = $request->schema;
+            } else {
+                $generationconfig['responseSchema'] = $this->schematransformer->transform($request->schema, $request->step);
+            }
         } else if ($request->json) {
             $generationconfig['responseMimeType'] = 'application/json';
         }

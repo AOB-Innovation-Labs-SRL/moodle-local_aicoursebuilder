@@ -172,6 +172,26 @@ final class gemini_connector_test extends \advanced_testcase {
     }
 
     /**
+     * With gemini_native_json_schema enabled, the schema is sent unconverted through
+     * responseJsonSchema instead of being narrowed by gemini_schema_transformer.
+     */
+    public function test_native_json_schema_setting(): void {
+        set_config('gemini_native_json_schema', 1, 'local_aicoursebuilder');
+        $schema = [
+            'type' => 'object',
+            'required' => ['titlu'],
+            'properties' => ['titlu' => ['type' => 'string', 'pattern' => '^.+$']],
+        ];
+        $this->mock->append(new Response(200, [], $this->generate_body('{"titlu":"Fotosinteza"}')));
+
+        (new gemini_connector())->complete($this->make_request(['schema' => $schema]));
+
+        [, $body] = $this->sent();
+        $this->assertArrayNotHasKey('responseSchema', $body['generationConfig']);
+        $this->assertSame($schema, $body['generationConfig']['responseJsonSchema']);
+    }
+
+    /**
      * Source files are sent as inline PDF parts in the first user turn, alongside its text.
      */
     public function test_files_are_sent_inline(): void {

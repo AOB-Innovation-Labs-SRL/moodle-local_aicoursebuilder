@@ -107,7 +107,8 @@ final class anthropic_connector_test extends \advanced_testcase {
     }
 
     /**
-     * A JSON request without schema sends thinking disabled and a cached system prompt; the answer and usage are parsed.
+     * A JSON request without schema omits thinking (the model's own default) and sends a cached
+     * system prompt; the answer and usage are parsed.
      */
     public function test_json_request_and_response(): void {
         $this->mock->append(new Response(
@@ -134,8 +135,8 @@ final class anthropic_connector_test extends \advanced_testcase {
                 ['type' => 'text', 'text' => 'Rezumă documentul în JSON.', 'cache_control' => ['type' => 'ephemeral']],
             ],
             'temperature' => 0.2,
-            'thinking' => ['type' => 'disabled'],
         ], $body);
+        $this->assertArrayNotHasKey('thinking', $body);
 
         $this->assertSame(['titlu' => 'Fotosinteza', 'idei' => ['lumină']], $result->json);
         $this->assertSame(['tokensin' => 120, 'tokensout' => 45, 'tokenscached' => 64], $result->get_usage());
@@ -239,6 +240,46 @@ final class anthropic_connector_test extends \advanced_testcase {
         $result = (new anthropic_connector())->complete($this->make_request());
 
         $this->assertSame(['tokensin' => 80, 'tokensout' => 45, 'tokenscached' => 0], $result->get_usage());
+    }
+
+    /**
+     * Cache-creation tokens are costed at the pricing table's optional cache_write rate, not input_miss.
+     */
+    public function test_cache_creation_tokens_cost_at_cache_write_rate(): void {
+        set_config('pricing_anthropic', json_encode([
+            anthropic_connector::DEFAULT_MODEL => ['input_miss' => 1.0, 'input_hit' => 0.1, 'output' => 2.0, 'cache_write' => 5.0],
+        ]), 'local_aicoursebuilder');
+        $this->mock->append(new Response(200, [], $this->message_body([['type' => 'text', 'text' => 'x']], usage: [
+            'input_tokens' => 1_000_000,
+            'cache_creation_input_tokens' => 1_000_000,
+            'cache_read_input_tokens' => 0,
+            'output_tokens' => 0,
+        ])));
+
+        $result = (new anthropic_connector())->complete($this->make_request());
+
+        // 1M input_miss tokens at 1.0 + 1M cache-write tokens at 5.0 (not 1.0): 1.0 + 5.0 = 6.0 USD.
+        $this->assertSame(6.0, $result->cost);
+        $this->assertSame(2_000_000, $result->tokensin);
+    }
+
+    /**
+     * Without a cache_write price, cache-creation tokens fall back to the input_miss rate.
+     */
+    public function test_cache_creation_tokens_fall_back_to_input_miss_rate(): void {
+        set_config('pricing_anthropic', json_encode([
+            anthropic_connector::DEFAULT_MODEL => ['input_miss' => 1.0, 'input_hit' => 0.1, 'output' => 2.0],
+        ]), 'local_aicoursebuilder');
+        $this->mock->append(new Response(200, [], $this->message_body([['type' => 'text', 'text' => 'x']], usage: [
+            'input_tokens' => 0,
+            'cache_creation_input_tokens' => 1_000_000,
+            'cache_read_input_tokens' => 0,
+            'output_tokens' => 0,
+        ])));
+
+        $result = (new anthropic_connector())->complete($this->make_request());
+
+        $this->assertSame(1.0, $result->cost);
     }
 
     /**
