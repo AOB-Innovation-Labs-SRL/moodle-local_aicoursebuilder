@@ -27,10 +27,17 @@ defined('MOODLE_INTERNAL') || die();
 $functions = [
     'local_aicoursebuilder_create_job' => [
         'classname' => \local_aicoursebuilder\external\create_job::class,
-        'description' => 'Creates a course generation job (new course or existing course) and queues its ingestion.',
+        'description' => 'Creates a course generation job (new course or existing course) as a draft, with its sources.',
         'type' => 'write',
         'ajax' => true,
         'capabilities' => 'local/aicoursebuilder:use, local/aicoursebuilder:generateincourse',
+    ],
+    'local_aicoursebuilder_start_job' => [
+        'classname' => \local_aicoursebuilder\external\start_job::class,
+        'description' => 'Starts a draft job after its estimated cost was shown, and queues its ingestion.',
+        'type' => 'write',
+        'ajax' => true,
+        'capabilities' => 'local/aicoursebuilder:use',
     ],
     'local_aicoursebuilder_get_job_status' => [
         'classname' => \local_aicoursebuilder\external\get_job_status::class,

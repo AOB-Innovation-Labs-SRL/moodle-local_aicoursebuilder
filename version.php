@@ -25,7 +25,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_aicoursebuilder';
-$plugin->version = 2026093005;
+$plugin->version = 2026100101;
 $plugin->requires = 2026042001;
 $plugin->supported = [502, 503];
 $plugin->maturity = MATURITY_ALPHA;

@@ -194,6 +194,14 @@ class fake_connector implements connector {
             }
         }
 
+        // A Behat run cannot queue answers, so a sub-call takes the fixture of its own node when there is one:
+        // fixtures/{step}/{nodekey}.json. Otherwise every section would get the same answer and duplicate ids.
+        $nodekey = $this->nodekey($request);
+        $nodepath = $this->fixturedir . '/' . $request->step . '/' . $nodekey . '.json';
+        if (defined('BEHAT_SITE_RUNNING') && $nodekey !== '' && is_readable($nodepath)) {
+            return trim(file_get_contents($nodepath));
+        }
+
         $path = $this->fixturedir . '/' . $request->step . '.json';
         if (!is_readable($path)) {
             throw new \coding_exception("No AI fixture for step '{$request->step}': {$path}");

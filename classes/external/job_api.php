@@ -59,13 +59,7 @@ abstract class job_api extends external_api {
      * @return \context
      */
     public static function get_job_context(\stdClass $job): \context {
-        if (!empty($job->courseid)) {
-            return \context_course::instance($job->courseid);
-        }
-        if (!empty($job->categoryid)) {
-            return \context_coursecat::instance($job->categoryid);
-        }
-        return \context_system::instance();
+        return \local_aicoursebuilder\job_manager::get_context($job);
     }
 
     /**
