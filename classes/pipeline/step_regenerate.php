@@ -28,6 +28,9 @@ use local_aicoursebuilder\blueprint\validation_error;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class step_regenerate extends step {
+    /** @var string Version of the regeneration prompt. */
+    public const PROMPT_VERSION = 'v2';
+
     /** @var string Route for the target node type. */
     protected string $route;
 
@@ -64,6 +67,30 @@ class step_regenerate extends step {
     }
 
     /**
+     * Keeps the regeneration prompt version in its own step hash.
+     *
+     * @param array $route Connector route.
+     * @return array Hash context.
+     */
+    protected function hash_context(array $route): array {
+        $context = parent::hash_context($route);
+        $context['promptversion'] = self::PROMPT_VERSION;
+        return $context;
+    }
+
+    /**
+     * Renders the current regeneration prompt without changing established generation prompts.
+     *
+     * @param array $input Step input.
+     * @param string $nodekey Target id.
+     * @return string
+     */
+    protected function render_prompt(array $input, string $nodekey): string {
+        return (new prompt('regenerate', self::PROMPT_VERSION, $this->context->promptdir))
+            ->render($this->prompt_values($input, $nodekey));
+    }
+
+    /**
      * Supplies the target, immutable context and teacher instructions.
      *
      * @param array $input Blueprint, target path, required ids and instructions.
@@ -74,6 +101,7 @@ class step_regenerate extends step {
         return [
             'language_name' => $this->context->language_name(),
             'language' => $this->context->language,
+            'target_id' => $nodekey,
             'node' => node_tree::get($input['blueprint'], $input['path']),
             'blueprint' => $input['blueprint'],
             'required_ids' => $input['required_ids'],
@@ -111,23 +139,34 @@ class step_regenerate extends step {
      * @return validation_error[]
      */
     protected function validate(?array $output, array $input, string $nodekey): array {
-        if ($output === null || !isset($output['node']) || !is_array($output['node'])
-            || array_keys($output) !== ['node']) {
-            return [new validation_error('/node', validation_error::CODE_NOT_JSON,
-                'Return one JSON object containing only the replacement node.')];
+        if (
+            $output === null || !isset($output['node']) || !is_array($output['node'])
+            || array_keys($output) !== ['node']
+        ) {
+            return [new validation_error(
+                '/node',
+                validation_error::CODE_NOT_JSON,
+                'Return one JSON object containing only the replacement node.'
+            )];
         }
         $ids = [];
         $this->collect_ids($output['node'], $ids);
         $errors = [];
         foreach ($input['required_ids'] as $id) {
             if (!isset($ids[$id])) {
-                $errors[] = new validation_error('/node', validation_error::CODE_BROKEN_REF,
-                    "Preserve mandatory id {$id} in the replacement subtree.");
+                $errors[] = new validation_error(
+                    '/node',
+                    validation_error::CODE_BROKEN_REF,
+                    "Preserve mandatory id {$id} in the replacement subtree."
+                );
             }
         }
         if (($output['node']['id'] ?? null) !== $nodekey) {
-            $errors[] = new validation_error('/node/id', validation_error::CODE_BROKEN_REF,
-                'The target node id must remain unchanged.');
+            $errors[] = new validation_error(
+                '/node/id',
+                validation_error::CODE_BROKEN_REF,
+                'The target node id must remain unchanged.'
+            );
         }
         if ($errors !== []) {
             return $errors;

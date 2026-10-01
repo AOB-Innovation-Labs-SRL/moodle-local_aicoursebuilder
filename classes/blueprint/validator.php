@@ -464,8 +464,10 @@ class validator {
                 if (!is_array($item)) {
                     continue;
                 }
-                if (($item['type'] ?? '') === 'numeric' && isset($item['min'], $item['max'])
-                    && $item['min'] > $item['max']) {
+                if (
+                    ($item['type'] ?? '') === 'numeric' && isset($item['min'], $item['max'])
+                    && $item['min'] > $item['max']
+                ) {
                     $errors[] = new validation_error(
                         "{$path}/content/items/{$index}",
                         validation_error::CODE_MOODLE_LIMIT,
@@ -479,8 +481,10 @@ class validator {
             foreach ($content['pages'] ?? [] as $pageindex => $page) {
                 foreach ($page['answers'] ?? [] as $answerindex => $answer) {
                     $jump = $answer['jumpto'] ?? '';
-                    if ($jump !== '' && !in_array($jump, ['next', 'end', 'this'], true)
-                        && !in_array($jump, $pageids, true)) {
+                    if (
+                        $jump !== '' && !in_array($jump, ['next', 'end', 'this'], true)
+                        && !in_array($jump, $pageids, true)
+                    ) {
                         $errors[] = new validation_error(
                             "{$path}/content/pages/{$pageindex}/answers/{$answerindex}/jumpto",
                             validation_error::CODE_BROKEN_REF,
@@ -501,8 +505,10 @@ class validator {
                 $unique = array_values(array_unique($numbers));
                 sort($unique);
                 $expected = range(1, count($unique));
-                if ($numbers === [] || count($numbers) !== count($unique) || $unique !== $expected
-                    || max($numbers) > count($question['choices'] ?? [])) {
+                if (
+                    $numbers === [] || count($numbers) !== count($unique) || $unique !== $expected
+                    || max($numbers) > count($question['choices'] ?? [])
+                ) {
                     $errors[] = new validation_error(
                         "{$path}/content/questions/{$index}/questiontext",
                         validation_error::CODE_MOODLE_LIMIT,

@@ -65,6 +65,24 @@ class step_questions extends step {
     }
 
     /**
+     * Makes the referenced chunks part of the step input and therefore its resume hash.
+     *
+     * @param array $section Section from the outline.
+     * @param int $first First numeric question id reserved for this section.
+     * @return array Complete step input.
+     */
+    public function input_for(array $section, int $first): array {
+        [$minimum, $maximum] = self::limits();
+        return [
+            'section' => $section,
+            'question_first' => $first,
+            'chunks' => $this->referenced_chunks($section),
+            'questions_min' => $minimum,
+            'questions_max' => $maximum,
+        ];
+    }
+
+    /**
      * Builds the prompt from objectives and the referenced source chunks only.
      *
      * @param array $input Section, question id seed and optional instructions.
@@ -72,7 +90,8 @@ class step_questions extends step {
      * @return array
      */
     protected function prompt_values(array $input, string $nodekey): array {
-        [$minimum, $maximum] = self::limits();
+        $minimum = $input['questions_min'] ?? self::limits()[0];
+        $maximum = $input['questions_max'] ?? self::limits()[1];
         $first = (int) ($input['question_first'] ?? 1);
         $objectives = $input['section']['objectives'] ?? [];
         return [
@@ -81,7 +100,7 @@ class step_questions extends step {
             'section_id' => $nodekey,
             'quiz_id' => $nodekey . '.quiz1',
             'section' => $input['section'] ?? [],
-            'chunks' => $this->referenced_chunks($input['section'] ?? []),
+            'chunks' => $input['chunks'] ?? [],
             'questions_min' => $minimum,
             'questions_max' => $maximum,
             'question_first' => 'q' . $first,
@@ -107,8 +126,18 @@ class step_questions extends step {
             }
             $wanted[(int) $matches[1]][$ref['chunk'] ?? 0] = true;
         }
+        $sources = array_values($DB->get_records(
+            'local_aicb_source',
+            ['jobid' => $this->context->jobid],
+            'id ASC',
+            'id'
+        ));
         $chunks = [];
-        foreach ($wanted as $sourceid => $indexes) {
+        foreach ($wanted as $ordinal => $indexes) {
+            if (!isset($sources[$ordinal - 1])) {
+                continue;
+            }
+            $sourceid = (int) $sources[$ordinal - 1]->id;
             foreach ($indexes as $index => $unused) {
                 $record = $DB->get_record('local_aicb_chunk', [
                     'jobid' => $this->context->jobid,
@@ -117,7 +146,7 @@ class step_questions extends step {
                 ]);
                 if ($record) {
                     $chunks[] = [
-                        'source' => 'src' . $sourceid,
+                        'source' => 'src' . $ordinal,
                         'chunk' => (int) $index,
                         'page' => $record->pagefrom === null ? null : (int) $record->pagefrom,
                         'title' => $record->title,
@@ -143,10 +172,14 @@ class step_questions extends step {
             return $errors;
         }
         if (($output['id'] ?? null) !== $nodekey || ($output['quiz']['id'] ?? null) !== $nodekey . '.quiz1') {
-            $errors[] = new validation_error('/quiz/id', validation_error::CODE_BROKEN_REF,
-                'Use the requested section and quiz ids.');
+            $errors[] = new validation_error(
+                '/quiz/id',
+                validation_error::CODE_BROKEN_REF,
+                'Use the requested section and quiz ids.'
+            );
         }
-        [$minimum, $maximum] = self::limits();
+        $minimum = $input['questions_min'] ?? self::limits()[0];
+        $maximum = $input['questions_max'] ?? self::limits()[1];
         $counts = array_fill_keys(array_column($input['section']['objectives'] ?? [], 'id'), 0);
         foreach ($output['quiz']['content']['questions'] ?? [] as $index => $question) {
             if (!is_array($question)) {
@@ -154,22 +187,41 @@ class step_questions extends step {
             }
             $ref = $question['objective_ref'] ?? '';
             if (!array_key_exists($ref, $counts)) {
-                $errors[] = new validation_error("/quiz/content/questions/{$index}/objective_ref",
-                    validation_error::CODE_BROKEN_REF, 'Use an objective id of this section.');
+                $errors[] = new validation_error(
+                    "/quiz/content/questions/{$index}/objective_ref",
+                    validation_error::CODE_BROKEN_REF,
+                    'Use an objective id of this section.'
+                );
             } else {
                 $counts[$ref]++;
             }
-            foreach (['id', 'generalfeedback', 'difficulty', 'source_refs'] as $field) {
+            foreach (['id', 'generalfeedback', 'difficulty'] as $field) {
                 if (empty($question[$field])) {
-                    $errors[] = new validation_error("/quiz/content/questions/{$index}/{$field}",
-                        validation_error::CODE_MOODLE_LIMIT, "Every generated question needs {$field}.");
+                    $errors[] = new validation_error(
+                        "/quiz/content/questions/{$index}/{$field}",
+                        validation_error::CODE_MOODLE_LIMIT,
+                        "Every generated question needs {$field}."
+                    );
                 }
+            }
+            if (
+                !isset($question['source_refs']) || !is_array($question['source_refs'])
+                || (!empty($input['section']['source_refs']) && $question['source_refs'] === [])
+            ) {
+                $errors[] = new validation_error(
+                    "/quiz/content/questions/{$index}/source_refs",
+                    validation_error::CODE_MOODLE_LIMIT,
+                    'Use the source references of this section.'
+                );
             }
         }
         foreach ($counts as $id => $count) {
             if ($count < $minimum || $count > $maximum) {
-                $errors[] = new validation_error('/quiz/content/questions', validation_error::CODE_MOODLE_LIMIT,
-                    "Objective {$id} needs between {$minimum} and {$maximum} questions, found {$count}.");
+                $errors[] = new validation_error(
+                    '/quiz/content/questions',
+                    validation_error::CODE_MOODLE_LIMIT,
+                    "Objective {$id} needs between {$minimum} and {$maximum} questions, found {$count}."
+                );
             }
         }
         return $errors;

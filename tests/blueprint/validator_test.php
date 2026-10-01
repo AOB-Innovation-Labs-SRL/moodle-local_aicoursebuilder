@@ -211,6 +211,49 @@ final class validator_test extends \basic_testcase {
     }
 
     /**
+     * Choice, Feedback and Lesson reject options, types and jumps Moodle cannot use.
+     */
+    public function test_interactive_activity_limits(): void {
+        $blueprint = $this->golden;
+        $blueprint['sections'][2]['activities'][0]['content']['options'] = ['One'];
+        $this->assertContains(validation_error::CODE_SCHEMA, $this->codes($blueprint));
+
+        $blueprint = $this->golden;
+        $blueprint['sections'][2]['activities'][1]['content']['items'][0]['type'] = 'survey';
+        $this->assertContains(validation_error::CODE_SCHEMA, $this->codes($blueprint));
+
+        $blueprint = $this->golden;
+        $blueprint['sections'][2]['activities'][1]['content']['items'][] = [
+            'type' => 'numeric', 'name' => 'Scor', 'min' => 10, 'max' => 1,
+        ];
+        $this->assertContains(validation_error::CODE_MOODLE_LIMIT, $this->codes($blueprint));
+
+        $blueprint = $this->golden;
+        $blueprint['sections'][1]['activities'][0]['content']['pages'][0]['answers'][0]['jumpto'] = 'p99';
+        $this->assertContains(validation_error::CODE_BROKEN_REF, $this->codes($blueprint));
+    }
+
+    /**
+     * Gap questions reject missing, repeated and out-of-range choice markers.
+     */
+    public function test_gap_markers_must_match_choices(): void {
+        $blueprint = $this->golden;
+        $quiz = $this->index_of('quiz');
+        foreach ($blueprint['sections'][0]['activities'][$quiz]['content']['questions'] as $index => $question) {
+            if (($question['qtype'] ?? '') === 'gapselect') {
+                $blueprint['sections'][0]['activities'][$quiz]['content']['questions'][$index]['questiontext'] =
+                    '<p>[[1]] și [[1]]</p>';
+                $this->assertContains(validation_error::CODE_MOODLE_LIMIT, $this->codes($blueprint));
+                $blueprint['sections'][0]['activities'][$quiz]['content']['questions'][$index]['questiontext'] =
+                    '<p>[[99]]</p>';
+                $this->assertContains(validation_error::CODE_MOODLE_LIMIT, $this->codes($blueprint));
+                return;
+            }
+        }
+        $this->fail('Golden fixture has no gapselect question');
+    }
+
+    /**
      * A reference is broken even when the blueprint declares no activities at all.
      *
      * This is what a section that could not be written leaves behind, so it is the case where a
@@ -380,7 +423,7 @@ final class validator_test extends \basic_testcase {
      */
     public function test_an_unknown_step_is_a_coding_error(): void {
         $this->expectException(\coding_exception::class);
-        $this->validator->validate_step('activities', ['sections' => []]);
+        $this->validator->validate_step('unknown_step', ['sections' => []]);
     }
 
     /**

@@ -20,6 +20,9 @@ use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
 use invalid_parameter_exception;
+use local_aicoursebuilder\blueprint\node_tree;
+use local_aicoursebuilder\blueprint\version_store;
+use local_aicoursebuilder\task\regenerate_node as regenerate_task;
 
 /**
  * Web service local_aicoursebuilder_regenerate_node.
@@ -48,7 +51,7 @@ class regenerate_node extends job_api {
     }
 
     /**
-     * Validates the request; regeneration is implemented in a later task.
+     * Validates the owner and target, then queues asynchronous regeneration.
      *
      * @param int $jobid Job id.
      * @param string $nodeid Blueprint node id.
@@ -64,8 +67,23 @@ class regenerate_node extends job_api {
         if (!preg_match(self::NODEID_PATTERN, $params['nodeid'])) {
             throw new invalid_parameter_exception('nodeid is not a blueprint node id');
         }
-        self::validate_job($params['jobid'], true);
-        self::not_implemented();
+        $job = self::validate_job($params['jobid'], true);
+        $source = (new version_store())->latest((int) $job->id);
+        if (!$source) {
+            throw new \moodle_exception('regenerationnoblueprint', 'local_aicoursebuilder');
+        }
+        $blueprint = json_decode($source->content, true, 512, JSON_THROW_ON_ERROR);
+        if (node_tree::locate($blueprint, $params['nodeid']) === null) {
+            throw new \moodle_exception('regenerationnodeunknown', 'local_aicoursebuilder', '', $params['nodeid']);
+        }
+        \core\task\manager::queue_adhoc_task(regenerate_task::instance(
+            (int) $job->id,
+            (int) $job->userid,
+            (int) $source->id,
+            $params['nodeid'],
+            $params['instructions'],
+        ));
+        return ['jobid' => (int) $job->id, 'nodeid' => $params['nodeid'], 'queued' => true];
     }
 
     /**

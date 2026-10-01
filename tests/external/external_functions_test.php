@@ -18,6 +18,9 @@ namespace local_aicoursebuilder\external;
 
 use core_external\external_api;
 use invalid_parameter_exception;
+use local_aicoursebuilder\blueprint\validator;
+use local_aicoursebuilder\blueprint\version_store;
+use local_aicoursebuilder\task\regenerate_node as regenerate_task;
 
 /**
  * Tests for the web service contracts (parameters, returns and access checks).
@@ -164,8 +167,43 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $this->assert_not_implemented(fn() => save_blueprint::execute($jobid, '{"version": "1.0"}', 1));
         $this->assert_not_implemented(fn() => approve_blueprint::execute($jobid, 1, $hash));
         $this->assert_not_implemented(fn() => estimate_cost::execute($jobid));
-        $this->assert_not_implemented(fn() => regenerate_node::execute($jobid, 's1.quiz1', ''));
+        try {
+            regenerate_node::execute($jobid, 's1.quiz1', '');
+            $this->fail('Expected the missing blueprint error');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('regenerationnoblueprint', $e->errorcode);
+        }
         $this->assert_not_implemented(fn() => create_job::execute('existingcourse', 0, $course->id, 1, 'Test', 'ro', 0, '', true));
+    }
+
+    /**
+     * The owner queues a dedicated task pinned to the current blueprint version.
+     */
+    public function test_regenerate_node_queues_its_own_task(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+        $course = $this->getDataGenerator()->create_course();
+        $owner = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $jobid = $this->create_job_record($owner->id, $course->id);
+        $blueprint = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/blueprint_golden.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $source = (new version_store())->save($jobid, (int) $owner->id, $blueprint, new validator());
+        $this->setUser($owner);
+
+        $response = regenerate_node::execute($jobid, 's1.quiz1', 'Clarifică feedback-ul');
+
+        $this->assertSame(['jobid' => $jobid, 'nodeid' => 's1.quiz1', 'queued' => true], $response);
+        $task = $DB->get_record('task_adhoc', ['classname' => '\\' . regenerate_task::class], '*', MUST_EXIST);
+        $data = json_decode($task->customdata, true);
+        $this->assertSame((int) $source->id, $data['blueprintid']);
+        $this->assertSame('s1.quiz1', $data['nodeid']);
+        $this->assertSame('Clarifică feedback-ul', $data['instructions']);
+        $this->assertSame((int) $owner->id, (int) $task->userid);
     }
 
     /**

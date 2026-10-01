@@ -159,8 +159,10 @@ class node_tree {
      */
     protected static function collect_references(array $value, array &$references): void {
         foreach ($value as $key => $child) {
-            if (in_array($key, ['require_completion_of', 'completion_activities', 'activities'], true)
-                && is_array($child)) {
+            if (
+                in_array($key, ['require_completion_of', 'completion_activities', 'activities'], true)
+                && is_array($child)
+            ) {
                 foreach ($child as $id) {
                     if (is_string($id)) {
                         $references[$id] = true;

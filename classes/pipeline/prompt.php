@@ -39,7 +39,7 @@ class prompt {
     /** @var string[] Marker words a value must never be able to write at the start of a line. */
     protected const MARKERS = [
         'REQUEST', 'SOURCES', 'BRIEF', 'OUTLINE', 'SECTION', 'ERRORS', 'DOCUMENT',
-        'CHUNKS', 'ACTIVITIES', 'BLUEPRINT', 'INSTRUCTIONS', 'REQUIRED_IDS',
+        'CHUNKS', 'ACTIVITIES', 'BLUEPRINT', 'INSTRUCTIONS', 'REQUIRED_IDS', 'TARGET_ID',
     ];
 
     /** @var string Name of the prompt, such as brief, outline, sections or repair. */

@@ -104,6 +104,22 @@ final class orchestrator_test extends \advanced_testcase {
             }
             $this->connector->push(request::STEP_SECTIONS, $this->section_fixture($id), $id);
         }
+        foreach (['s1', 's1-1', 's2', 's3'] as $id) {
+            $path = dirname(__DIR__) . '/fixtures/ai/activities/' . $id . '.json';
+            $this->connector->push(
+                request::STEP_ACTIVITIES,
+                json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR),
+                $id
+            );
+        }
+        foreach (['s1', 's2', 's3'] as $id) {
+            $path = dirname(__DIR__) . '/fixtures/ai/questions/' . $id . '.json';
+            $this->connector->push(
+                request::STEP_QUESTIONS,
+                json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR),
+                $id
+            );
+        }
     }
 
     /**
@@ -168,6 +184,240 @@ final class orchestrator_test extends \advanced_testcase {
         $this->assertSame(1, $this->connector->call_count(request::STEP_BRIEF));
         $this->assertSame(1, $this->connector->call_count(request::STEP_OUTLINE));
         $this->assertSame(4, $this->connector->call_count(request::STEP_SECTIONS));
+        $this->assertSame(4, $this->connector->call_count(request::STEP_ACTIVITIES));
+        $this->assertSame(3, $this->connector->call_count(request::STEP_QUESTIONS));
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REVIEW));
+        $this->assertSame(1, $GLOBALS['DB']->count_records('local_aicb_blueprint', ['jobid' => $this->jobid]));
+
+        $types = [];
+        foreach ($outcome->blueprint['sections'] as $section) {
+            foreach ($section['activities'] as $activity) {
+                $types[$activity['type']] = true;
+                if ($activity['type'] === 'quiz') {
+                    $counts = array_count_values(array_column($activity['content']['questions'], 'objective_ref'));
+                    foreach ($section['objectives'] as $objective) {
+                        $this->assertSame(5, $counts[$objective['id']]);
+                    }
+                }
+            }
+        }
+        foreach (['lesson', 'assign', 'forum', 'glossary', 'wiki', 'choice', 'feedback'] as $type) {
+            $this->assertArrayHasKey($type, $types);
+        }
+    }
+
+    /**
+     * An invalid activity answer is repaired without changing another section.
+     */
+    public function test_activity_limit_error_is_repaired(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $good = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/ai/activities/s3.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $bad = $good;
+        $bad['activities'][0]['content']['options'] = ['Only one'];
+        $this->connector->push(request::STEP_ACTIVITIES, $bad, 's3');
+        $this->queue_sections();
+        $this->connector->push(request::STEP_REPAIR, $good);
+
+        $outcome = (new orchestrator($this->context()))->run('Curs despre energie.');
+
+        $this->assertSame([], $outcome->errors);
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR));
+        $choice = array_values(array_filter(
+            $outcome->blueprint['sections'][2]['activities'],
+            fn(array $activity) => $activity['type'] === 'choice'
+        ))[0];
+        $this->assertSame($good['activities'][0]['content'], $choice['content']);
+    }
+
+    /**
+     * Bad fractions and gap markers are repaired before the quiz is assembled.
+     */
+    public function test_question_fraction_and_marker_errors_are_repaired(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $good = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/ai/questions/s1.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $bad = $good;
+        $bad['quiz']['content']['questions'][0]['answers'][0]['fraction'] = 0.5;
+        foreach ($bad['quiz']['content']['questions'] as &$question) {
+            if ($question['qtype'] === 'gapselect') {
+                $question['questiontext'] = '<p>[[99]]</p>';
+                break;
+            }
+        }
+        unset($question);
+        $this->connector->push(request::STEP_QUESTIONS, $bad, 's1');
+        $this->queue_sections();
+        $this->connector->push(request::STEP_REPAIR, $good);
+
+        $outcome = (new orchestrator($this->context()))->run('Curs despre energie.');
+
+        $this->assertSame([], $outcome->errors);
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR));
+        $quiz = array_values(array_filter(
+            $outcome->blueprint['sections'][0]['activities'],
+            fn(array $activity) => $activity['type'] === 'quiz'
+        ))[0];
+        $this->assertSame($good['quiz']['content']['questions'], $quiz['content']['questions']);
+    }
+
+    /**
+     * An unrepaired question answer becomes a flagged quiz while other sections remain valid.
+     */
+    public function test_bad_questions_are_marked_after_repair_exhaustion(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $bad = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/ai/questions/s1.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $bad['quiz']['content']['questions'][0]['answers'][0]['fraction'] = 0.5;
+        $this->connector->push(request::STEP_QUESTIONS, $bad, 's1');
+        $this->queue_sections();
+        $this->connector->push(request::STEP_REPAIR, $bad);
+        $this->connector->push(request::STEP_REPAIR, $bad);
+        $this->connector->push(request::STEP_REVIEW, ['verdict' => 'revise', 'issues' => []]);
+
+        $outcome = (new orchestrator($this->context()))->run('Curs despre energie.');
+
+        $this->assertSame([], $outcome->errors);
+        $this->assertContains('s1', $outcome->manualnodes);
+        $quiz = array_values(array_filter(
+            $outcome->blueprint['sections'][0]['activities'],
+            fn(array $activity) => $activity['type'] === 'quiz'
+        ))[0];
+        $this->assertTrue($quiz['review_flag']);
+        $this->assertSame(2, $this->connector->call_count(request::STEP_REPAIR));
+    }
+
+    /**
+     * Critic observations stay in the step row while the blueprint gets flags only.
+     */
+    public function test_review_marks_without_rewriting_content(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections();
+        $this->connector->push(request::STEP_REVIEW, [
+            'verdict' => 'revise',
+            'issues' => [
+                ['node' => 's2.assign1', 'severity' => 'major', 'message' => 'Clarify grading criteria.'],
+                ['node' => 'q1', 'severity' => 'minor', 'message' => 'Clarify this answer.'],
+            ],
+        ]);
+
+        $outcome = (new orchestrator($this->context()))->run('Curs despre energie.');
+
+        $assignment = $outcome->blueprint['sections'][1]['activities'][3];
+        $this->assertSame('s2.assign1', $assignment['id']);
+        $this->assertTrue($assignment['review_flag']);
+        $quiz = array_values(array_filter(
+            $outcome->blueprint['sections'][0]['activities'],
+            fn(array $activity) => $activity['type'] === 'quiz'
+        ))[0];
+        $this->assertTrue($quiz['review_flag']);
+        $this->assertStringNotContainsString('Clarify grading criteria.', json_encode($outcome->blueprint));
+        $row = $GLOBALS['DB']->get_record('local_aicb_step', ['jobid' => $this->jobid, 'step' => request::STEP_REVIEW]);
+        $this->assertStringContainsString('Clarify grading criteria.', $row->output);
+    }
+
+    /**
+     * Question calls receive the exact chunk referenced by their section, never another source.
+     */
+    public function test_questions_use_referenced_chunks(): void {
+        global $DB;
+
+        $now = time();
+        $sourceid = $DB->insert_record('local_aicb_source', (object) [
+            'jobid' => $this->jobid,
+            'filename' => 'source.txt',
+            'mimetype' => 'text/plain',
+            'filesize' => 20,
+            'contenthash' => str_repeat('a', 40),
+            'status' => 'extracted',
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $this->assertGreaterThan(0, $sourceid);
+        $chunkid = $DB->insert_record('local_aicb_chunk', (object) [
+            'jobid' => $this->jobid,
+            'sourceid' => $sourceid,
+            'chunkindex' => 0,
+            'title' => 'Definiție',
+            'pagefrom' => 1,
+            'pageto' => 1,
+            'content' => 'CHUNK_SENTINEL_DOAR_S1: energia vine din surse naturale.',
+            'tokencount' => 15,
+            'contenthash' => str_repeat('b', 40),
+            'timecreated' => $now,
+        ]);
+
+        $outcome = (new orchestrator($this->context()))->run('Curs despre energie.');
+
+        $this->assertSame([], $outcome->errors);
+        $requests = $this->connector->requests(request::STEP_QUESTIONS);
+        $this->assertCount(3, $requests);
+        $this->assertStringContainsString('CHUNK_SENTINEL_DOAR_S1', $requests[0]->system);
+        $this->assertStringNotContainsString('CHUNK_SENTINEL_DOAR_S1', $requests[1]->system);
+
+        $DB->set_field('local_aicb_chunk', 'content', 'CHUNK_CHANGED_FOR_S1', ['id' => $chunkid]);
+        $this->connector->reset_counts();
+        $this->queue_sections(['s1']);
+        (new orchestrator($this->context()))->run('Curs despre energie.');
+        $this->assertSame(
+            1,
+            $this->connector->call_count(request::STEP_QUESTIONS),
+            'a changed referenced chunk invalidates only its question step'
+        );
+        $this->assertStringContainsString(
+            'CHUNK_CHANGED_FOR_S1',
+            $this->connector->requests(request::STEP_QUESTIONS)[0]->system
+        );
+    }
+
+    /**
+     * Site settings control the per-objective interval within the supported 5–15 range.
+     */
+    public function test_question_limits_are_configurable(): void {
+        set_config('questions_min', '6', 'local_aicoursebuilder');
+        set_config('questions_max', '10', 'local_aicoursebuilder');
+        $this->assertSame([6, 10], step_questions::limits());
+        set_config('questions_min', '1', 'local_aicoursebuilder');
+        set_config('questions_max', '99', 'local_aicoursebuilder');
+        $this->assertSame([5, 15], step_questions::limits());
+    }
+
+    /**
+     * Changing the limits invalidates a cached quiz for the same section and chunks.
+     */
+    public function test_question_limit_change_invalidates_cached_quiz(): void {
+        (new orchestrator($this->context()))->run('Curs despre energie.');
+        $outline = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/ai/outline.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $step = new step_questions($this->context());
+        $input = $step->input_for($outline['sections'][0], 1);
+        $this->assertTrue($step->has_finished($input, 's1'));
+
+        set_config('questions_min', '6', 'local_aicoursebuilder');
+        set_config('questions_max', '10', 'local_aicoursebuilder');
+        $changedinput = $step->input_for($outline['sections'][0], 1);
+        $this->assertFalse($step->has_finished($changedinput, 's1'));
+        $this->assertStringContainsString('6 and 10 questions', $step->request_for($changedinput, 's1')->system);
     }
 
     /**
@@ -179,7 +429,7 @@ final class orchestrator_test extends \advanced_testcase {
         (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
 
         $rows = $DB->get_records('local_aicb_step', ['jobid' => $this->jobid], 'id ASC');
-        $this->assertCount(6, $rows, 'brief, outline and four sections');
+        $this->assertCount(14, $rows, 'brief, outline, four sections, four activities, three quizzes and review');
 
         foreach ($rows as $row) {
             $this->assertSame(step_store::STATUS_DONE, $row->status);
@@ -198,7 +448,7 @@ final class orchestrator_test extends \advanced_testcase {
             array_slice($steps, 0, 2),
             'the steps run in order',
         );
-        $nodekeys = array_values(array_filter(array_column($rows, 'nodekey')));
+        $nodekeys = array_values(array_unique(array_filter(array_column($rows, 'nodekey'))));
         $this->assertEqualsCanonicalizing(['s1', 's1-1', 's2', 's3'], $nodekeys);
     }
 
@@ -208,7 +458,7 @@ final class orchestrator_test extends \advanced_testcase {
     public function test_resuming_does_not_pay_for_finished_steps(): void {
         $first = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
         $this->assertSame(pipeline_outcome::REASON_COMPLETED, $first->reason);
-        $this->assertSame(6, $this->connector->call_count());
+        $this->assertSame(14, $this->connector->call_count());
 
         $this->connector->reset_counts();
         $second = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
@@ -229,7 +479,7 @@ final class orchestrator_test extends \advanced_testcase {
 
         // A second version of the prompts, identical in content: only the version has to differ.
         $dir = make_temp_directory('local_aicoursebuilder_prompts_v2');
-        foreach (['brief', 'outline', 'sections', 'repair'] as $name) {
+        foreach (['brief', 'outline', 'sections', 'activities', 'questions', 'review', 'repair'] as $name) {
             copy("{$CFG->dirroot}/local/aicoursebuilder/prompts/{$name}.v1.md", "{$dir}/{$name}.v2.md");
         }
 
@@ -250,7 +500,7 @@ final class orchestrator_test extends \advanced_testcase {
         $this->queue_sections();
         $outcome = (new orchestrator($context))->run('Un curs despre energia regenerabilă.');
 
-        $this->assertSame(6, $this->connector->call_count(), 'every step runs again under the new version');
+        $this->assertSame(14, $this->connector->call_count(), 'every step runs again under the new version');
         $this->assertSame(pipeline_outcome::REASON_COMPLETED, $outcome->reason);
     }
 
@@ -274,7 +524,7 @@ final class orchestrator_test extends \advanced_testcase {
         $sections = array_column($outcome->blueprint['sections'], 'activities', 'id');
         $this->assertNotEmpty($sections['s1'], 's1 was written');
         $this->assertNotEmpty($sections['s3'], 's3 was written');
-        $this->assertCount(1, $sections['s2'], 's2 keeps its place with a placeholder');
+        $this->assertNotEmpty($sections['s2'], 's2 keeps its place with a placeholder');
         $this->assertTrue($sections['s2'][0]['review_flag']);
         $this->assertSame([], $outcome->errors, 'the placeholder validates');
     }
@@ -338,7 +588,7 @@ final class orchestrator_test extends \advanced_testcase {
         $this->assertSame(['s1'], $outcome->manualnodes);
 
         $activities = array_column($outcome->blueprint['sections'], 'activities', 'id')['s1'];
-        $this->assertCount(1, $activities, 'the placeholder keeps the section in the course');
+        $this->assertNotEmpty($activities, 'the placeholder keeps the section in the course');
         $this->assertTrue($activities[0]['review_flag']);
         $this->assertSame([], $outcome->errors, 'the placeholder itself is valid');
     }
@@ -421,9 +671,9 @@ final class orchestrator_test extends \advanced_testcase {
 
         $this->assertSame(pipeline_outcome::REASON_COMPLETED, $outcome->reason, $outcome->message);
         $this->assertSame(
-            4,
+            12,
             $this->connector->call_count(),
-            'the four sections are paid for, the brief and the outline are resumed',
+            'remaining sections, activities, quizzes and review are paid for',
         );
         $this->assertSame([], $outcome->errors);
     }
@@ -445,7 +695,11 @@ final class orchestrator_test extends \advanced_testcase {
 
         // Forget one section only, and the next run asks for that one alone.
         global $DB;
-        $DB->delete_records('local_aicb_step', ['jobid' => $this->jobid, 'nodekey' => 's2']);
+        $DB->delete_records('local_aicb_step', [
+            'jobid' => $this->jobid,
+            'nodekey' => 's2',
+            'step' => request::STEP_SECTIONS,
+        ]);
         $this->connector->reset_counts();
         $this->queue_sections(['s2']);
 

@@ -95,6 +95,7 @@ class orchestrator {
         $containers = $this->containers($outline->output);
         $activityinputs = [];
         $questioninputs = [];
+        $questionstep = new step_questions($this->context);
         $index = 0;
         foreach ($containers as $id => $container) {
             $activityinputs[$id] = [
@@ -102,11 +103,11 @@ class orchestrator {
                 'activities' => $sections[$id]->output['activities'] ?? [],
             ];
             if (!empty($container['objectives'])) {
-                $questioninputs[$id] = ['section' => $container, 'question_first' => ++$index * 1000 + 1];
+                $questioninputs[$id] = $questionstep->input_for($container, $index++ * 1000 + 1);
             }
         }
         $activities = $this->run_parallel(new step_activities($this->context), $activityinputs);
-        $questions = $this->run_parallel(new step_questions($this->context), $questioninputs);
+        $questions = $this->run_parallel($questionstep, $questioninputs);
         $blueprint = $this->assemble($outline->output, $sections, $activities, $questions);
         $review = (new step_review($this->context))->run(['blueprint' => $blueprint]);
         if ($review->is_success()) {

@@ -92,8 +92,11 @@ class step_review extends step {
         }
         foreach ($output['issues'] ?? [] as $index => $issue) {
             if (!isset($ids[$issue['node'] ?? ''])) {
-                $errors[] = new validation_error("/issues/{$index}/node", validation_error::CODE_BROKEN_REF,
-                    'The review may name only an existing section, activity or question id.');
+                $errors[] = new validation_error(
+                    "/issues/{$index}/node",
+                    validation_error::CODE_BROKEN_REF,
+                    'The review may name only an existing section, activity or question id.'
+                );
             }
         }
         return $errors;
