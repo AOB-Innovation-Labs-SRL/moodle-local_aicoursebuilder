@@ -43,6 +43,7 @@ class schema_store {
 
     /** @var array<string, string> Step name => schema id, without the prefix. */
     public const STEP_SCHEMAS = [
+        'digest' => 'steps/digest.v1',
         'brief' => 'steps/brief.v1',
         'outline' => 'steps/outline.v1',
         'sections' => 'steps/sections.v1',
