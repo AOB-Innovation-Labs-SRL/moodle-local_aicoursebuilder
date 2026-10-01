@@ -297,12 +297,13 @@ class build_course extends \core\task\adhoc_task {
                 }
                 continue;
             }
+            if ($newcourse && !$context->has_course()) {
+                // The course step comes first in the plan, so this only happens on a blueprint with no
+                // course at all. Stop before the builders run against a context with no course.
+                $this->fail_job($job, get_string('builderrornocourse', 'local_aicoursebuilder'));
+                return false;
+            }
             $this->run_step($job, $step, $context);
-        }
-        if ($newcourse && !$context->has_course()) {
-            // A blueprint with no course node at all: there is nothing to build into.
-            $this->fail_job($job, get_string('builderrornocourse', 'local_aicoursebuilder'));
-            return false;
         }
         return true;
     }

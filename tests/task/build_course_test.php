@@ -480,6 +480,35 @@ final class build_course_test extends \advanced_testcase {
     }
 
     /**
+     * A new course job whose course node builds nothing fails before the other builders run.
+     */
+    public function test_course_builder_without_a_course_fails_the_job(): void {
+        $this->add_blueprint();
+        // A course builder that reports success but no course id: there is nothing to build into.
+        $registry = $this->registry(skip: ['course']);
+        $registry->register('course', new class implements \local_aicoursebuilder\builder\builder_interface {
+            /**
+             * Reports a course that does not exist.
+             *
+             * @param array|\stdClass $node The blueprint node.
+             * @param \local_aicoursebuilder\builder\build_context $context The build context.
+             * @return build_result
+             */
+            #[\Override]
+            public function build(
+                array|\stdClass $node,
+                \local_aicoursebuilder\builder\build_context $context,
+            ): build_result {
+                return new build_result(build_plan::COURSE_NODEID, build_result::STATUS_CREATED);
+            }
+        });
+        $this->run_task($registry);
+
+        $this->assertSame([], $this->builder->calls, 'No other builder ran');
+        $this->assertSame(build_course::STATUS_FAILED, $this->job()->status);
+    }
+
+    /**
      * A cancelled job is not built, even if the task was already queued.
      */
     public function test_cancelled_job_is_not_built(): void {
