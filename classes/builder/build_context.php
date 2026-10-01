@@ -23,6 +23,10 @@ namespace local_aicoursebuilder\builder;
  * persisted in local_aicb_job.buildmap after every recorded node, so a re-run skips built nodes and
  * a rollback deletes exactly the cmids it holds. The section map and the cm map are views of it.
  *
+ * The course and the question bank context are set once: in an existing course they are known from the
+ * start, in a new course the course node creates the course and the caller fixes it with set_course()
+ * before any other builder runs.
+ *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -34,23 +38,33 @@ class build_context {
     /** @var array Build map, node id => ['cmid', 'instanceid', 'sectionnum', 'status']. */
     protected array $buildmap = [];
 
+    /** @var \stdClass|null The course being built, null until the course node has created it. */
+    protected ?\stdClass $course = null;
+
+    /** @var \context|null Context of the mod_qbank instance that receives the questions. */
+    protected ?\context $qbankcontext = null;
+
     /**
      * Creates the context.
      *
-     * @param \stdClass $course The course being built.
+     * In an existing course the course is known from the start. In a new course it is null until the
+     * course node has been built, because the course builder is what creates it: the caller then fixes
+     * it with set_course(), before any other builder runs.
+     *
+     * @param \stdClass|null $course The course being built, null when the course node has not run yet.
      * @param \context|null $qbankcontext Context of the mod_qbank instance that receives the questions.
      * @param array $buildmap Build map restored from a previous run.
      * @param int|null $jobid Job whose buildmap field is updated on every record(), null to keep it in memory.
      */
     public function __construct(
-        /** @var \stdClass The course being built. */
-        public readonly \stdClass $course,
-        /** @var \context|null Question bank context. */
-        public readonly ?\context $qbankcontext = null,
+        ?\stdClass $course = null,
+        ?\context $qbankcontext = null,
         array $buildmap = [],
         /** @var int|null Job id. */
         public readonly ?int $jobid = null,
     ) {
+        $this->course = $course;
+        $this->qbankcontext = $qbankcontext;
         foreach ($buildmap as $nodeid => $entry) {
             $this->buildmap[(string) $nodeid] = self::normalise_entry((array) $entry);
         }
@@ -60,16 +74,73 @@ class build_context {
      * Creates the context of a job, restoring its persisted build map.
      *
      * @param \stdClass $job Record from local_aicb_job.
-     * @param \stdClass $course The course being built.
+     * @param \stdClass|null $course The course being built, null when the course node has not run yet.
      * @param \context|null $qbankcontext Question bank context.
      * @return self
      */
-    public static function from_job(\stdClass $job, \stdClass $course, ?\context $qbankcontext = null): self {
+    public static function from_job(\stdClass $job, ?\stdClass $course = null, ?\context $qbankcontext = null): self {
         $buildmap = [];
         if (!empty($job->buildmap)) {
             $buildmap = json_decode($job->buildmap, true, 512, JSON_THROW_ON_ERROR);
         }
         return new self($course, $qbankcontext, $buildmap, (int) $job->id);
+    }
+
+    /**
+     * Returns the course being built.
+     *
+     * @return \stdClass
+     * @throws \coding_exception When the course node has not been built yet.
+     */
+    public function get_course(): \stdClass {
+        if ($this->course === null) {
+            throw new \coding_exception('The course node has not been built yet: build_context has no course.');
+        }
+        return $this->course;
+    }
+
+    /**
+     * Tells whether the course is known, so that a caller can check before get_course().
+     *
+     * @return bool
+     */
+    public function has_course(): bool {
+        return $this->course !== null;
+    }
+
+    /**
+     * Fixes the course created by the course node. The course never changes afterwards.
+     *
+     * @param \stdClass $course The course record.
+     * @throws \coding_exception When the course is already set.
+     */
+    public function set_course(\stdClass $course): void {
+        if ($this->course !== null) {
+            throw new \coding_exception('The course of a build_context is set once and never changes.');
+        }
+        $this->course = $course;
+    }
+
+    /**
+     * Returns the context of the mod_qbank instance that receives the questions.
+     *
+     * @return \context|null Null when no question bank has been resolved yet.
+     */
+    public function get_qbankcontext(): ?\context {
+        return $this->qbankcontext;
+    }
+
+    /**
+     * Fixes the question bank context. Like the course, it is set once.
+     *
+     * @param \context $qbankcontext The context of the mod_qbank instance.
+     * @throws \coding_exception When it is already set.
+     */
+    public function set_qbankcontext(\context $qbankcontext): void {
+        if ($this->qbankcontext !== null) {
+            throw new \coding_exception('The question bank context of a build_context is set once and never changes.');
+        }
+        $this->qbankcontext = $qbankcontext;
     }
 
     /**
