@@ -176,6 +176,7 @@
     },
     {
       "file": "xlsx_01.xlsx",
+      "included_in_zip": true,
       "original_title": "Rețeaua școlară 2024-2025",
       "institution": "Ministerul Educației / data.gov.ro",
       "download_url": "https://data.gov.ro/dataset/69abefd6-8d94-458c-bc5a-a40c52e73402/resource/d474f5be-9f11-440b-a309-df7f34960e33/download/retea-scolara-2024-2025.xlsx",
