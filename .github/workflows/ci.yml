@@ -1,12 +1,64 @@
 name: Moodle Plugin CI
 
-on: [push, pull_request]
+# Runs on pull requests to main, and on demand. There is no push trigger: a branch is verified by the
+# pull request that carries it, so pushing to dev no longer burns a full matrix on every commit, which
+# is what kept this repository near the 2000 minutes a month of GitHub Free.
+#
+# The pull request matrix is the two combinations that between them cover both PHP versions, both Moodle
+# branches and both databases. The full matrix of eight is run on demand, with full=true: before the
+# Friday integration and before a release (see WORKFLOW.md).
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Run the full matrix (2 PHP x 2 Moodle branches x 2 databases)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# A new push to the same pull request cancels the run still going for the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Chooses the matrix: the reduced one by default, all eight when asked for it.
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      include: ${{ steps.pick.outputs.include }}
+    steps:
+      - name: Pick the matrix
+        id: pick
+        shell: bash
+        # The names of the reduced jobs are a subset of the names of the full matrix, because both are
+        # built from the same three values in the same order. That matters: the branch protection of main
+        # requires status checks by name, see WORKFLOW.md.
+        run: |
+          if [ "${{ inputs.full }}" = "true" ]; then
+            echo 'include=[
+              {"php":"8.3","moodle-branch":"MOODLE_502_STABLE","database":"pgsql"},
+              {"php":"8.3","moodle-branch":"MOODLE_502_STABLE","database":"mariadb"},
+              {"php":"8.3","moodle-branch":"main","database":"pgsql"},
+              {"php":"8.3","moodle-branch":"main","database":"mariadb"},
+              {"php":"8.4","moodle-branch":"MOODLE_502_STABLE","database":"pgsql"},
+              {"php":"8.4","moodle-branch":"MOODLE_502_STABLE","database":"mariadb"},
+              {"php":"8.4","moodle-branch":"main","database":"pgsql"},
+              {"php":"8.4","moodle-branch":"main","database":"mariadb"}
+            ]' | tr -d '\n ' >> "$GITHUB_OUTPUT"
+          else
+            echo 'include=[
+              {"php":"8.3","moodle-branch":"MOODLE_502_STABLE","database":"pgsql"},
+              {"php":"8.4","moodle-branch":"main","database":"mariadb"}
+            ]' | tr -d '\n ' >> "$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: matrix
     runs-on: ubuntu-24.04
 
     services:
@@ -33,10 +85,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4']
         # TODO: replace 'main' with MOODLE_503_STABLE after 5 Oct 2026 (Moodle 5.3 release).
-        moodle-branch: ['MOODLE_502_STABLE', 'main']
-        database: [pgsql, mariadb]
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
 
     steps:
       - name: Check out repository code
@@ -56,6 +106,34 @@ jobs:
       # data reads the scans; the tests are skipped when a program is missing.
       - name: Install pdftotext and tesseract
         run: sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-ron
+
+      # Asked of the tools rather than hard coded, so the cache cannot silently miss if a runner image
+      # changes the default directory.
+      - name: Find the composer and npm cache directories
+        id: cachedirs
+        shell: bash
+        run: |
+          echo "composer=$(composer config --global cache-dir)" >> "$GITHUB_OUTPUT"
+          echo "npm=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      # moodle-plugin-ci is installed with composer create-project, so its own dependencies are what the
+      # cache is for. The key holds the PHP version because the resolved packages depend on it.
+      - name: Cache the composer files of moodle-plugin-ci
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.cachedirs.outputs.composer }}
+          key: composer-${{ runner.os }}-php${{ matrix.php }}-moodle-plugin-ci-4
+          restore-keys: |
+            composer-${{ runner.os }}-php${{ matrix.php }}-
+
+      # moodle-plugin-ci install runs npm inside the Moodle checkout for Grunt.
+      - name: Cache the npm files
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.cachedirs.outputs.npm }}
+          key: npm-${{ runner.os }}-moodle-${{ matrix.moodle-branch }}
+          restore-keys: |
+            npm-${{ runner.os }}-
 
       # moodle-plugin-ci 4.x (^4) supports Moodle 5.0-5.3 (see its CHANGELOG, 4.5.6 - 4.5.11).
       - name: Initialise moodle-plugin-ci
@@ -100,9 +178,23 @@ jobs:
         if: ${{ !cancelled() }}
         run: moodle-plugin-ci phpunit --fail-on-warning
 
+      # Behat starts a browser and a second Moodle site, which is the slowest step by far: it is worth
+      # running only when the plugin actually has a feature file.
+      - name: Look for Behat features
+        id: features
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          if compgen -G 'plugin/tests/behat/*.feature' > /dev/null; then
+            echo 'found=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'found=false' >> "$GITHUB_OUTPUT"
+            echo 'No feature file in tests/behat, skipping Behat.'
+          fi
+
       - name: Behat features
         id: behat
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.features.outputs.found == 'true' }}
         run: moodle-plugin-ci behat --profile chrome
 
       - name: Upload Behat Faildump
