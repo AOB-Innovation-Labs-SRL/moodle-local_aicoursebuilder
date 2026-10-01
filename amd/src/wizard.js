@@ -26,19 +26,15 @@
  */
 
 import Ajax from 'core/ajax';
-import Templates from 'core/templates';
+import Config from 'core/config';
 import {get_strings as getStrings} from 'core/str';
+import {show as showEstimate} from 'local_aicoursebuilder/cost_estimator';
+import {watch} from 'local_aicoursebuilder/progress';
 
 const COMPONENT = 'local_aicoursebuilder';
 
 /** Names of the steps, in order; each is the id of a fieldset of the form. */
 const STEPS = ['stepdestination', 'stepbrief', 'stepsources', 'stepconfirm'];
-
-/** Seconds between two reads of the progress of a job. */
-const POLL_SECONDS = 3;
-
-/** Statuses after which the job does not change by itself. */
-const FINAL_STATUSES = ['review', 'approved', 'building', 'finished', 'failed', 'cancelled'];
 
 /** Strings the wizard shows from script. */
 const STRING_KEYS = [
@@ -47,12 +43,6 @@ const STRING_KEYS = [
     'wizard:errorcourse',
     'wizard:errorprompt',
     'wizard:errorpolicy',
-    'wizard:stage_draft',
-    'wizard:stage_queued',
-    'wizard:stage_ingesting',
-    'wizard:stage_generating',
-    'wizard:stage_review',
-    'wizard:stage_failed',
     'wizard:sectionfirst',
 ];
 
@@ -67,7 +57,7 @@ const call = (methodname, args) => Ajax.call([{methodname, args}])[0];
 
 class Wizard {
     /**
-     * @param {Object} config contextid, jobid, policyaccepted and courseid, from the page.
+     * @param {Object} config contextid, policyaccepted and courseid, from the page.
      */
     constructor(config) {
         this.config = config;
@@ -77,7 +67,7 @@ class Wizard {
         this.jobid = 0;
         this.policyAccepted = Boolean(config.policyaccepted);
         this.strings = {};
-        this.timer = null;
+        this.watcher = null;
     }
 
     /**
@@ -95,11 +85,6 @@ class Wizard {
         this.root.querySelector('[data-action="aicb-start"]').addEventListener('click', () => this.start());
         this.field('courseid')?.addEventListener('change', () => this.loadSections());
 
-        if (this.config.jobid) {
-            this.jobid = this.config.jobid;
-            this.showProgress();
-            return;
-        }
         if (this.config.courseid) {
             this.loadSections();
         }
@@ -279,18 +264,7 @@ class Wizard {
             });
             this.jobid = job.jobid;
 
-            const estimate = await call('local_aicoursebuilder_estimate_cost', {jobid: this.jobid});
-            const {html, js} = await Templates.renderForPromise('local_aicoursebuilder/wizard_estimate', {
-                cost: estimate.estimatedcost.toFixed(4),
-                tokensin: estimate.tokensin.toLocaleString(),
-                tokensout: estimate.tokensout.toLocaleString(),
-                withinbudget: estimate.withinbudget,
-                hasjoblimit: estimate.joblimit > 0,
-                joblimit: estimate.joblimit.toFixed(2),
-                hasuserlimit: estimate.userremaining >= 0,
-                userremaining: estimate.userremaining.toFixed(2),
-            });
-            Templates.replaceNodeContents(region, html, js);
+            const estimate = await showEstimate(region, this.jobid);
             start.disabled = !estimate.withinbudget;
         } catch (error) {
             this.showError(error.message);
@@ -334,53 +308,10 @@ class Wizard {
      */
     showProgress() {
         this.root.querySelector('[data-region="aicb-steps"]').classList.add('d-none');
-        this.root.querySelector('[data-region="aicb-progress"]').classList.remove('d-none');
-        this.poll();
-    }
-
-    /**
-     * Reads the status of the job, shows it, and schedules the next read while the job is working.
-     */
-    async poll() {
-        try {
-            const status = await call('local_aicoursebuilder_get_job_status', {jobid: this.jobid});
-            await this.renderProgress(status);
-            if (!FINAL_STATUSES.includes(status.status)) {
-                this.timer = setTimeout(() => this.poll(), POLL_SECONDS * 1000);
-            }
-        } catch (error) {
-            this.showError(error.message);
-        }
-    }
-
-    /**
-     * Shows the status of the job.
-     *
-     * @param {Object} status What local_aicoursebuilder_get_job_status returned.
-     */
-    async renderProgress(status) {
-        const done = status.steps.filter((step) => step.status === 'done' || step.status === 'manual').length;
-        let percent = 0;
-        if (status.status === 'ingesting') {
-            percent = Math.round(status.progress / 2);
-        } else if (status.status === 'generating') {
-            percent = 50 + Math.min(45, done * 5);
-        } else if (status.status === 'review') {
-            percent = 100;
-        }
-
-        const stage = this.strings[`wizard:stage_${status.status}`] || this.strings['wizard:stage_queued'];
-        const {html, js} = await Templates.renderForPromise('local_aicoursebuilder/wizard_progress', {
-            percent,
-            stage,
-            message: status.message,
-            cost: status.actualcost.toFixed(4),
-            running: !FINAL_STATUSES.includes(status.status),
-            finished: status.status === 'review',
-            failed: status.status === 'failed',
-            error: status.error,
-        });
-        Templates.replaceNodeContents(this.root.querySelector('[data-region="aicb-progress"]'), html, js);
+        const region = this.root.querySelector('[data-region="aicb-progress"]');
+        region.classList.remove('d-none');
+        const reviewurl = `${Config.wwwroot}/local/aicoursebuilder/review.php?id=${this.jobid}`;
+        this.watcher = watch(region, this.jobid, {reviewurl}, (error) => this.showError(error.message));
     }
 
     /**
@@ -405,7 +336,7 @@ class Wizard {
 /**
  * Starts the wizard.
  *
- * @param {Object} config contextid, jobid, policyaccepted and courseid, from the page.
+ * @param {Object} config contextid, policyaccepted and courseid, from the page.
  */
 export const init = (config) => {
     new Wizard(config).run();

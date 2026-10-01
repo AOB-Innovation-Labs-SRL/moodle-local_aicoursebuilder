@@ -19,6 +19,7 @@ namespace local_aicoursebuilder\external;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_aicoursebuilder\blueprint\blueprint_service;
 
 /**
  * Web service local_aicoursebuilder_approve_blueprint.
@@ -42,7 +43,7 @@ class approve_blueprint extends job_api {
     }
 
     /**
-     * Validates the request; approval is implemented in a later task.
+     * Approves and locks a blueprint version, then queues the build of the course.
      *
      * @param int $jobid Job id.
      * @param int $version Blueprint version.
@@ -50,13 +51,27 @@ class approve_blueprint extends job_api {
      * @return array
      */
     public static function execute(int $jobid, int $version, string $contenthash): array {
+        global $USER;
+
         $params = self::validate_parameters(self::execute_parameters(), [
             'jobid' => $jobid,
             'version' => $version,
             'contenthash' => $contenthash,
         ]);
-        self::validate_job($params['jobid'], true);
-        self::not_implemented();
+        $job = self::validate_job($params['jobid'], true);
+
+        $approved = (new blueprint_service())->approve(
+            $job,
+            (int) $USER->id,
+            $params['version'],
+            $params['contenthash']
+        );
+        return [
+            'jobid' => (int) $job->id,
+            'version' => (int) $approved['row']->version,
+            'status' => blueprint_service::JOB_APPROVED,
+            'queued' => $approved['queued'],
+        ];
     }
 
     /**

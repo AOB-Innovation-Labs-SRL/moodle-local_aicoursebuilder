@@ -19,6 +19,7 @@ namespace local_aicoursebuilder\external;
 use core_external\external_function_parameters;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_aicoursebuilder\blueprint\blueprint_service;
 
 /**
  * Web service local_aicoursebuilder_get_blueprint.
@@ -41,7 +42,7 @@ class get_blueprint extends job_api {
     }
 
     /**
-     * Validates the request; the blueprint read is implemented in a later task.
+     * Returns a blueprint version of a job.
      *
      * @param int $jobid Job id.
      * @param int $version Blueprint version, 0 for the latest.
@@ -49,8 +50,18 @@ class get_blueprint extends job_api {
      */
     public static function execute(int $jobid, int $version = 0): array {
         $params = self::validate_parameters(self::execute_parameters(), ['jobid' => $jobid, 'version' => $version]);
-        self::validate_job($params['jobid']);
-        self::not_implemented();
+        $job = self::validate_job($params['jobid']);
+
+        $row = (new blueprint_service())->get((int) $job->id, $params['version']);
+        return [
+            'jobid' => (int) $job->id,
+            'version' => (int) $row->version,
+            'status' => $row->status,
+            'schemaversion' => $row->schemaversion,
+            'blueprint' => $row->content,
+            'contenthash' => $row->contenthash,
+            'timemodified' => (int) $row->timemodified,
+        ];
     }
 
     /**

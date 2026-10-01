@@ -21,6 +21,7 @@ use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
 use invalid_parameter_exception;
+use local_aicoursebuilder\blueprint\blueprint_service;
 
 /**
  * Web service local_aicoursebuilder_save_blueprint.
@@ -44,7 +45,9 @@ class save_blueprint extends job_api {
     }
 
     /**
-     * Validates the request; saving is implemented in a later task.
+     * Saves an edited blueprint as a new version, and says whether it is valid.
+     *
+     * A blueprint with errors is saved too, so that work in progress is not lost; approving it is what needs it valid.
      *
      * @param int $jobid Job id.
      * @param string $blueprint Blueprint JSON.
@@ -52,16 +55,29 @@ class save_blueprint extends job_api {
      * @return array
      */
     public static function execute(int $jobid, string $blueprint, int $baseversion): array {
+        global $USER;
+
         $params = self::validate_parameters(self::execute_parameters(), [
             'jobid' => $jobid,
             'blueprint' => $blueprint,
             'baseversion' => $baseversion,
         ]);
-        if (!is_array(json_decode($params['blueprint'], true))) {
+        $decoded = json_decode($params['blueprint'], true);
+        if (!is_array($decoded)) {
             throw new invalid_parameter_exception('blueprint must be a JSON object');
         }
-        self::validate_job($params['jobid'], true);
-        self::not_implemented();
+        $job = self::validate_job($params['jobid'], true);
+
+        $saved = (new blueprint_service())->save($job, (int) $USER->id, $decoded, $params['baseversion']);
+        return [
+            'version' => (int) $saved['row']->version,
+            'contenthash' => $saved['row']->contenthash,
+            'valid' => $saved['errors'] === [],
+            'errors' => array_map(
+                fn($error) => ['path' => $error->path, 'message' => $error->message],
+                $saved['errors']
+            ),
+        ];
     }
 
     /**

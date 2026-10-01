@@ -1,0 +1,107 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_aicoursebuilder/node_editor
+
+    One part of the course opened for editing: its fields, the buttons that move or delete it, and the place to ask
+    for it to be written again.
+
+    Context variables required for this template:
+    * id - The id of the part
+    * kindlabel - What it is, as text
+    * editable - Whether the teacher can change it
+    * flagged - Whether the generation marked it for a human to check
+    * fields - The text fields, each with key, label, value, multiline and fieldid
+    * canup - Whether it can move up
+    * candown - Whether it can move down
+    * candelete - Whether it can be deleted
+    * canregenerate - Whether it can be written again
+    * errors - What the validator found in it, each with a message
+
+    Example context (json):
+    {
+        "id": "s1.page1",
+        "kindlabel": "Page",
+        "editable": true,
+        "flagged": true,
+        "fields": [
+            {"key": "name", "label": "Name", "value": "What is energy", "multiline": false, "fieldid": "aicb-f0"},
+            {"key": "content.text", "label": "Text", "value": "<p>Energy is</p>", "multiline": true, "fieldid": "aicb-f1"}
+        ],
+        "canup": false,
+        "candown": true,
+        "candelete": true,
+        "canregenerate": true,
+        "errors": [{"message": "name is too long"}]
+    }
+}}
+<div data-region="aicb-node" data-id="{{id}}">
+    <h2 class="h5">{{kindlabel}} <small class="text-muted">{{id}}</small></h2>
+
+    {{#flagged}}
+        <div class="alert alert-warning d-flex align-items-center justify-content-between" data-region="aicb-flag-notice">
+            <span>{{#str}} editor:flagnotice, local_aicoursebuilder {{/str}}</span>
+            {{#editable}}
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-action="aicb-clearflag">
+                    {{#str}} editor:clearflag, local_aicoursebuilder {{/str}}
+                </button>
+            {{/editable}}
+        </div>
+    {{/flagged}}
+
+    {{#errors}}
+        <div class="alert alert-danger py-1" role="alert">{{message}}</div>
+    {{/errors}}
+
+    {{#fields}}
+        <div class="form-group">
+            <label for="{{fieldid}}">{{label}}</label>
+            {{#multiline}}
+                <textarea class="form-control" id="{{fieldid}}" rows="6" data-field="{{key}}" {{^editable}}readonly{{/editable}}>{{value}}</textarea>
+            {{/multiline}}
+            {{^multiline}}
+                <input type="text" class="form-control" id="{{fieldid}}" value="{{value}}" data-field="{{key}}" {{^editable}}readonly{{/editable}}>
+            {{/multiline}}
+        </div>
+    {{/fields}}
+
+    {{#editable}}
+        <div class="mb-3">
+            <button type="button" class="btn btn-secondary btn-sm" data-action="aicb-moveup" {{^canup}}disabled{{/canup}}>
+                {{#str}} editor:moveup, local_aicoursebuilder {{/str}}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="aicb-movedown" {{^candown}}disabled{{/candown}}>
+                {{#str}} editor:movedown, local_aicoursebuilder {{/str}}
+            </button>
+            {{#candelete}}
+                <button type="button" class="btn btn-outline-danger btn-sm" data-action="aicb-delete">
+                    {{#str}} editor:delete, local_aicoursebuilder {{/str}}
+                </button>
+            {{/candelete}}
+        </div>
+
+        {{#canregenerate}}
+            <div class="form-group border-top pt-3">
+                <label for="aicb-instructions">{{#str}} editor:instructions, local_aicoursebuilder {{/str}}</label>
+                <textarea class="form-control mb-2" id="aicb-instructions" rows="3" data-region="aicb-instructions"></textarea>
+                <button type="button" class="btn btn-outline-primary btn-sm" data-action="aicb-regenerate">
+                    {{#str}} editor:regenerate, local_aicoursebuilder {{/str}}
+                </button>
+            </div>
+        {{/canregenerate}}
+    {{/editable}}
+</div>
