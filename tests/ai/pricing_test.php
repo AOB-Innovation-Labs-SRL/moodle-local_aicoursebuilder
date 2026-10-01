@@ -86,6 +86,38 @@ final class pricing_test extends \advanced_testcase {
     }
 
     /**
+     * cache_write tokens are priced at the optional cache_write rate, falling back to input_miss
+     * when the table has none (Anthropic's cache_creation_input_tokens, spec 3.3).
+     */
+    public function test_cost_for_cache_write_tokens(): void {
+        set_config('pricing_anthropic', json_encode([
+            'test-model' => ['input_miss' => 1.0, 'input_hit' => 0.1, 'output' => 0.0, 'cache_write' => 3.0],
+        ]), 'local_aicoursebuilder');
+
+        $withrate = pricing::cost_for('anthropic', 'test-model', 0, 0, 0, null, 1_000_000);
+        $this->assertSame(3.0, $withrate);
+
+        set_config('pricing_anthropic', json_encode([
+            'test-model' => ['input_miss' => 1.0, 'input_hit' => 0.1, 'output' => 0.0],
+        ]), 'local_aicoursebuilder');
+        $withoutrate = pricing::cost_for('anthropic', 'test-model', 0, 0, 0, null, 1_000_000);
+        $this->assertSame(1.0, $withoutrate);
+    }
+
+    /**
+     * A negative cache_write price in the pricing setting is rejected, like the other price keys.
+     */
+    public function test_invalid_cache_write_price_falls_back_to_defaults(): void {
+        set_config('pricing_deepseek', json_encode([
+            'deepseek-flash' => ['input_miss' => 1, 'input_hit' => 1, 'output' => 1, 'cache_write' => -1],
+        ]), 'local_aicoursebuilder');
+        $this->assertSame(
+            pricing::DEFAULT_PRICES[deepseek_connector::NAME],
+            pricing::table_for(deepseek_connector::NAME)
+        );
+    }
+
+    /**
      * Invalid JSON in the pricing setting falls back to the defaults.
      */
     public function test_invalid_setting_falls_back_to_defaults(): void {
