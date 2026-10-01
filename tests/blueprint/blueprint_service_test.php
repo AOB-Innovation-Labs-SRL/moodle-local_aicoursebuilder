@@ -239,7 +239,8 @@ final class blueprint_service_test extends \advanced_testcase {
         $this->assertSame('approved', $approved['row']->status);
         $this->assertEquals($this->user->id, $approved['row']->approvedby);
         $this->assertNotNull($approved['row']->timeapproved);
-        $this->assertSame(class_exists('\\local_aicoursebuilder\\task\\build_course'), $approved['queued']);
+        $this->assertTrue($approved['queued']);
+        $this->assertCount(1, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\build_course::class));
 
         $job = $this->job();
         $this->assertSame('approved', $job->status);

@@ -17,6 +17,7 @@
 namespace local_aicoursebuilder\blueprint;
 
 use local_aicoursebuilder\job_manager;
+use local_aicoursebuilder\task\build_course;
 
 /**
  * What the blueprint editor does with the blueprint versions of a job: read one, save an edit, approve one (spec 3.7).
@@ -197,27 +198,9 @@ class blueprint_service {
 
             return [
                 'row' => $DB->get_record('local_aicb_blueprint', ['id' => $row->id], '*', MUST_EXIST),
-                'queued' => $this->queue_build((int) $job->id, (int) $job->userid),
+                'queued' => build_course::queue((int) $job->id),
             ];
         });
-    }
-
-    /**
-     * Queues the task that builds the course from the approved blueprint, when it exists.
-     *
-     * The build is a task of its own; until it is in the plugin the job stays approved, waiting for it.
-     *
-     * @param int $jobid Job id.
-     * @param int $userid Owner of the job, the user the task runs as.
-     * @return bool Whether a task was queued.
-     */
-    protected function queue_build(int $jobid, int $userid): bool {
-        $class = '\\local_aicoursebuilder\\task\\build_course';
-        if (!class_exists($class)) {
-            return false;
-        }
-        \core\task\manager::queue_adhoc_task($class::instance($jobid, $userid), true);
-        return true;
     }
 
     /**
