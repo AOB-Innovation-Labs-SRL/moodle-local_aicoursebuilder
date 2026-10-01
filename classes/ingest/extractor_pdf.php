@@ -31,6 +31,12 @@ final class extractor_pdf implements extractor {
     /** @var int Seconds after which pdftotext is killed. */
     public const PDFTOTEXT_TIMEOUT = 120;
 
+    /** @var int Control characters that make the text of pdfparser suspect. */
+    public const GARBLED_MIN_COUNT = 5;
+
+    /** @var float Share of control characters in the text that makes the text of pdfparser suspect. */
+    public const GARBLED_MIN_RATIO = 0.0001;
+
     /** @var string Message pdfparser gives for an encrypted PDF. */
     private const ENCRYPTED_MESSAGE = 'Secured pdf file';
 
@@ -64,14 +70,21 @@ final class extractor_pdf implements extractor {
     public function extract_path(string $path): extraction_result {
         $warnings = [];
         $failure = null;
+        $garbled = null;
 
         try {
             $pages = $this->read_with_pdfparser($path);
             $text = markdown::join_pages($pages);
-            if ($text !== '') {
+            if ($text !== '' && !self::is_garbled($text)) {
                 return new extraction_result($text, count($pages), extraction_result::EXTRACTOR_PDFPARSER);
             }
-            $warnings[] = extraction_result::WARNING_PDFPARSER_FAILED;
+            if ($text !== '') {
+                // Some letters came out as control characters: keep the text only if pdftotext cannot do better.
+                $garbled = new extraction_result($text, count($pages), extraction_result::EXTRACTOR_PDFPARSER);
+                $warnings[] = extraction_result::WARNING_PDFPARSER_GARBLED;
+            } else {
+                $warnings[] = extraction_result::WARNING_PDFPARSER_FAILED;
+            }
         } catch (\Throwable $e) {
             if (str_contains($e->getMessage(), self::ENCRYPTED_MESSAGE)) {
                 throw new ingest_exception(ingest_exception::PDF_ENCRYPTED);
@@ -99,6 +112,10 @@ final class extractor_pdf implements extractor {
             $warnings[] = extraction_result::WARNING_PDFTOTEXT_FAILED;
         }
 
+        if ($garbled !== null) {
+            return new extraction_result($garbled->markdown, $garbled->pagecount, $garbled->extractor, $warnings);
+        }
+
         // A scan has no text layer: read the page images with OCR, when it is configured.
         $ocr = new extractor_ocr();
         if ($ocr->is_available()) {
@@ -114,6 +131,20 @@ final class extractor_pdf implements extractor {
             throw new ingest_exception(ingest_exception::EXTRACTION_FAILED, $failure);
         }
         throw new ingest_exception(ingest_exception::NO_TEXT);
+    }
+
+    /**
+     * Tells whether text that pdfparser read has letters that came out as control characters.
+     *
+     * pdfparser cannot map the glyphs of a font that has no Unicode table: ț, ă, â and others come out as
+     * characters 0x1B to 0x1F. A few of them in a long text is enough to tell.
+     *
+     * @param string $text The text.
+     * @return bool
+     */
+    public static function is_garbled(string $text): bool {
+        $count = preg_match_all('/[\x00-\x08\x0B\x0E-\x1F\x7F]/', $text);
+        return $count >= self::GARBLED_MIN_COUNT && $count / max(1, strlen($text)) >= self::GARBLED_MIN_RATIO;
     }
 
     /**

@@ -25,11 +25,30 @@
 /**
  * Upgrades the plugin data.
  *
- * There are no steps yet: the schema in db/install.xml is the first released version.
+ * The schema in db/install.xml is the first released version; the steps below change settings only.
  *
  * @param int $oldversion The version being upgraded from.
  * @return bool
  */
 function xmldb_local_aicoursebuilder_upgrade(int $oldversion): bool {
+    if ($oldversion < 2026093005) {
+        // The source types PPTX, XLSX, TXT, Markdown and HTML were added. A site that saved the list of the first
+        // version (PDF and DOCX, what the setting offered when it was saved) gets the new types too; a list that
+        // an administrator changed, or that already has other types, is left as it is.
+        $allowed = get_config('local_aicoursebuilder', 'allowedtypes');
+        if ($allowed !== false) {
+            $types = explode(',', $allowed);
+            sort($types);
+            if ($types === ['docx', 'pdf']) {
+                set_config(
+                    'allowedtypes',
+                    implode(',', array_keys(\local_aicoursebuilder\ingest\extractor_factory::MIMETYPES)),
+                    'local_aicoursebuilder'
+                );
+            }
+        }
+        upgrade_plugin_savepoint(true, 2026093005, 'local', 'aicoursebuilder');
+    }
+
     return true;
 }
