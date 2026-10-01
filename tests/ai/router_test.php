@@ -116,13 +116,48 @@ final class router_test extends \advanced_testcase {
      * An unknown connector name in the settings is refused.
      */
     public function test_unknown_connector(): void {
-        set_config('defaultconnector', 'anthropic', 'local_aicoursebuilder');
+        set_config('defaultconnector', 'notaconnector', 'local_aicoursebuilder');
         try {
             (new router())->for_step(request::STEP_BRIEF);
             $this->fail('Unknown connector accepted');
         } catch (connector_exception $e) {
             $this->assertSame(connector_exception::UNKNOWN, $e->errorcode);
-            $this->assertStringContainsString('anthropic', $e->getMessage());
+            $this->assertStringContainsString('notaconnector', $e->getMessage());
+        }
+    }
+
+    /**
+     * Returns the PHP class every connector name in router::CONNECTORS maps to.
+     *
+     * @return array<string, class-string>
+     */
+    private static function connector_classes(): array {
+        return [
+            deepseek_connector::NAME => deepseek_connector::class,
+            coreai_connector::NAME => coreai_connector::class,
+            anthropic_connector::NAME => anthropic_connector::class,
+            gemini_connector::NAME => gemini_connector::class,
+            openaicompat_connector::NAME => openaicompat_connector::class,
+        ];
+    }
+
+    /**
+     * Every pipeline step can be routed, from settings alone, to any of the 5 connectors (spec 3.3
+     * O3: switching providers is configuration, not code).
+     */
+    public function test_every_step_can_be_routed_to_every_connector(): void {
+        $classes = self::connector_classes();
+        $this->assertSame(array_keys($classes), router::CONNECTORS, 'router::CONNECTORS must list exactly these 5');
+
+        $router = new router();
+        foreach (request::STEPS as $step) {
+            foreach ($classes as $name => $class) {
+                set_config("route_{$step}_connector", $name, 'local_aicoursebuilder');
+                $this->assertSame($name, $router->get_route($step)['connector'], "{$step} -> {$name}");
+                $this->assertInstanceOf($class, $router->raw_connector($step), "{$step} -> {$name}");
+                $this->assertInstanceOf(connector::class, $router->for_step($step), "{$step} -> {$name}");
+            }
+            set_config("route_{$step}_connector", '', 'local_aicoursebuilder');
         }
     }
 

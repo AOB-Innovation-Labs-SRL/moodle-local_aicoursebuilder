@@ -19,9 +19,10 @@ namespace local_aicoursebuilder\ai;
 /**
  * Decorator that retries a connector call with exponential backoff and jitter (spec 3.3, 3.8).
  *
- * Retried: rate limiting (429), server errors (500, 502, 503, 504) and network errors. Not retried:
- * client errors (400, 401, 402, 422 and any other 4xx that is not 429) and invalid JSON, which are
- * not going to change on a retry. When the provider sends a Retry-After header (seconds or an HTTP
+ * Retried: rate limiting (429), server errors (500, 502, 503, 504), Anthropic's overloaded error
+ * (529, see https://platform.claude.com/docs/en/api/errors) and network errors. Not retried: client
+ * errors (400, 401, 402, 422 and any other 4xx that is not 429) and invalid JSON, which are not
+ * going to change on a retry. When the provider sends a Retry-After header (seconds or an HTTP
  * date), that delay is used instead of the computed backoff.
  *
  * @package    local_aicoursebuilder
@@ -101,7 +102,7 @@ class retrying_connector implements connector {
     public static function is_retryable(connector_exception $e): bool {
         return match ($e->errorcode) {
             connector_exception::RATE_LIMITED, connector_exception::NETWORK_ERROR => true,
-            connector_exception::HTTP_ERROR => in_array($e->httpstatus, [500, 502, 503, 504], true),
+            connector_exception::HTTP_ERROR => in_array($e->httpstatus, [500, 502, 503, 504, 529], true),
             default => false,
         };
     }

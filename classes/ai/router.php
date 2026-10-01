@@ -32,7 +32,13 @@ class router {
     public const DEFAULT_CONNECTOR = deepseek_connector::NAME;
 
     /** @var string[] Connectors an administrator can choose. */
-    public const CONNECTORS = [deepseek_connector::NAME, coreai_connector::NAME];
+    public const CONNECTORS = [
+        deepseek_connector::NAME,
+        coreai_connector::NAME,
+        anthropic_connector::NAME,
+        gemini_connector::NAME,
+        openaicompat_connector::NAME,
+    ];
 
     /** @var connector|null Connector every fake route answers with, set by tests only. */
     protected static ?connector $testconnector = null;
@@ -82,6 +88,9 @@ class router {
         return match ($name) {
             deepseek_connector::NAME => new deepseek_connector($model),
             coreai_connector::NAME => new coreai_connector(),
+            anthropic_connector::NAME => new anthropic_connector($model),
+            gemini_connector::NAME => new gemini_connector($model),
+            openaicompat_connector::NAME => new openaicompat_connector($model),
             fake_connector::NAME => new fake_connector(),
         };
     }
@@ -129,6 +138,9 @@ class router {
             'connector' => $name,
             'model' => match ($name) {
                 deepseek_connector::NAME => (new deepseek_connector($model))->get_model(),
+                anthropic_connector::NAME => (new anthropic_connector($model))->get_model(),
+                gemini_connector::NAME => (new gemini_connector($model))->get_model(),
+                openaicompat_connector::NAME => (new openaicompat_connector($model))->get_model(),
                 fake_connector::NAME => fake_connector::MODEL,
                 default => '',
             },

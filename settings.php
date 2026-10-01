@@ -201,6 +201,116 @@ if ($hassiteconfig) {
         ));
 
         $connectors->add(new admin_setting_heading(
+            'local_aicoursebuilder/anthropicheading',
+            new lang_string('anthropicheading', 'local_aicoursebuilder'),
+            new lang_string('anthropicheading_desc', 'local_aicoursebuilder')
+        ));
+        $connectors->add(new admin_setting_encryptedpassword(
+            'local_aicoursebuilder/anthropic_apikey',
+            new lang_string('anthropic_apikey', 'local_aicoursebuilder'),
+            new lang_string('anthropic_apikey_desc', 'local_aicoursebuilder')
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/anthropic_model',
+            new lang_string('anthropic_model', 'local_aicoursebuilder'),
+            new lang_string('anthropic_model_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ai\anthropic_connector::DEFAULT_MODEL,
+            PARAM_TEXT
+        ));
+        $connectors->add(new admin_setting_configcheckbox(
+            'local_aicoursebuilder/anthropic_thinking',
+            new lang_string('anthropic_thinking', 'local_aicoursebuilder'),
+            new lang_string('anthropic_thinking_desc', 'local_aicoursebuilder'),
+            0
+        ));
+
+        $connectors->add(new admin_setting_heading(
+            'local_aicoursebuilder/geminiheading',
+            new lang_string('geminiheading', 'local_aicoursebuilder'),
+            new lang_string('geminiheading_desc', 'local_aicoursebuilder')
+        ));
+        $connectors->add(new admin_setting_encryptedpassword(
+            'local_aicoursebuilder/gemini_apikey',
+            new lang_string('gemini_apikey', 'local_aicoursebuilder'),
+            new lang_string('gemini_apikey_desc', 'local_aicoursebuilder')
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/gemini_model',
+            new lang_string('gemini_model', 'local_aicoursebuilder'),
+            new lang_string('gemini_model_desc', 'local_aicoursebuilder'),
+            '',
+            PARAM_TEXT
+        ));
+        $connectors->add(new admin_setting_configcheckbox(
+            'local_aicoursebuilder/gemini_thinking',
+            new lang_string('gemini_thinking', 'local_aicoursebuilder'),
+            new lang_string('gemini_thinking_desc', 'local_aicoursebuilder'),
+            0
+        ));
+        $connectors->add(new admin_setting_configcheckbox(
+            'local_aicoursebuilder/gemini_native_json_schema',
+            new lang_string('gemini_native_json_schema', 'local_aicoursebuilder'),
+            new lang_string('gemini_native_json_schema_desc', 'local_aicoursebuilder'),
+            0
+        ));
+
+        $connectors->add(new admin_setting_heading(
+            'local_aicoursebuilder/openaicompatheading',
+            new lang_string('openaicompatheading', 'local_aicoursebuilder'),
+            new lang_string('openaicompatheading_desc', 'local_aicoursebuilder')
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/openaicompat_baseurl',
+            new lang_string('openaicompat_baseurl', 'local_aicoursebuilder'),
+            new lang_string('openaicompat_baseurl_desc', 'local_aicoursebuilder'),
+            '',
+            PARAM_URL
+        ));
+        $connectors->add(new admin_setting_encryptedpassword(
+            'local_aicoursebuilder/openaicompat_apikey',
+            new lang_string('openaicompat_apikey', 'local_aicoursebuilder'),
+            new lang_string('openaicompat_apikey_desc', 'local_aicoursebuilder')
+        ));
+        $connectors->add(new admin_setting_configselect(
+            'local_aicoursebuilder/openaicompat_authtype',
+            new lang_string('openaicompat_authtype', 'local_aicoursebuilder'),
+            new lang_string('openaicompat_authtype_desc', 'local_aicoursebuilder'),
+            \local_aicoursebuilder\ai\openaicompat_connector::AUTHTYPE_BEARER,
+            [
+                \local_aicoursebuilder\ai\openaicompat_connector::AUTHTYPE_BEARER =>
+                    new lang_string('openaicompat_authtype_bearer', 'local_aicoursebuilder'),
+                \local_aicoursebuilder\ai\openaicompat_connector::AUTHTYPE_APIKEY =>
+                    new lang_string('openaicompat_authtype_apikey', 'local_aicoursebuilder'),
+            ]
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/openaicompat_apiversion',
+            new lang_string('openaicompat_apiversion', 'local_aicoursebuilder'),
+            new lang_string('openaicompat_apiversion_desc', 'local_aicoursebuilder'),
+            '',
+            PARAM_TEXT
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/openaicompat_model',
+            new lang_string('openaicompat_model', 'local_aicoursebuilder'),
+            new lang_string('openaicompat_model_desc', 'local_aicoursebuilder'),
+            '',
+            PARAM_TEXT
+        ));
+        $connectors->add(new admin_setting_configcheckbox(
+            'local_aicoursebuilder/openaicompat_supports_json_schema',
+            new lang_string('openaicompat_supports_json_schema', 'local_aicoursebuilder'),
+            new lang_string('openaicompat_supports_json_schema_desc', 'local_aicoursebuilder'),
+            0
+        ));
+        $connectors->add(new admin_setting_configcheckbox(
+            'local_aicoursebuilder/openaicompat_supports_vision',
+            new lang_string('openaicompat_supports_vision', 'local_aicoursebuilder'),
+            new lang_string('openaicompat_supports_vision_desc', 'local_aicoursebuilder'),
+            0
+        ));
+
+        $connectors->add(new admin_setting_heading(
             'local_aicoursebuilder/parallelismheading',
             new lang_string('parallelismheading', 'local_aicoursebuilder'),
             new lang_string('parallelismheading_desc', 'local_aicoursebuilder')

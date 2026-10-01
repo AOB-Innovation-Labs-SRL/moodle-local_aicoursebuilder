@@ -114,6 +114,21 @@ final class retrying_connector_test extends \advanced_testcase {
     }
 
     /**
+     * A 529 (Anthropic's overloaded error) is retried like a 5xx.
+     */
+    public function test_overloaded_error_is_retried(): void {
+        $this->mock->append(new Response(529, [], '{"type":"error","error":{"type":"overloaded_error"}}'));
+        $this->mock->append(new Response(200, [], $this->completion_body('{"a":1}')));
+
+        $clock = new fake_clock();
+        $result = (new retrying_connector(new deepseek_connector(), $clock, maxattempts: 2))
+            ->complete($this->make_request());
+
+        $this->assertSame(['a' => 1], $result->json);
+        $this->assertCount(2, $this->history);
+    }
+
+    /**
      * A 400 is never retried, even with attempts left.
      */
     public function test_client_error_is_not_retried(): void {
