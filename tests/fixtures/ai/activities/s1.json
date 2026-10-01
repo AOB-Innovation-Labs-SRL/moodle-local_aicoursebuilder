@@ -1,0 +1,28 @@
+{
+  "id": "s1",
+  "activities": [
+    {
+      "id": "s1.glossary1",
+      "type": "glossary",
+      "name": "Glosar de termeni",
+      "content": {
+        "entries": [
+          {
+            "concept": "Fotovoltaic",
+            "definition": "<p>Conversia directă a luminii în electricitate.</p>",
+            "aliases": [
+              "PV"
+            ]
+          },
+          {
+            "concept": "Biomasă",
+            "definition": "<p>Materie organică folosită ca sursă de energie.</p>"
+          }
+        ]
+      },
+      "completion": {
+        "mode": "manual"
+      }
+    }
+  ]
+}

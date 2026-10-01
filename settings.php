@@ -264,6 +264,20 @@ if ($hassiteconfig) {
             new lang_string('routesheading', 'local_aicoursebuilder'),
             new lang_string('routesheading_desc', 'local_aicoursebuilder')
         ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/questions_min',
+            new lang_string('questions_min', 'local_aicoursebuilder'),
+            new lang_string('questions_min_desc', 'local_aicoursebuilder'),
+            5,
+            PARAM_INT
+        ));
+        $connectors->add(new admin_setting_configtext(
+            'local_aicoursebuilder/questions_max',
+            new lang_string('questions_max', 'local_aicoursebuilder'),
+            new lang_string('questions_max_desc', 'local_aicoursebuilder'),
+            15,
+            PARAM_INT
+        ));
         $routechoices = ['' => new lang_string('connector_usedefault', 'local_aicoursebuilder')] + $choices;
         foreach (\local_aicoursebuilder\ai\request::STEPS as $step) {
             $stepname = new lang_string('step_' . $step, 'local_aicoursebuilder');
