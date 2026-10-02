@@ -543,10 +543,8 @@ class build_course extends \core\task\adhoc_task {
      * @return builder_registry
      */
     protected function registry(): builder_registry {
-        // The types with no builder here are still manual: they land with the remaining builder tasks.
-        $this->registry ??= new builder_registry([
-            'quiz' => new \local_aicoursebuilder\builder\quiz(),
-        ]);
+        // A node whose type has no builder yet is recorded manual with a warning, and the build goes on.
+        $this->registry ??= builder_registry::with_defaults();
         return $this->registry;
     }
 

@@ -211,6 +211,45 @@ class build_context {
     }
 
     /**
+     * Returns the job being built, for the builders that need what the teacher chose: the category of a new course,
+     * the section an existing course is added to, the language.
+     *
+     * @return \stdClass|null The local_aicb_job row, null when the context does not belong to a job.
+     */
+    public function get_job(): ?\stdClass {
+        global $DB;
+
+        if ($this->jobid === null) {
+            return null;
+        }
+        return $DB->get_record('local_aicb_job', ['id' => $this->jobid]) ?: null;
+    }
+
+    /**
+     * Returns the number of the section a section or subsection node is in the course now.
+     *
+     * The number recorded when the node was built can be out of date for a subsection: its section is a delegated
+     * one, and Moodle pushes the delegated sections down every time a regular section is added after them. So a
+     * subsection is looked up in the course by the module that holds it; a regular section keeps its number.
+     *
+     * @param string $sectionid Blueprint section id (s1 or s1-1).
+     * @return int|null Null when the node was not built, or has no section.
+     */
+    public function locate_section(string $sectionid): ?int {
+        $entry = $this->buildmap[$sectionid] ?? null;
+        if ($entry === null || $entry['sectionnum'] === null) {
+            return null;
+        }
+        if ($entry['cmid'] !== null && $entry['instanceid'] !== null && $this->course !== null) {
+            $info = get_fast_modinfo($this->course)->get_section_info_by_component('mod_subsection', $entry['instanceid']);
+            if ($info) {
+                return (int) $info->sectionnum;
+            }
+        }
+        return $entry['sectionnum'];
+    }
+
+    /**
      * Returns the section number created for a section or subsection node.
      *
      * @param string $sectionid Blueprint section id (s1 or s1-1).
