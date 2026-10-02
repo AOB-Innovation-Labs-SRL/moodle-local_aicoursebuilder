@@ -38,6 +38,9 @@ final class failure_reason {
     /** @var string The answer still did not validate after every repair call. */
     public const TYPE_REPAIR_EXHAUSTED = 'repair_exhausted';
 
+    /** @var string The answer stopped at the output token limit, so its JSON was cut off. */
+    public const TYPE_TRUNCATED = 'truncated';
+
     /** @var string The provider answered with an HTTP error or could not be reached. */
     public const TYPE_HTTP = 'http';
 
@@ -53,16 +56,19 @@ final class failure_reason {
      * @param validation_error[] $errors The errors of the last answer.
      * @param int $repairs Repair calls made.
      * @param int $attempts Calls made in all, the first one included.
+     * @param int $truncatedat Output limit the last repair was cut off at, 0 when it was not.
      * @return string JSON reason.
      */
-    public static function from_validation(array $errors, int $repairs, int $attempts): string {
+    public static function from_validation(array $errors, int $repairs, int $attempts, int $truncatedat = 0): string {
         $kept = [];
         foreach (array_slice(array_values($errors), 0, self::MAX_ERRORS) as $error) {
             $kept[] = ['path' => $error->path, 'code' => $error->code];
         }
+        $type = $repairs > 0 ? self::TYPE_REPAIR_EXHAUSTED : self::TYPE_VALIDATION;
         return self::encode([
-            'type' => $repairs > 0 ? self::TYPE_REPAIR_EXHAUSTED : self::TYPE_VALIDATION,
+            'type' => $truncatedat > 0 ? self::TYPE_TRUNCATED : $type,
             'httpcode' => 0,
+            'maxtokens' => $truncatedat,
             'errors' => $kept,
             'errorcount' => count($errors),
             'repairs' => $repairs,
@@ -73,14 +79,26 @@ final class failure_reason {
     /**
      * Describes a node whose calls failed at the provider.
      *
-     * A provider that answered with something other than JSON is a validation failure of the
-     * first answer, not a transport one, so it is reported as such.
+     * An answer cut off at the output limit is a truncation, with the limit it was sent with. A
+     * provider that answered with something other than JSON for any other reason is a validation
+     * failure of the first answer, not a transport one, so it is reported as such.
      *
      * @param connector_exception $e The failure.
      * @param int $attempts Calls made in all, the failed one included.
      * @return string JSON reason.
      */
     public static function from_connector(connector_exception $e, int $attempts): string {
+        if ($e->errorcode === connector_exception::TRUNCATED) {
+            return self::encode([
+                'type' => self::TYPE_TRUNCATED,
+                'httpcode' => 0,
+                'maxtokens' => (int) $e->a,
+                'errors' => [],
+                'errorcount' => 0,
+                'repairs' => 0,
+                'attempts' => $attempts,
+            ]);
+        }
         if ($e->errorcode === connector_exception::INVALID_JSON) {
             return self::encode([
                 'type' => self::TYPE_VALIDATION,

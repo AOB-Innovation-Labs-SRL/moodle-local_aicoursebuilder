@@ -38,6 +38,12 @@ class connector_exception extends \moodle_exception {
     /** @var string The provider answered with a body or content that is not valid JSON. */
     public const INVALID_JSON = 'connectorinvalidjson';
 
+    /** @var string The answer stopped at the output token limit, so its JSON is cut off. */
+    public const TRUNCATED = 'connectortruncated';
+
+    /** @var string[] Finish reasons meaning the output limit was reached: OpenAI style, Gemini, Anthropic. */
+    public const TRUNCATION_REASONS = ['length', 'MAX_TOKENS', 'max_tokens'];
+
     /** @var string The provider could not be reached. */
     public const NETWORK_ERROR = 'connectornetworkerror';
 
@@ -73,5 +79,21 @@ class connector_exception extends \moodle_exception {
         public readonly ?int $retryafterms = null,
     ) {
         parent::__construct($errorcode, 'local_aicoursebuilder', '', $a, $debuginfo);
+    }
+
+    /**
+     * Returns the failure for a JSON answer that does not decode: a truncation when the model
+     * stopped at the output limit, an invalid answer otherwise.
+     *
+     * @param string $finishreason Why the model stopped, as the provider reports it.
+     * @param int $maxtokens Output limit the request was sent with, 0 when none.
+     * @param string $detail Debug detail, never the answer itself.
+     * @return self
+     */
+    public static function for_undecodable_json(string $finishreason, int $maxtokens, string $detail): self {
+        if (in_array($finishreason, self::TRUNCATION_REASONS, true)) {
+            return new self(self::TRUNCATED, $maxtokens, $detail);
+        }
+        return new self(self::INVALID_JSON, null, $detail);
     }
 }
