@@ -20,6 +20,7 @@ use core_external\external_function_parameters;
 use core_external\external_multiple_structure;
 use core_external\external_single_structure;
 use core_external\external_value;
+use local_aicoursebuilder\pipeline\failure_reason;
 use local_aicoursebuilder\pipeline\step_store;
 
 /**
@@ -56,10 +57,13 @@ class get_job_status extends job_api {
         $version = $DB->get_field_sql('SELECT MAX(version) FROM {local_aicb_blueprint} WHERE jobid = ?', [$job->id]);
         $steps = [];
         foreach ((new step_store())->all_for_job((int) $job->id) as $step) {
+            // Only a structured reason goes out: it never holds model output or source text.
+            $reason = failure_reason::decode($step->error);
             $steps[] = [
                 'step' => $step->step,
                 'nodekey' => (string) $step->nodekey,
                 'status' => $step->status,
+                'reason' => $reason === null ? '' : (string) json_encode($reason, JSON_UNESCAPED_SLASHES),
             ];
         }
 
@@ -102,6 +106,10 @@ class get_job_status extends job_api {
                     'step' => new external_value(PARAM_ALPHA, 'Pipeline step'),
                     'nodekey' => new external_value(PARAM_TEXT, 'Sub-call key, empty for the whole step'),
                     'status' => new external_value(PARAM_ALPHA, 'Step status'),
+                    'reason' => new external_value(
+                        PARAM_RAW,
+                        'Why the node failed or was left manual, as JSON (type, httpcode, errors, attempts); empty when none'
+                    ),
                 ]),
                 'Pipeline steps'
             ),

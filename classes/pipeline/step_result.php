@@ -100,6 +100,7 @@ final class step_result {
      * @param int $tokenscached Cached input tokens.
      * @param float $cost Cost spent trying, in USD.
      * @param int $calls Calls spent trying.
+     * @param string $error Why the node needs a human, as failure_reason JSON.
      * @return self
      */
     public static function needs_manual(
@@ -110,6 +111,7 @@ final class step_result {
         int $tokenscached = 0,
         float $cost = 0.0,
         int $calls = 0,
+        string $error = '',
     ): self {
         return new self(
             output: $output,
@@ -120,6 +122,7 @@ final class step_result {
             tokenscached: $tokenscached,
             cost: $cost,
             calls: $calls,
+            error: $error,
         );
     }
 

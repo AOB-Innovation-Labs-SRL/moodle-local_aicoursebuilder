@@ -131,8 +131,10 @@ abstract class step {
             // validated: the teacher has to see the gap, and a section that silently vanished would
             // not show them anything. A step with no placeholder of its own still fails outright.
             $placeholder = $this->placeholder($nodekey, $input);
+            // The call that threw is counted too: it was made, it just never came back with a result.
+            $reason = failure_reason::from_connector($e, $spend->calls + 1);
             $result = $placeholder === null
-                ? step_result::failed($e->getMessage(), calls: $spend->calls, cost: $spend->cost)
+                ? step_result::failed($reason, calls: $spend->calls, cost: $spend->cost)
                 : step_result::needs_manual(
                     output: $placeholder,
                     errors: [new validation_error('', validation_error::CODE_NOT_JSON, $e->getMessage())],
@@ -141,6 +143,7 @@ abstract class step {
                     tokenscached: $spend->tokenscached,
                     cost: $spend->cost,
                     calls: $spend->calls,
+                    error: $reason,
                 );
         }
         $this->context->steps->finish($id, $result);
@@ -243,7 +246,10 @@ abstract class step {
         $output = json_repair::decode($content);
         $errors = $this->validate($output, $input, $nodekey);
 
+        $repairs = 0;
         for ($attempt = 0; $errors !== [] && $attempt < self::MAX_REPAIR_CALLS; $attempt++) {
+            // A repair call that failed at the provider still counts: it was an attempt.
+            $repairs++;
             $repaired = $this->repair($output, $content, $errors, $spend);
             if ($repaired === null) {
                 break;
@@ -263,11 +269,11 @@ abstract class step {
             );
         }
 
+        $reason = failure_reason::from_validation($errors, $repairs, 1 + $repairs);
         $placeholder = $this->placeholder($nodekey, $input);
         if ($placeholder === null) {
             return step_result::failed(
-                'The output of step ' . $this->get_step() . ' never validated: '
-                    . validation_error::list_to_json(array_slice($errors, 0, 5)),
+                $reason,
                 calls: $spend->calls,
                 cost: $spend->cost,
             );
@@ -280,6 +286,7 @@ abstract class step {
             tokenscached: $spend->tokenscached,
             cost: $spend->cost,
             calls: $spend->calls,
+            error: $reason,
         );
     }
 

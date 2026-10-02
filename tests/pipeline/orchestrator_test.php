@@ -513,7 +513,11 @@ final class orchestrator_test extends \advanced_testcase {
         router::set_test_connector($this->connector);
         $this->queue_sections(['s1', 's1-1', 's3']);
         for ($i = 0; $i < 4; $i++) {
-            $this->connector->push(request::STEP_SECTIONS, new connector_exception('http', 'fake', 500), 's2');
+            $this->connector->push(
+                request::STEP_SECTIONS,
+                new connector_exception(connector_exception::HTTP_ERROR, 500, 'fake', 500),
+                's2',
+            );
         }
 
         $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
@@ -527,6 +531,56 @@ final class orchestrator_test extends \advanced_testcase {
         $this->assertNotEmpty($sections['s2'], 's2 keeps its place with a placeholder');
         $this->assertTrue($sections['s2'][0]['review_flag']);
         $this->assertSame([], $outcome->errors, 'the placeholder validates');
+
+        $reason = $this->stored_reason(request::STEP_SECTIONS, 's2');
+        $this->assertSame(failure_reason::TYPE_HTTP, $reason['type']);
+        $this->assertSame(500, $reason['httpcode']);
+        $this->assertGreaterThanOrEqual(1, $reason['attempts']);
+    }
+
+    /**
+     * A node whose call timed out says so, and how many calls it took.
+     */
+    public function test_a_timed_out_section_records_a_timeout(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections(['s1', 's1-1', 's3']);
+        $timeout = new connector_exception(
+            connector_exception::NETWORK_ERROR,
+            null,
+            'GuzzleHttp\Exception\ConnectException: cURL error 28: Operation timed out after 120000 milliseconds',
+        );
+        for ($i = 0; $i < 4; $i++) {
+            $this->connector->push(request::STEP_SECTIONS, $timeout, 's2');
+        }
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame(['s2'], $outcome->manualnodes);
+        $reason = $this->stored_reason(request::STEP_SECTIONS, 's2');
+        $this->assertSame(failure_reason::TYPE_TIMEOUT, $reason['type']);
+        $this->assertSame(0, $reason['httpcode']);
+        $this->assertSame(connector_exception::NETWORK_ERROR, $reason['code']);
+    }
+
+    /**
+     * A provider answer that is not JSON at all is a validation failure, not a transport one.
+     */
+    public function test_a_non_json_answer_records_a_validation_failure(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections(['s1', 's1-1', 's3']);
+        $invalid = new connector_exception(connector_exception::INVALID_JSON, null, 'finish_reason=length');
+        for ($i = 0; $i < 4; $i++) {
+            $this->connector->push(request::STEP_SECTIONS, $invalid, 's2');
+        }
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame(['s2'], $outcome->manualnodes);
+        $reason = $this->stored_reason(request::STEP_SECTIONS, 's2');
+        $this->assertSame(failure_reason::TYPE_VALIDATION, $reason['type']);
+        $this->assertSame([['path' => '', 'code' => 'not_json']], $reason['errors']);
     }
 
     /**
@@ -591,6 +645,16 @@ final class orchestrator_test extends \advanced_testcase {
         $this->assertNotEmpty($activities, 'the placeholder keeps the section in the course');
         $this->assertTrue($activities[0]['review_flag']);
         $this->assertSame([], $outcome->errors, 'the placeholder itself is valid');
+
+        $reason = $this->stored_reason(request::STEP_SECTIONS, 's1');
+        $this->assertSame(failure_reason::TYPE_REPAIR_EXHAUSTED, $reason['type']);
+        $this->assertSame(step::MAX_REPAIR_CALLS, $reason['repairs']);
+        $this->assertSame(1 + step::MAX_REPAIR_CALLS, $reason['attempts']);
+        $this->assertNotEmpty($reason['errors']);
+        foreach ($reason['errors'] as $error) {
+            $this->assertSame(['path', 'code'], array_keys($error), 'no validator message, which can quote the model');
+        }
+        $this->assertStringNotContainsString('not-an-id', json_encode($reason), 'nothing the model wrote is stored');
     }
 
     /**
@@ -793,6 +857,23 @@ final class orchestrator_test extends \advanced_testcase {
             $system,
             'the text itself is kept, as data',
         );
+    }
+
+    /**
+     * Reads the failure reason stored on a manual node's step row.
+     *
+     * @param string $step Pipeline step.
+     * @param string $nodekey Node key.
+     * @return array The decoded reason.
+     */
+    private function stored_reason(string $step, string $nodekey): array {
+        global $DB;
+
+        $row = $DB->get_record('local_aicb_step', ['jobid' => $this->jobid, 'step' => $step, 'nodekey' => $nodekey]);
+        $this->assertSame('manual', $row->status);
+        $reason = failure_reason::decode($row->error);
+        $this->assertNotNull($reason, 'the step row holds a structured reason');
+        return $reason;
     }
 
     /**
