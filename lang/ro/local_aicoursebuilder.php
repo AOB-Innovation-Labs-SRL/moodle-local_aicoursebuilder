@@ -91,6 +91,7 @@ $string['connectornetworkerror'] = 'Furnizorul AI nu a putut fi contactat.';
 $string['connectornotconfigured'] = 'Conectorul AI {$a} nu este configurat.';
 $string['connectorratelimited'] = 'S-a atins limita de cereri a furnizorului AI. Încearcă din nou mai târziu.';
 $string['connectorssettings'] = 'Conectori AI';
+$string['connectortruncated'] = 'Răspunsul AI s-a oprit la limita de ieșire de {$a} tokeni înainte să fie complet.';
 $string['connectorunknown'] = 'Conector AI necunoscut: {$a}.';
 $string['connectorunsupported'] = 'Conectorul AI nu suportă: {$a}.';
 $string['coreaierror'] = 'Subsistemul AI Moodle a întors o eroare: {$a}';
@@ -189,6 +190,8 @@ $string['maxfiles'] = 'Număr maxim de fișiere per job';
 $string['maxfiles_desc'] = 'Cel mai mare număr de fișiere sursă pe care le poate avea un job.';
 $string['maxfilesize'] = 'Dimensiune maximă per fișier (MB)';
 $string['maxfilesize_desc'] = 'Cel mai mare fișier sursă acceptat, în megaocteți.';
+$string['maxtokens'] = 'Limită de ieșire (tokeni): {$a}';
+$string['maxtokens_desc'] = 'Numărul maxim de tokeni pe care modelul îi poate scrie într-un răspuns al acestui pas, trimis ca max_tokens. Un răspuns care o atinge este tăiat, iar nodul e marcat ca trunchiat. Gol sau 0 înseamnă valoarea implicită.';
 $string['message:jobfailed_body'] = 'Generarea cursului tău s-a oprit: {$a->error}
 
 Poți vedea ce s-a făcut până acum aici: {$a->url}';
@@ -219,6 +222,8 @@ $string['openaicompat_supports_vision'] = 'Suportă intrare de imagini';
 $string['openaicompat_supports_vision_desc'] = 'Activează doar dacă modelul acestui endpoint acceptă conținut de tip imagine.';
 $string['openaicompatheading'] = 'Endpoint compatibil OpenAI';
 $string['openaicompatheading_desc'] = 'Conexiune directă la un singur endpoint /v1/chat/completions configurat: OpenAI, Azure OpenAI, Ollama, vLLM, LiteLLM sau OpenRouter. Ollama pe localhost este blocat implicit de curlsecurityblockedhosts; un administrator trebuie să-l permită explicit pentru a folosi o instanță locală.';
+$string['outputlimitsheading'] = 'Limite de ieșire per pas';
+$string['outputlimitsheading_desc'] = 'Fără o limită explicită, DeepSeek scrie cel mult 8K tokeni per răspuns, ceea ce taie secțiunile lungi și chestionarele. Valorile implicite sunt potrivite pentru deepseek-flash; furnizorul acceptă cel mult {$a} tokeni. Ieșirea calculată la această limită este și suma pe care bugetul o rezervă pentru fiecare apel.';
 $string['parallelismheading'] = 'Paralelism și reîncercare';
 $string['parallelismheading_desc'] = 'Setări de concurență și reîncercare pentru sub-apelurile AI independente (spec 3.8).';
 $string['pdfencrypted'] = 'PDF-ul este criptat. Elimină protecția și încarcă din nou fișierul.';

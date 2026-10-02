@@ -27,6 +27,9 @@ use local_aicoursebuilder\blueprint\validation_error;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class step_activities extends step_sections {
+    /** @var int Most activity types one section may use: the few that fit it, never all of them. */
+    public const MAX_TYPES = 3;
+
     /**
      * Returns the activities route.
      *
@@ -77,6 +80,14 @@ class step_activities extends step_sections {
         $errors = parent::validate($output, $input, $nodekey);
         if ($output !== null && ($output['id'] ?? null) !== $nodekey) {
             $errors[] = new validation_error('/id', validation_error::CODE_BROKEN_REF, 'Use the requested section id.');
+        }
+        $types = array_unique(array_column(array_filter($output['activities'] ?? [], 'is_array'), 'type'));
+        if (count($types) > self::MAX_TYPES) {
+            $errors[] = new validation_error(
+                '/activities',
+                validation_error::CODE_MOODLE_LIMIT,
+                'Use at most ' . self::MAX_TYPES . ' activity types in one section, found ' . count($types) . '.',
+            );
         }
         return $errors;
     }

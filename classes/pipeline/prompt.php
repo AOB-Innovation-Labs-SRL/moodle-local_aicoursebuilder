@@ -34,7 +34,7 @@ namespace local_aicoursebuilder\pipeline;
  */
 class prompt {
     /** @var string Version of the prompts this release ships. */
-    public const VERSION = 'v1';
+    public const VERSION = 'v2';
 
     /** @var string[] Marker words a value must never be able to write at the start of a line. */
     protected const MARKERS = [
@@ -74,14 +74,32 @@ class prompt {
     }
 
     /**
+     * Tells whether this prompt has a template for its version.
+     *
+     * @return bool
+     */
+    public function exists(): bool {
+        return is_readable($this->path());
+    }
+
+    /**
+     * Returns the path of the template file.
+     *
+     * @return string
+     */
+    protected function path(): string {
+        $dir = $this->promptdir ?? dirname(__DIR__, 2) . '/prompts';
+        return "{$dir}/{$this->name}.{$this->version}.md";
+    }
+
+    /**
      * Returns the template as it is on disk, placeholders unfilled.
      *
      * @return string
      * @throws \coding_exception When the prompt file does not exist.
      */
     public function get_template(): string {
-        $dir = $this->promptdir ?? dirname(__DIR__, 2) . '/prompts';
-        $path = "{$dir}/{$this->name}.{$this->version}.md";
+        $path = $this->path();
         if (!is_readable($path)) {
             throw new \coding_exception("Missing prompt template: {$path}");
         }

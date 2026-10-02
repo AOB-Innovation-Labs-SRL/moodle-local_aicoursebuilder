@@ -111,6 +111,16 @@ class step_questions extends step {
     }
 
     /**
+     * Opens every call of this step with the prefix shared by the whole job.
+     *
+     * @param array $input Step input.
+     * @return string|null
+     */
+    protected function shared_prefix(array $input): ?string {
+        return $this->render_shared_prefix($input);
+    }
+
+    /**
      * Loads chunks named by the section, preserving source id, page and title in the prompt.
      *
      * @param array $section Section from the outline.

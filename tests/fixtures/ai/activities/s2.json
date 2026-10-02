@@ -138,26 +138,6 @@
           "completionposts": 1
         }
       }
-    },
-    {
-      "id": "s2.wiki1",
-      "type": "wiki",
-      "name": "Wiki colaborativ",
-      "content": {
-        "pages": [
-          {
-            "title": "Pagina principală",
-            "content": "<p>Adăugați exemple de proiecte regenerabile din regiunea voastră.</p>"
-          },
-          {
-            "title": "Exemple solare",
-            "content": "<p>Listați proiecte solare cunoscute.</p>"
-          }
-        ]
-      },
-      "completion": {
-        "mode": "manual"
-      }
     }
   ]
 }

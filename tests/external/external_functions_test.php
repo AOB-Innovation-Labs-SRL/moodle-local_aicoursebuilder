@@ -66,8 +66,8 @@ final class external_functions_test extends \core_external\tests\externallib_tes
                     'message' => 'Secțiunea 2 din 3', 'courseid' => 0, 'blueprintversion' => 0,
                     'estimatedcost' => 0.17, 'actualcost' => 0.05, 'error' => '', 'timemodified' => 1790000000,
                     'steps' => [
-                        ['step' => 'outline', 'nodekey' => '', 'status' => 'done'],
-                        ['step' => 'sections', 'nodekey' => 's2', 'status' => 'running'],
+                        ['step' => 'outline', 'nodekey' => '', 'status' => 'done', 'reason' => ''],
+                        ['step' => 'sections', 'nodekey' => 's2', 'status' => 'running', 'reason' => ''],
                     ]],
             ],
             get_blueprint::class => [
@@ -340,13 +340,22 @@ final class external_functions_test extends \core_external\tests\externallib_tes
             'actualcost' => 0.05,
             'error' => 'oops',
         ]);
-        foreach (['outline' => '', 'sections' => 's2'] as $step => $nodekey) {
+        $reason = '{"type":"repair_exhausted","httpcode":0,"errors":[{"path":"/activities/0","code":"schema"}],'
+            . '"errorcount":1,"repairs":2,"attempts":3}';
+        $rows = [
+            ['outline', '', 'done', null],
+            ['sections', 's2', 'running', null],
+            ['sections', 's3', 'manual', $reason],
+            ['brief', '', 'error', 'Budget reached'],
+        ];
+        foreach ($rows as [$step, $nodekey, $state, $error]) {
             $DB->insert_record('local_aicb_step', (object) [
                 'jobid' => $jobid,
                 'step' => $step,
                 'nodekey' => $nodekey === '' ? null : $nodekey,
-                'inputhash' => hash('sha256', $step),
-                'status' => $step === 'outline' ? 'done' : 'running',
+                'inputhash' => hash('sha256', $step . $nodekey),
+                'status' => $state,
+                'error' => $error,
                 'timecreated' => time(),
                 'timemodified' => time(),
             ]);
@@ -373,9 +382,11 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $this->assertEqualsWithDelta(0.05, $status['actualcost'], 0.000001);
         $this->assertSame('oops', $status['error']);
         $this->assertSame([
-            ['step' => 'outline', 'nodekey' => '', 'status' => 'done'],
-            ['step' => 'sections', 'nodekey' => 's2', 'status' => 'running'],
-        ], $status['steps']);
+            ['step' => 'outline', 'nodekey' => '', 'status' => 'done', 'reason' => ''],
+            ['step' => 'sections', 'nodekey' => 's2', 'status' => 'running', 'reason' => ''],
+            ['step' => 'sections', 'nodekey' => 's3', 'status' => 'manual', 'reason' => $reason],
+            ['step' => 'brief', 'nodekey' => '', 'status' => 'error', 'reason' => ''],
+        ], $status['steps'], 'only a structured reason is exposed, a plain message is not');
     }
 
     /**

@@ -91,6 +91,7 @@ $string['connectornetworkerror'] = 'The AI provider could not be reached.';
 $string['connectornotconfigured'] = 'The AI connector {$a} is not configured.';
 $string['connectorratelimited'] = 'The AI provider rate limit was reached. Try again later.';
 $string['connectorssettings'] = 'AI connectors';
+$string['connectortruncated'] = 'The AI answer stopped at the output limit of {$a} tokens before it was complete.';
 $string['connectorunknown'] = 'Unknown AI connector: {$a}.';
 $string['connectorunsupported'] = 'The AI connector does not support: {$a}.';
 $string['coreaierror'] = 'The Moodle AI subsystem returned an error: {$a}';
@@ -189,6 +190,8 @@ $string['maxfiles'] = 'Maximum files per job';
 $string['maxfiles_desc'] = 'The most source files that a single job may have.';
 $string['maxfilesize'] = 'Maximum file size (MB)';
 $string['maxfilesize_desc'] = 'The largest source file accepted, in megabytes.';
+$string['maxtokens'] = 'Output limit (tokens): {$a}';
+$string['maxtokens_desc'] = 'Most tokens the model may write in one answer of this step, sent as max_tokens. An answer that reaches it is cut off and the node is marked truncated. Empty or 0 uses the default.';
 $string['message:jobfailed_body'] = 'The generation of your course stopped: {$a->error}
 
 You can see what was done so far here: {$a->url}';
@@ -219,6 +222,8 @@ $string['openaicompat_supports_vision'] = 'Supports image input';
 $string['openaicompat_supports_vision_desc'] = 'Enable only if this endpoint\'s model accepts image content.';
 $string['openaicompatheading'] = 'OpenAI-compatible endpoint';
 $string['openaicompatheading_desc'] = 'Direct connection to one configured /v1/chat/completions endpoint: OpenAI, Azure OpenAI, Ollama, vLLM, LiteLLM or OpenRouter. Ollama on localhost is blocked by default by curlsecurityblockedhosts; an administrator must allow it explicitly to use a local instance.';
+$string['outputlimitsheading'] = 'Output limits per step';
+$string['outputlimitsheading_desc'] = 'Without an explicit limit DeepSeek writes at most 8K tokens per answer, which cuts long sections and quizzes off. The defaults are sized for deepseek-flash; the provider accepts at most {$a} tokens. The output priced at this limit is also what the budget reserves for each call.';
 $string['parallelismheading'] = 'Parallelism and retry';
 $string['parallelismheading_desc'] = 'Concurrency and retry settings for independent AI sub-calls (spec 3.8).';
 $string['pdfencrypted'] = 'The PDF is encrypted. Remove the protection and upload the file again.';

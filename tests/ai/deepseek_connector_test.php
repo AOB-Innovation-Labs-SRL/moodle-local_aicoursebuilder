@@ -305,6 +305,32 @@ final class deepseek_connector_test extends \advanced_testcase {
     }
 
     /**
+     * An answer cut off at max_tokens is a truncation carrying the limit, not invalid JSON, and the
+     * limit the request set is the one sent.
+     */
+    public function test_answer_cut_off_at_the_output_limit_is_a_truncation(): void {
+        $this->mock->append(new Response(200, [], $this->completion_body(
+            ['tool_calls' => [['function' => ['name' => 'emit_digest', 'arguments' => '{"titlu": "Fotosin']]]],
+            'length',
+        )));
+        try {
+            (new deepseek_connector())->complete($this->make_request([
+                'schema' => ['type' => 'object'],
+                'maxtokens' => 8192,
+            ]));
+            $this->fail('A cut-off answer was accepted');
+        } catch (connector_exception $e) {
+            $this->assertSame(connector_exception::TRUNCATED, $e->errorcode);
+            $this->assertSame(8192, $e->a);
+            $this->assertStringContainsString('finish_reason=length', (string) $e->debuginfo);
+            $this->assertStringNotContainsString('Fotosin', (string) $e->debuginfo, 'the answer itself is not kept');
+            $this->assertFalse(retrying_connector::is_retryable($e), 'the same limit would cut it off again');
+        }
+        [, $body] = $this->sent();
+        $this->assertSame(8192, $body['max_tokens']);
+    }
+
+    /**
      * HTTP 429 raises the rate limit error once, without retrying.
      */
     public function test_rate_limit_is_not_retried(): void {

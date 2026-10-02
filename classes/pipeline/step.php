@@ -18,6 +18,7 @@ namespace local_aicoursebuilder\pipeline;
 
 use local_aicoursebuilder\ai\budget_exceeded_exception;
 use local_aicoursebuilder\ai\connector_exception;
+use local_aicoursebuilder\ai\output_limits;
 use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\ai\result;
 use local_aicoursebuilder\blueprint\validation_error;
@@ -41,6 +42,12 @@ use local_aicoursebuilder\blueprint\validation_error;
 abstract class step {
     /** @var int Repair calls allowed per node, after the local repair has been tried. */
     public const MAX_REPAIR_CALLS = 2;
+
+    /** @var string Prompt that opens every node of the sections, activities and questions steps. */
+    public const PREFIX_PROMPT = 'prefix';
+
+    /** @var int Output limit the last repair call of this node was cut off at, 0 when it was not. */
+    protected int $repairtruncatedat = 0;
 
     /** @var pipeline_context The job this step runs for. */
     protected pipeline_context $context;
@@ -131,8 +138,10 @@ abstract class step {
             // validated: the teacher has to see the gap, and a section that silently vanished would
             // not show them anything. A step with no placeholder of its own still fails outright.
             $placeholder = $this->placeholder($nodekey, $input);
+            // The call that threw is counted too: it was made, it just never came back with a result.
+            $reason = failure_reason::from_connector($e, $spend->calls + 1);
             $result = $placeholder === null
-                ? step_result::failed($e->getMessage(), calls: $spend->calls, cost: $spend->cost)
+                ? step_result::failed($reason, calls: $spend->calls, cost: $spend->cost)
                 : step_result::needs_manual(
                     output: $placeholder,
                     errors: [new validation_error('', validation_error::CODE_NOT_JSON, $e->getMessage())],
@@ -141,6 +150,7 @@ abstract class step {
                     tokenscached: $spend->tokenscached,
                     cost: $spend->cost,
                     calls: $spend->calls,
+                    error: $reason,
                 );
         }
         $this->context->steps->finish($id, $result);
@@ -219,6 +229,12 @@ abstract class step {
      * @return request
      */
     public function request_for(array $input, string $nodekey = ''): request {
+        $prefix = $this->shared_prefix($input);
+        if ($prefix !== null) {
+            // The node's own instructions and data go last, after a system message that is the same
+            // byte for byte for every node of the job, so the provider can serve it from its cache.
+            return $this->build_request($prefix, $this->render_prompt($input, $nodekey));
+        }
         return $this->build_request(
             $this->render_prompt($input, $nodekey),
             $this->user_message($input, $nodekey),
@@ -243,7 +259,11 @@ abstract class step {
         $output = json_repair::decode($content);
         $errors = $this->validate($output, $input, $nodekey);
 
+        $repairs = 0;
+        $this->repairtruncatedat = 0;
         for ($attempt = 0; $errors !== [] && $attempt < self::MAX_REPAIR_CALLS; $attempt++) {
+            // A repair call that failed at the provider still counts: it was an attempt.
+            $repairs++;
             $repaired = $this->repair($output, $content, $errors, $spend);
             if ($repaired === null) {
                 break;
@@ -263,13 +283,14 @@ abstract class step {
             );
         }
 
+        $reason = failure_reason::from_validation($errors, $repairs, 1 + $repairs, $this->repairtruncatedat);
         $placeholder = $this->placeholder($nodekey, $input);
         if ($placeholder === null) {
             return step_result::failed(
-                'The output of step ' . $this->get_step() . ' never validated: '
-                    . validation_error::list_to_json(array_slice($errors, 0, 5)),
+                $reason,
                 calls: $spend->calls,
                 cost: $spend->cost,
+                errors: $errors,
             );
         }
         return step_result::needs_manual(
@@ -280,6 +301,7 @@ abstract class step {
             tokenscached: $spend->tokenscached,
             cost: $spend->cost,
             calls: $spend->calls,
+            error: $reason,
         );
     }
 
@@ -311,7 +333,7 @@ abstract class step {
             messages: [['role' => 'user', 'content' => $this->context->repair_instruction()]],
             schema: null,
             files: [],
-            maxtokens: 0,
+            maxtokens: output_limits::for_step(request::STEP_REPAIR),
             temperature: null,
             timeout: 0,
             jobid: $this->context->jobid,
@@ -323,8 +345,10 @@ abstract class step {
         try {
             $result = $this->call($request, $spend, request::STEP_REPAIR);
         } catch (connector_exception $e) {
+            $this->repairtruncatedat = $e->errorcode === connector_exception::TRUNCATED ? (int) $e->a : 0;
             return null;
         }
+        $this->repairtruncatedat = 0;
         return json_repair::decode($result->content);
     }
 
@@ -375,7 +399,7 @@ abstract class step {
             messages: [['role' => 'user', 'content' => $message]],
             schema: $this->context->schemas->step_schema_array($this->get_step()),
             files: [],
-            maxtokens: 0,
+            maxtokens: output_limits::for_step($this->get_step()),
             temperature: null,
             timeout: 0,
             jobid: $this->context->jobid,
@@ -405,6 +429,61 @@ abstract class step {
      * @return array Placeholder name => value.
      */
     abstract protected function prompt_values(array $input, string $nodekey): array;
+
+    /**
+     * Returns the system message shared by every node of the content steps, or null for a step that
+     * writes its whole prompt into the system message.
+     *
+     * @param array $input Step input.
+     * @return string|null
+     */
+    protected function shared_prefix(array $input): ?string {
+        return null;
+    }
+
+    /**
+     * Renders the shared prefix: course brief, outline and every source, in that order.
+     *
+     * Nothing in it depends on the node, which is the whole point: sections, activities and
+     * questions all open with this exact text, so only the first call of a job pays for it in full.
+     * A prompt version without a prefix template keeps its old layout.
+     *
+     * @param array $input Step input, with `brief` and `outline`.
+     * @return string|null The prefix, or null when this prompt version has none.
+     */
+    protected function render_shared_prefix(array $input): ?string {
+        $prompt = new prompt(self::PREFIX_PROMPT, $this->context->promptversion, $this->context->promptdir);
+        if (!$prompt->exists()) {
+            return null;
+        }
+        return $prompt->render([
+            'language_name' => $this->context->language_name(),
+            'language' => $this->context->language,
+            'brief' => $input['brief'] ?? [],
+            'outline' => $input['outline'] ?? [],
+            'sources' => $this->all_sources(),
+            'source_ids' => $this->context->source_ids_text(),
+        ]);
+    }
+
+    /**
+     * Returns the text of every source, each under its id, in source order.
+     *
+     * @return string
+     */
+    protected function all_sources(): string {
+        if ($this->context->sourcetexts === []) {
+            return 'There are no source documents: write from the outline alone.';
+        }
+        $parts = [];
+        foreach ($this->context->sourcetexts as $id => $text) {
+            $parts[] = "[{$id}]
+{$text}";
+        }
+        return implode("
+
+", $parts);
+    }
 
     /**
      * Returns the user message that goes with this step's prompt.
