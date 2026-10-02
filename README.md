@@ -4,7 +4,8 @@ Moodle local plugin that will generate course structure and content with AI.
 Current state (version 0.1.0, alpha): the AI connector layer, the ingestion of source files (PDF, DOCX, PPTX, XLSX,
 text, OCR), the generation pipeline (brief, outline, sections) and the wizard at `/local/aicoursebuilder/wizard.php`,
 which creates a job, shows its estimated cost, starts it and follows it until the blueprint is ready for review.
-Building the course from the blueprint comes in a later phase.
+Once a blueprint is approved the course is built from it: the course, its sections and subsections, and the
+pages, labels, links, files, folders and books; the other activity types come with the next builders.
 
 ## Requirements
 

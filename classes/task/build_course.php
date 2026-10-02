@@ -543,8 +543,8 @@ class build_course extends \core\task\adhoc_task {
      * @return builder_registry
      */
     protected function registry(): builder_registry {
-        // The plugin registers no builder yet: they land with the builder tasks, so every node is manual.
-        $this->registry ??= new builder_registry();
+        // A node whose type has no builder yet is recorded manual with a warning, and the build goes on.
+        $this->registry ??= builder_registry::with_defaults();
         return $this->registry;
     }
 
