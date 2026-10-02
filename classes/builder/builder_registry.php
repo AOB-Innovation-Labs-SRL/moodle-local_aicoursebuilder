@@ -59,6 +59,29 @@ class builder_registry {
     }
 
     /**
+     * Creates the registry a build uses: a builder for the course, the sections and every type of activity that is built.
+     *
+     * The types that have no builder yet (the lesson, the assignment and the rest, and the competencies and badges of the
+     * course) are left out, and the build marks their nodes manual.
+     *
+     * @return self
+     */
+    public static function with_defaults(): self {
+        return new self([
+            self::TYPE_COURSE => new course_builder(),
+            self::TYPE_SECTION => new section_builder(),
+            self::TYPE_SUBSECTION => new subsection_builder(),
+            'page' => new page_builder(),
+            'label' => new label_builder(),
+            'url' => new url_builder(),
+            'resource' => new resource_builder(),
+            'folder' => new folder_builder(),
+            'book' => new book_builder(),
+            'quiz' => new quiz(),
+        ]);
+    }
+
+    /**
      * Registers the builder of a node type, replacing any builder registered for it before.
      *
      * @param string $type Node type: course, section, subsection or one of ACTIVITY_TYPES.
