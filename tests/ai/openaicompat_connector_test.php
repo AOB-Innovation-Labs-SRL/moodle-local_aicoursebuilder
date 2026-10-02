@@ -170,6 +170,27 @@ final class openaicompat_connector_test extends \advanced_testcase {
     }
 
     /**
+     * The outline schema refers to the blueprint schema: the json_schema has to carry everything,
+     * with no aicb:/// left.
+     */
+    public function test_a_step_schema_is_sent_without_external_references(): void {
+        set_config('openaicompat_supports_json_schema', 1, 'local_aicoursebuilder');
+        $schema = (new \local_aicoursebuilder\blueprint\schema_store())->step_schema_array(request::STEP_OUTLINE);
+        $rawjson = json_encode($schema, JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString('aicb:///', $rawjson, 'the raw schema is not self-contained');
+        $this->mock->append(new Response(200, [], $this->completion_body(['content' => '{"course": {}}'])));
+
+        (new openaicompat_connector())->complete($this->make_request(['step' => request::STEP_OUTLINE, 'schema' => $schema]));
+
+        [$sent, $body] = $this->sent();
+        $this->assertStringNotContainsString('aicb:', (string) $sent->getBody());
+        $sentschema = $body['response_format']['json_schema']['schema'];
+        $this->assertSame('#/$defs/blueprint_v1__course', $sentschema['properties']['course']['$ref']);
+        $this->assertArrayHasKey('blueprint_v1__course', $sentschema['$defs']);
+        $this->assertArrayNotHasKey('$id', $sentschema);
+    }
+
+    /**
      * Without json_schema declared supported, a schema request falls back to json_object.
      */
     public function test_schema_request_falls_back_to_json_object_when_unsupported(): void {

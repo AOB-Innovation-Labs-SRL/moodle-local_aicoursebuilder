@@ -94,6 +94,9 @@ class anthropic_connector implements async_connector, connector {
     /** @var bool Whether extended thinking is enabled. */
     protected bool $thinking;
 
+    /** @var schema_bundler Makes a request schema self-contained before it is sent. */
+    protected schema_bundler $schemabundler;
+
     /**
      * Creates the connector from the plugin settings.
      *
@@ -104,6 +107,7 @@ class anthropic_connector implements async_connector, connector {
         $this->model = trim($model) !== '' ? trim($model)
             : (trim((string) ($config->anthropic_model ?? '')) ?: self::DEFAULT_MODEL);
         $this->thinking = !empty($config->anthropic_thinking);
+        $this->schemabundler = new schema_bundler();
     }
 
     /**
@@ -239,7 +243,7 @@ class anthropic_connector implements async_connector, connector {
         if ($request->schema !== null) {
             $body['output_config'] = ['format' => [
                 'type' => 'json_schema',
-                'schema' => $request->schema ?: ['type' => 'object'],
+                'schema' => $this->schemabundler->bundle($request->schema) ?: ['type' => 'object'],
             ]];
         }
         return $body;

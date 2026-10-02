@@ -89,6 +89,9 @@ class openaicompat_connector implements async_connector, connector {
     /** @var bool Whether this instance supports image input. */
     protected bool $supportsvision;
 
+    /** @var schema_bundler Makes a request schema self-contained before it is sent. */
+    protected schema_bundler $schemabundler;
+
     /**
      * Creates the connector from the plugin settings.
      *
@@ -103,6 +106,7 @@ class openaicompat_connector implements async_connector, connector {
         $this->apiversion = trim((string) ($config->openaicompat_apiversion ?? ''));
         $this->supportsjsonschema = !empty($config->openaicompat_supports_json_schema);
         $this->supportsvision = !empty($config->openaicompat_supports_vision);
+        $this->schemabundler = new schema_bundler();
     }
 
     /**
@@ -252,7 +256,7 @@ class openaicompat_connector implements async_connector, connector {
         if ($request->schema !== null && $this->supportsjsonschema) {
             $body['response_format'] = ['type' => 'json_schema', 'json_schema' => [
                 'name' => self::SCHEMA_NAME_PREFIX . $request->step,
-                'schema' => $request->schema ?: ['type' => 'object'],
+                'schema' => $this->schemabundler->bundle($request->schema) ?: ['type' => 'object'],
             ]];
         } else if ($request->wants_json()) {
             $body['response_format'] = ['type' => 'json_object'];

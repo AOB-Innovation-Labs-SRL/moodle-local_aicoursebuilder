@@ -192,6 +192,35 @@ final class gemini_connector_test extends \advanced_testcase {
     }
 
     /**
+     * The outline schema refers to the blueprint schema: both ways of sending it have to be free of
+     * aicb:///, narrowed into responseSchema or native in responseJsonSchema.
+     */
+    public function test_a_step_schema_is_sent_without_external_references(): void {
+        $schema = (new \local_aicoursebuilder\blueprint\schema_store())->step_schema_array(request::STEP_OUTLINE);
+        $rawjson = json_encode($schema, JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString('aicb:///', $rawjson, 'the raw schema is not self-contained');
+        $this->mock->append(new Response(200, [], $this->generate_body('{"course": {}}')));
+        (new gemini_connector())->complete($this->make_request(['step' => request::STEP_OUTLINE, 'schema' => $schema]));
+
+        [$sent, $body] = $this->sent();
+        $this->assertStringNotContainsString('aicb:', (string) $sent->getBody());
+        $this->assertStringNotContainsString('$ref', (string) $sent->getBody());
+        $course = $body['generationConfig']['responseSchema']['properties']['course'];
+        $this->assertSame('string', $course['properties']['fullname']['type']);
+
+        set_config('gemini_native_json_schema', 1, 'local_aicoursebuilder');
+        $this->history = [];
+        $this->mock->append(new Response(200, [], $this->generate_body('{"course": {}}')));
+        (new gemini_connector())->complete($this->make_request(['step' => request::STEP_OUTLINE, 'schema' => $schema]));
+
+        [$sent, $body] = $this->sent();
+        $this->assertStringNotContainsString('aicb:', (string) $sent->getBody());
+        $nativeschema = $body['generationConfig']['responseJsonSchema'];
+        $this->assertSame('#/$defs/blueprint_v1__course', $nativeschema['properties']['course']['$ref']);
+        $this->assertArrayHasKey('blueprint_v1__course', $nativeschema['$defs']);
+    }
+
+    /**
      * Source files are sent as inline PDF parts in the first user turn, alongside its text.
      */
     public function test_files_are_sent_inline(): void {

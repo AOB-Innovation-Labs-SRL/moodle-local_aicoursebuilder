@@ -183,6 +183,27 @@ final class deepseek_connector_test extends \advanced_testcase {
     }
 
     /**
+     * The outline schema refers to the blueprint schema, which DeepSeek cannot fetch: the tool
+     * parameters have to carry everything, with no aicb:/// left.
+     */
+    public function test_a_step_schema_is_sent_without_external_references(): void {
+        $schema = (new \local_aicoursebuilder\blueprint\schema_store())->step_schema_array(request::STEP_OUTLINE);
+        $rawjson = json_encode($schema, JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString('aicb:///', $rawjson, 'the raw schema is not self-contained');
+        $this->mock->append(new Response(200, [], $this->completion_body(['content' => '{"course": {}}'])));
+
+        (new deepseek_connector())->complete($this->make_request(['step' => request::STEP_OUTLINE, 'schema' => $schema]));
+
+        [$sent, $body] = $this->sent();
+        $this->assertStringNotContainsString('aicb:', (string) $sent->getBody());
+        $parameters = $body['tools'][0]['function']['parameters'];
+        $this->assertSame('#/$defs/blueprint_v1__course', $parameters['properties']['course']['$ref']);
+        $this->assertArrayHasKey('blueprint_v1__course', $parameters['$defs']);
+        $this->assertArrayHasKey('outline_section', $parameters['$defs']);
+        $this->assertArrayNotHasKey('$id', $parameters);
+    }
+
+    /**
      * A free-text request has neither tools nor response_format and no decoded JSON.
      */
     public function test_text_request(): void {

@@ -543,8 +543,10 @@ class build_course extends \core\task\adhoc_task {
      * @return builder_registry
      */
     protected function registry(): builder_registry {
-        // The plugin registers no builder yet: they land with the builder tasks, so every node is manual.
-        $this->registry ??= new builder_registry();
+        // The types with no builder here are still manual: they land with the remaining builder tasks.
+        $this->registry ??= new builder_registry([
+            'quiz' => new \local_aicoursebuilder\builder\quiz(),
+        ]);
         return $this->registry;
     }
 
