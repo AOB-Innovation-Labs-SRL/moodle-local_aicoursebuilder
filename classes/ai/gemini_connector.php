@@ -89,6 +89,9 @@ class gemini_connector implements async_connector, connector {
     /** @var bool Whether to send the schema unconverted, through responseJsonSchema. */
     protected bool $nativejsonschema;
 
+    /** @var schema_bundler Makes a request schema self-contained before it is sent. */
+    protected schema_bundler $schemabundler;
+
     /** @var gemini_schema_transformer Turns a request schema into Gemini's responseSchema subset. */
     protected gemini_schema_transformer $schematransformer;
 
@@ -107,6 +110,7 @@ class gemini_connector implements async_connector, connector {
         $this->thinking = !empty($config->gemini_thinking);
         $this->nativejsonschema = !empty($config->gemini_native_json_schema);
         $this->schematransformer = new gemini_schema_transformer();
+        $this->schemabundler = new schema_bundler();
     }
 
     /**
@@ -243,9 +247,9 @@ class gemini_connector implements async_connector, connector {
         if ($request->schema !== null) {
             $generationconfig['responseMimeType'] = 'application/json';
             if ($this->nativejsonschema) {
-                $generationconfig['responseJsonSchema'] = $request->schema;
+                $generationconfig['responseJsonSchema'] = $this->schemabundler->bundle($request->schema);
             } else {
-                $generationconfig['responseSchema'] = $this->schematransformer->transform($request->schema, $request->step);
+                $generationconfig['responseSchema'] = $this->schematransformer->transform($request->schema);
             }
         } else if ($request->json) {
             $generationconfig['responseMimeType'] = 'application/json';

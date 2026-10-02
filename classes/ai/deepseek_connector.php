@@ -72,6 +72,9 @@ class deepseek_connector implements async_connector, connector {
     /** @var bool Whether thinking mode is enabled. */
     protected bool $thinking;
 
+    /** @var schema_bundler Makes a request schema self-contained before it is sent. */
+    protected schema_bundler $schemabundler;
+
     /**
      * Creates the connector from the plugin settings.
      *
@@ -83,6 +86,7 @@ class deepseek_connector implements async_connector, connector {
             : (trim((string) ($config->deepseek_model ?? '')) ?: self::DEFAULT_MODEL);
         $this->baseurl = rtrim(trim((string) ($config->deepseek_baseurl ?? '')) ?: self::DEFAULT_BASEURL, '/');
         $this->thinking = !empty($config->deepseek_thinking);
+        $this->schemabundler = new schema_bundler();
     }
 
     /**
@@ -223,7 +227,7 @@ class deepseek_connector implements async_connector, connector {
                 'function' => [
                     'name' => $name,
                     'description' => "Returns the {$request->step} result as JSON that follows the parameters schema.",
-                    'parameters' => $request->schema ?: ['type' => 'object'],
+                    'parameters' => $this->schemabundler->bundle($request->schema) ?: ['type' => 'object'],
                 ],
             ]];
             $body['tool_choice'] = ['type' => 'function', 'function' => ['name' => $name]];

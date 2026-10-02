@@ -106,8 +106,8 @@ class coreai_connector implements connector {
             $parts[] = $request->system;
         }
         if ($request->schema !== null) {
-            $parts[] = self::SCHEMA_INSTRUCTION . "\n"
-                . json_encode($request->schema ?: ['type' => 'object'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $schema = (new schema_bundler())->bundle($request->schema) ?: ['type' => 'object'];
+            $parts[] = self::SCHEMA_INSTRUCTION . "\n" . json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         } else if ($request->json) {
             $parts[] = self::JSON_INSTRUCTION;
         }
