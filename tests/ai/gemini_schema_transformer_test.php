@@ -16,6 +16,8 @@
 
 namespace local_aicoursebuilder\ai;
 
+use local_aicoursebuilder\blueprint\schema_store;
+
 /**
  * Tests for the schema transformation that narrows a schema/ document to Gemini's responseSchema
  * subset.
@@ -98,9 +100,30 @@ final class gemini_schema_transformer_test extends \advanced_testcase {
     public function test_nested_same_document_ref_resolves_against_its_own_document(): void {
         $out = (new gemini_schema_transformer())->transform([
             '$ref' => 'aicb:///blueprint.v1#/$defs/course',
-        ], request::STEP_OUTLINE);
+        ]);
         $this->assertSame('string', $out['properties']['startdate']['type']);
         $this->assertSame('date', $out['properties']['startdate']['format']);
+    }
+
+    /**
+     * A schema that is already a bundle (local definitions, no external ref) is inlined and narrowed.
+     */
+    public function test_local_definitions_of_a_bundle_are_inlined(): void {
+        $out = (new gemini_schema_transformer())->transform([
+            'type' => 'object',
+            'properties' => ['id' => ['$ref' => '#/$defs/sectionid']],
+            '$defs' => ['sectionid' => ['type' => 'string', 'pattern' => '^s[0-9]+$']],
+        ]);
+
+        $this->assertSame(['type' => 'object', 'properties' => ['id' => ['type' => 'string']]], $out);
+    }
+
+    /**
+     * A $ref the bundle has no definition for is a coding error.
+     */
+    public function test_a_missing_definition_is_a_coding_error(): void {
+        $this->expectException(\coding_exception::class);
+        (new gemini_schema_transformer())->transform(['properties' => ['id' => ['$ref' => '#/$defs/nope']]]);
     }
 
     /**
@@ -111,7 +134,7 @@ final class gemini_schema_transformer_test extends \advanced_testcase {
         $raw = json_decode(file_get_contents(dirname(__DIR__, 2) . '/schema/steps/questions.v1.json'), true);
         $raw = $this->rewrite_refs_like_schema_store($raw);
 
-        $out = (new gemini_schema_transformer())->transform($raw, request::STEP_QUESTIONS);
+        $out = (new gemini_schema_transformer())->transform($raw);
 
         $this->assert_schema_is_clean($out);
     }
@@ -124,7 +147,7 @@ final class gemini_schema_transformer_test extends \advanced_testcase {
         $raw = json_decode(file_get_contents(dirname(__DIR__, 2) . '/schema/steps/outline.v1.json'), true);
         $raw = $this->rewrite_refs_like_schema_store($raw);
 
-        $out = (new gemini_schema_transformer())->transform($raw, request::STEP_OUTLINE);
+        $out = (new gemini_schema_transformer())->transform($raw);
 
         $this->assert_schema_is_clean($out);
     }
@@ -140,7 +163,7 @@ final class gemini_schema_transformer_test extends \advanced_testcase {
      */
     private function rewrite_refs_like_schema_store(array $raw): array {
         $encoded = json_encode($raw, JSON_UNESCAPED_SLASHES);
-        $rewritten = str_replace('local_aicoursebuilder/', gemini_schema_transformer::URI_PREFIX, $encoded);
+        $rewritten = str_replace('local_aicoursebuilder/', schema_store::URI_PREFIX, $encoded);
         $raw = json_decode($rewritten, true);
         unset($raw['$schema'], $raw['$id']);
         return $raw;

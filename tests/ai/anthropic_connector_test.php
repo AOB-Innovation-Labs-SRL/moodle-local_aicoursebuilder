@@ -169,6 +169,26 @@ final class anthropic_connector_test extends \advanced_testcase {
     }
 
     /**
+     * The outline schema refers to the blueprint schema: the structured output schema has to carry
+     * everything, with no aicb:/// left.
+     */
+    public function test_a_step_schema_is_sent_without_external_references(): void {
+        $schema = (new \local_aicoursebuilder\blueprint\schema_store())->step_schema_array(request::STEP_OUTLINE);
+        $rawjson = json_encode($schema, JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString('aicb:///', $rawjson, 'the raw schema is not self-contained');
+        $this->mock->append(new Response(200, [], $this->message_body([['type' => 'text', 'text' => '{"course": {}}']])));
+
+        (new anthropic_connector())->complete($this->make_request(['step' => request::STEP_OUTLINE, 'schema' => $schema]));
+
+        [$sent, $body] = $this->sent();
+        $this->assertStringNotContainsString('aicb:', (string) $sent->getBody());
+        $sentschema = $body['output_config']['format']['schema'];
+        $this->assertSame('#/$defs/blueprint_v1__course', $sentschema['properties']['course']['$ref']);
+        $this->assertArrayHasKey('blueprint_v1__course', $sentschema['$defs']);
+        $this->assertArrayNotHasKey('$id', $sentschema);
+    }
+
+    /**
      * Source files are sent as cached document blocks before the conversation.
      */
     public function test_files_are_sent_as_cached_document_blocks(): void {

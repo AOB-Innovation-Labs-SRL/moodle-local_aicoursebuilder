@@ -103,6 +103,25 @@ final class coreai_connector_test extends \advanced_testcase {
     }
 
     /**
+     * The outline schema refers to the blueprint schema: the schema written into the prompt has to
+     * carry everything, with no aicb:/// left.
+     */
+    public function test_a_step_schema_is_written_into_the_prompt_without_external_references(): void {
+        $this->create_provider();
+        $schema = (new \local_aicoursebuilder\blueprint\schema_store())->step_schema_array(request::STEP_OUTLINE);
+        $rawjson = json_encode($schema, JSON_UNESCAPED_SLASHES);
+        $this->assertStringContainsString('aicb:///', $rawjson, 'the raw schema is not self-contained');
+        $this->mock->append(new Response(200, ['Content-Type' => 'application/json'], $this->completion_body('{"course": {}}')));
+
+        (new coreai_connector())->complete($this->make_request(['step' => request::STEP_OUTLINE, 'schema' => $schema]));
+
+        $body = json_decode((string) $this->history[0]['request']->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $prompt = $body['messages'][1]['content'];
+        $this->assertStringNotContainsString('aicb:', $prompt);
+        $this->assertStringContainsString('"$ref":"#/$defs/blueprint_v1__course"', $prompt);
+    }
+
+    /**
      * The request runs through core_ai; the prompt text joins system, schema and message.
      */
     public function test_complete_through_core_ai(): void {
