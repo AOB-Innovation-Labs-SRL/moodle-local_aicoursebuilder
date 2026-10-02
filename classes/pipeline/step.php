@@ -18,6 +18,7 @@ namespace local_aicoursebuilder\pipeline;
 
 use local_aicoursebuilder\ai\budget_exceeded_exception;
 use local_aicoursebuilder\ai\connector_exception;
+use local_aicoursebuilder\ai\output_limits;
 use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\ai\result;
 use local_aicoursebuilder\blueprint\validation_error;
@@ -44,6 +45,9 @@ abstract class step {
 
     /** @var string Prompt that opens every node of the sections, activities and questions steps. */
     public const PREFIX_PROMPT = 'prefix';
+
+    /** @var int Output limit the last repair call of this node was cut off at, 0 when it was not. */
+    protected int $repairtruncatedat = 0;
 
     /** @var pipeline_context The job this step runs for. */
     protected pipeline_context $context;
@@ -256,6 +260,7 @@ abstract class step {
         $errors = $this->validate($output, $input, $nodekey);
 
         $repairs = 0;
+        $this->repairtruncatedat = 0;
         for ($attempt = 0; $errors !== [] && $attempt < self::MAX_REPAIR_CALLS; $attempt++) {
             // A repair call that failed at the provider still counts: it was an attempt.
             $repairs++;
@@ -278,7 +283,7 @@ abstract class step {
             );
         }
 
-        $reason = failure_reason::from_validation($errors, $repairs, 1 + $repairs);
+        $reason = failure_reason::from_validation($errors, $repairs, 1 + $repairs, $this->repairtruncatedat);
         $placeholder = $this->placeholder($nodekey, $input);
         if ($placeholder === null) {
             return step_result::failed(
@@ -328,7 +333,7 @@ abstract class step {
             messages: [['role' => 'user', 'content' => $this->context->repair_instruction()]],
             schema: null,
             files: [],
-            maxtokens: 0,
+            maxtokens: output_limits::for_step(request::STEP_REPAIR),
             temperature: null,
             timeout: 0,
             jobid: $this->context->jobid,
@@ -340,8 +345,10 @@ abstract class step {
         try {
             $result = $this->call($request, $spend, request::STEP_REPAIR);
         } catch (connector_exception $e) {
+            $this->repairtruncatedat = $e->errorcode === connector_exception::TRUNCATED ? (int) $e->a : 0;
             return null;
         }
+        $this->repairtruncatedat = 0;
         return json_repair::decode($result->content);
     }
 
@@ -392,7 +399,7 @@ abstract class step {
             messages: [['role' => 'user', 'content' => $message]],
             schema: $this->context->schemas->step_schema_array($this->get_step()),
             files: [],
-            maxtokens: 0,
+            maxtokens: output_limits::for_step($this->get_step()),
             temperature: null,
             timeout: 0,
             jobid: $this->context->jobid,

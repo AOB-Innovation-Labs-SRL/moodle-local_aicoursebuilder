@@ -16,6 +16,7 @@
 
 namespace local_aicoursebuilder\pipeline;
 
+use local_aicoursebuilder\ai\output_limits;
 use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\blueprint\node_tree;
 use local_aicoursebuilder\blueprint\validation_error;
@@ -123,6 +124,7 @@ class step_regenerate extends step {
             step: $this->get_step(),
             system: $system,
             messages: [['role' => 'user', 'content' => $message]],
+            maxtokens: output_limits::for_step($this->get_step()),
             jobid: $this->context->jobid,
             userid: $this->context->userid,
             contextid: $this->context->contextid,

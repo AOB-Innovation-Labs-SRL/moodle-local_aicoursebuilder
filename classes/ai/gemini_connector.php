@@ -345,9 +345,9 @@ class gemini_connector implements async_connector, connector {
         if ($request->wants_json()) {
             $json = json_decode($content, true);
             if (!is_array($json)) {
-                throw new connector_exception(
-                    connector_exception::INVALID_JSON,
-                    null,
+                throw connector_exception::for_undecodable_json(
+                    $finishreason,
+                    $request->maxtokens,
                     "finishReason={$finishreason}, content length=" . strlen($content)
                 );
             }

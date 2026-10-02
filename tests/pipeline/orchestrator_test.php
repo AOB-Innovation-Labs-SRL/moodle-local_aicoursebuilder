@@ -20,6 +20,7 @@ use local_aicoursebuilder\ai\budget_guard;
 use local_aicoursebuilder\ai\connector_exception;
 use local_aicoursebuilder\ai\fake_connector;
 use local_aicoursebuilder\ai\fake_lock_factory;
+use local_aicoursebuilder\ai\output_limits;
 use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\ai\router;
 use local_aicoursebuilder\blueprint\schema_store;
@@ -708,6 +709,68 @@ final class orchestrator_test extends \advanced_testcase {
         $reason = $this->stored_reason(request::STEP_SECTIONS, 's2');
         $this->assertSame(failure_reason::TYPE_VALIDATION, $reason['type']);
         $this->assertSame([['path' => '', 'code' => 'not_json']], $reason['errors']);
+    }
+
+    /**
+     * Every call is sent with the output limit of its step, and an answer cut off at that limit is
+     * recorded as a truncation with the limit, not as invalid JSON.
+     */
+    public function test_a_cut_off_section_records_a_truncation(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections(['s1', 's1-1', 's3']);
+        $limit = output_limits::for_step(request::STEP_SECTIONS);
+        for ($i = 0; $i < 4; $i++) {
+            $this->connector->push(
+                request::STEP_SECTIONS,
+                new connector_exception(connector_exception::TRUNCATED, $limit, 'finish_reason=length'),
+                's2',
+            );
+        }
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame(['s2'], $outcome->manualnodes);
+        $reason = $this->stored_reason(request::STEP_SECTIONS, 's2');
+        $this->assertSame(failure_reason::TYPE_TRUNCATED, $reason['type']);
+        $this->assertSame($limit, $reason['maxtokens']);
+        $this->assertSame([], $reason['errors']);
+
+        foreach ([request::STEP_OUTLINE, request::STEP_SECTIONS, request::STEP_QUESTIONS] as $step) {
+            foreach ($this->connector->requests($step) as $request) {
+                $this->assertSame(output_limits::for_step($step), $request->maxtokens, "{$step} sends its own limit");
+            }
+        }
+    }
+
+    /**
+     * A repair that is itself cut off leaves the node truncated: a longer limit is the fix, not the prompt.
+     */
+    public function test_a_cut_off_repair_records_a_truncation(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections(['s1-1', 's2', 's3']);
+        $broken = $this->section_fixture('s1');
+        $broken['activities'][0]['id'] = 'not-an-id';
+        $this->connector->push(request::STEP_SECTIONS, $broken, 's1');
+        $limit = output_limits::for_step(request::STEP_REPAIR);
+        $this->connector->push(
+            request::STEP_REPAIR,
+            new connector_exception(connector_exception::TRUNCATED, $limit, 'finish_reason=length'),
+        );
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame(['s1'], $outcome->manualnodes);
+        $reason = $this->stored_reason(request::STEP_SECTIONS, 's1');
+        $this->assertSame(failure_reason::TYPE_TRUNCATED, $reason['type']);
+        $this->assertSame($limit, $reason['maxtokens']);
+        $this->assertSame(1, $reason['repairs'], 'a repair that failed is not tried again');
+        $this->assertSame(2, $reason['attempts']);
+        $this->assertNotEmpty($reason['errors'], 'the errors of the first answer are kept');
+        foreach ($this->connector->requests(request::STEP_REPAIR) as $request) {
+            $this->assertSame($limit, $request->maxtokens);
+        }
     }
 
     /**

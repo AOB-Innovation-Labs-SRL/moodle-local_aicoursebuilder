@@ -406,6 +406,21 @@ if ($hassiteconfig) {
                 PARAM_TEXT
             ));
         }
+
+        $connectors->add(new admin_setting_heading(
+            'local_aicoursebuilder/outputlimitsheading',
+            new lang_string('outputlimitsheading', 'local_aicoursebuilder'),
+            new lang_string('outputlimitsheading_desc', 'local_aicoursebuilder', \local_aicoursebuilder\ai\output_limits::MAX)
+        ));
+        foreach (\local_aicoursebuilder\ai\request::STEPS as $step) {
+            $connectors->add(new admin_setting_configtext(
+                "local_aicoursebuilder/maxtokens_{$step}",
+                new lang_string('maxtokens', 'local_aicoursebuilder', new lang_string('step_' . $step, 'local_aicoursebuilder')),
+                new lang_string('maxtokens_desc', 'local_aicoursebuilder'),
+                \local_aicoursebuilder\ai\output_limits::default_for($step),
+                PARAM_INT
+            ));
+        }
     }
     $ADMIN->add('localplugins', $connectors);
 }
