@@ -157,7 +157,7 @@ final class digest_builder_test extends \advanced_testcase {
         $this->assertSame('digest', $rows[0]->step);
         $this->assertSame('s' . $this->source->id, $rows[0]->nodekey);
         $this->assertSame('done', $rows[0]->status);
-        $this->assertSame('v1', $rows[0]->promptversion);
+        $this->assertSame(\local_aicoursebuilder\pipeline\prompt::VERSION, $rows[0]->promptversion);
         $this->assertSame('fake', $rows[0]->connector);
         $this->assertGreaterThan(0, $rows[0]->tokensin);
         $this->assertSame(64, strlen($rows[0]->inputhash));

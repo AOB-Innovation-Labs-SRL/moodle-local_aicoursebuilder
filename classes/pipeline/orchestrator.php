@@ -98,12 +98,14 @@ class orchestrator {
         $questionstep = new step_questions($this->context);
         $index = 0;
         foreach ($containers as $id => $container) {
-            $activityinputs[$id] = [
+            // Brief and outline travel with every node: they make up its cached prefix.
+            $shared = ['brief' => $brief->output, 'outline' => $outline->output];
+            $activityinputs[$id] = $shared + [
                 'section' => $container,
                 'activities' => $sections[$id]->output['activities'] ?? [],
             ];
             if (!empty($container['objectives'])) {
-                $questioninputs[$id] = $questionstep->input_for($container, $index++ * 1000 + 1);
+                $questioninputs[$id] = $shared + $questionstep->input_for($container, $index++ * 1000 + 1);
             }
         }
         $activities = $this->run_parallel(new step_activities($this->context), $activityinputs);

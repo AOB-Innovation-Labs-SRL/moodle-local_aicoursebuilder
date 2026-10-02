@@ -232,10 +232,16 @@ class fake_connector implements connector {
      * @return string The sub-call key, empty when the request is not a sub-call.
      */
     protected function nodekey(request $request): string {
-        if (preg_match('/<<<TARGET_ID\R([^\r\n]+)\RTARGET_ID/', $request->system, $target)) {
+        // From prompt v2 on, the node's own part is the user message, after a system message that
+        // every node shares, so the block is looked for in both.
+        $text = $request->system;
+        foreach ($request->messages as $message) {
+            $text .= "\n" . (is_string($message['content'] ?? null) ? $message['content'] : '');
+        }
+        if (preg_match('/<<<TARGET_ID\R([^\r\n]+)\RTARGET_ID/', $text, $target)) {
             return $target[1];
         }
-        if (!preg_match('/<<<SECTION\R(.*?)\RSECTION\s*$/ms', $request->system, $block)) {
+        if (!preg_match('/<<<SECTION\R(.*?)\RSECTION\s*$/ms', $text, $block)) {
             return '';
         }
         if (preg_match('/"id"\s*:\s*"(s[0-9]+(?:-[0-9]+)?)"/', $block[1], $matches)) {

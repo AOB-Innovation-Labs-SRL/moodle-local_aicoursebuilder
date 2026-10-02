@@ -21,6 +21,7 @@ use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\ai\router;
 use local_aicoursebuilder\blueprint\node_tree;
 use local_aicoursebuilder\blueprint\schema_store;
+use local_aicoursebuilder\blueprint\validation_error;
 use local_aicoursebuilder\blueprint\validator;
 use local_aicoursebuilder\blueprint\version_store;
 
@@ -70,7 +71,9 @@ class regenerator {
         ];
         $result = (new step_regenerate($context, $route))->run($input, $nodeid);
         if (!$result->is_success()) {
-            throw new \moodle_exception('regenerationinvalid', 'local_aicoursebuilder', '', $result->error);
+            // The teacher sees what the validator said; the step row keeps only the structured reason.
+            $detail = $result->errors === [] ? $result->error : validation_error::list_to_json($result->errors);
+            throw new \moodle_exception('regenerationinvalid', 'local_aicoursebuilder', '', $detail);
         }
         $candidate = node_tree::replace($blueprint, $path, $result->output['node']);
         // Validate once more immediately before the insert, even for a resumed step.
