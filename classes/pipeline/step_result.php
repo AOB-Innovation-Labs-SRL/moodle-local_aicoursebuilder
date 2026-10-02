@@ -132,9 +132,10 @@ final class step_result {
      * @param string $error Message of the failure.
      * @param int $calls Calls spent before giving up.
      * @param float $cost Cost spent before giving up, in USD.
+     * @param validation_error[] $errors Validator errors of the last answer, for whoever started the step.
      * @return self
      */
-    public static function failed(string $error, int $calls = 0, float $cost = 0.0): self {
-        return new self(output: null, calls: $calls, cost: $cost, error: $error);
+    public static function failed(string $error, int $calls = 0, float $cost = 0.0, array $errors = []): self {
+        return new self(output: null, errors: $errors, calls: $calls, cost: $cost, error: $error);
     }
 }

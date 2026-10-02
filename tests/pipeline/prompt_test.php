@@ -30,7 +30,7 @@ namespace local_aicoursebuilder\pipeline;
  */
 final class prompt_test extends \basic_testcase {
     /** @var string[] Prompts that send source material to the model. */
-    private const SOURCE_PROMPTS = ['brief', 'outline', 'sections'];
+    private const SOURCE_PROMPTS = ['brief', 'outline', 'prefix'];
 
     /** @var string[] Every prompt of this release. */
     private const ALL_PROMPTS = ['brief', 'outline', 'sections', 'repair'];
@@ -128,6 +128,8 @@ final class prompt_test extends \basic_testcase {
             'brief' => ['objectives' => ['o1']],
             'sources' => $evil,
             'source_ids' => 'src1',
+            'sections_min' => 3,
+            'sections_max' => 6,
         ]);
 
         $after = substr($rendered, strpos($rendered, '<<<SOURCES'));
@@ -172,6 +174,8 @@ final class prompt_test extends \basic_testcase {
             'brief' => [],
             'sources' => $evil,
             'source_ids' => 'src1',
+            'sections_min' => 3,
+            'sections_max' => 6,
         ]);
 
         $this->assertStringContainsString('Conținut util.', $rendered);

@@ -201,7 +201,7 @@ final class orchestrator_test extends \advanced_testcase {
                 }
             }
         }
-        foreach (['lesson', 'assign', 'forum', 'glossary', 'wiki', 'choice', 'feedback'] as $type) {
+        foreach (['lesson', 'assign', 'forum', 'glossary', 'choice', 'feedback'] as $type) {
             $this->assertArrayHasKey($type, $types);
         }
     }
@@ -368,8 +368,8 @@ final class orchestrator_test extends \advanced_testcase {
         $this->assertSame([], $outcome->errors);
         $requests = $this->connector->requests(request::STEP_QUESTIONS);
         $this->assertCount(3, $requests);
-        $this->assertStringContainsString('CHUNK_SENTINEL_DOAR_S1', $requests[0]->system);
-        $this->assertStringNotContainsString('CHUNK_SENTINEL_DOAR_S1', $requests[1]->system);
+        $this->assertStringContainsString('CHUNK_SENTINEL_DOAR_S1', $this->sent($requests[0]));
+        $this->assertStringNotContainsString('CHUNK_SENTINEL_DOAR_S1', $this->sent($requests[1]));
 
         $DB->set_field('local_aicb_chunk', 'content', 'CHUNK_CHANGED_FOR_S1', ['id' => $chunkid]);
         $this->connector->reset_counts();
@@ -382,7 +382,7 @@ final class orchestrator_test extends \advanced_testcase {
         );
         $this->assertStringContainsString(
             'CHUNK_CHANGED_FOR_S1',
-            $this->connector->requests(request::STEP_QUESTIONS)[0]->system
+            $this->sent($this->connector->requests(request::STEP_QUESTIONS)[0])
         );
     }
 
@@ -409,15 +409,138 @@ final class orchestrator_test extends \advanced_testcase {
             512,
             JSON_THROW_ON_ERROR
         );
+        $brief = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/ai/brief.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $shared = ['brief' => $brief, 'outline' => $outline];
         $step = new step_questions($this->context());
-        $input = $step->input_for($outline['sections'][0], 1);
+        $input = $shared + $step->input_for($outline['sections'][0], 1);
         $this->assertTrue($step->has_finished($input, 's1'));
 
         set_config('questions_min', '6', 'local_aicoursebuilder');
         set_config('questions_max', '10', 'local_aicoursebuilder');
-        $changedinput = $step->input_for($outline['sections'][0], 1);
+        $changedinput = $shared + $step->input_for($outline['sections'][0], 1);
         $this->assertFalse($step->has_finished($changedinput, 's1'));
-        $this->assertStringContainsString('6 and 10 questions', $step->request_for($changedinput, 's1')->system);
+        $this->assertStringContainsString('exactly 6 questions', $this->sent($step->request_for($changedinput, 's1')));
+        $this->assertStringContainsString('the limit is 10', $this->sent($step->request_for($changedinput, 's1')));
+    }
+
+    /**
+     * The number of sections follows the length of the course, at 30 to 80 minutes a section.
+     */
+    public function test_section_range_follows_the_duration(): void {
+        $this->assertSame([3, 8], step_outline::section_range(240));
+        $this->assertSame([3, 6], step_outline::section_range(180));
+        $this->assertSame([2, 4], step_outline::section_range(120));
+        $this->assertSame([1, 2], step_outline::section_range(60));
+        $this->assertSame([1, 1], step_outline::section_range(30));
+        $this->assertSame([12, 12], step_outline::section_range(2000), 'never more than twelve');
+        $this->assertSame([0, 0], step_outline::section_range(0), 'no duration, no rule');
+    }
+
+    /**
+     * An outline with more sections than its duration allows is sent back to be repaired.
+     */
+    public function test_too_many_sections_for_the_duration_are_repaired(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections();
+
+        $outline = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/ai/outline.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+        // 240 minutes allow 3 to 8 sections; 12, as in the real run of 02.10, are too many.
+        $toomany = $outline;
+        for ($i = 4; $i <= 12; $i++) {
+            $extra = $outline['sections'][2];
+            $extra['id'] = 's' . $i;
+            $extra['objectives'] = [['id' => "s{$i}.o1", 'text' => 'Obiectiv']];
+            unset($extra['subsections']);
+            $toomany['sections'][] = $extra;
+        }
+        $this->connector->push(request::STEP_OUTLINE, $toomany);
+        $this->connector->push(request::STEP_REPAIR, $outline);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame(pipeline_outcome::REASON_COMPLETED, $outcome->reason, $outcome->message);
+        $this->assertCount(3, $outcome->blueprint['sections']);
+        $repair = $this->connector->requests(request::STEP_REPAIR)[0];
+        $this->assertStringContainsString('needs between 3 and 8 sections', $repair->system);
+    }
+
+    /**
+     * A section given every kind of activity is sent back: one to three types that fit.
+     */
+    public function test_more_than_three_activity_types_are_repaired(): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+
+        $good = json_decode(
+            file_get_contents(dirname(__DIR__) . '/fixtures/ai/activities/s2.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+        $all = $good;
+        $all['activities'][] = [
+            'id' => 's2.wiki1',
+            'type' => 'wiki',
+            'name' => 'Wiki',
+            'content' => ['pages' => [['title' => 'Pagina', 'content' => '<p>Text</p>']]],
+            'source_refs' => [['source' => 'src1']],
+        ];
+        // Queued first, so it is the answer s2 gets before the fixtures queued after it.
+        $this->connector->push(request::STEP_ACTIVITIES, $all, 's2');
+        $this->connector->push(request::STEP_REPAIR, $good);
+        $this->queue_sections();
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR));
+        $types = array_column(array_column($outcome->blueprint['sections'], 'activities', 'id')['s2'], 'type');
+        $this->assertNotContains('wiki', $types);
+        $this->assertStringContainsString(
+            'at most 3 activity types',
+            $this->connector->requests(request::STEP_REPAIR)[0]->system,
+        );
+    }
+
+    /**
+     * Every section, activity and quiz call opens with the same system message, byte for byte, and
+     * carries what is specific to its node only in the message after it, so the provider's prefix
+     * cache serves the shared part from the second call on.
+     */
+    public function test_every_node_opens_with_the_same_prefix(): void {
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+        $this->assertSame(pipeline_outcome::REASON_COMPLETED, $outcome->reason, $outcome->message);
+
+        $requests = array_merge(
+            $this->connector->requests(request::STEP_SECTIONS),
+            $this->connector->requests(request::STEP_ACTIVITIES),
+            $this->connector->requests(request::STEP_QUESTIONS),
+        );
+        $this->assertGreaterThanOrEqual(9, count($requests), 'four sections, four activity sets, three quizzes');
+
+        $prefix = $requests[0]->system;
+        $this->assertStringContainsString('<<<SOURCES', $prefix, 'the sources are part of the shared prefix');
+        $this->assertStringContainsString('<<<OUTLINE', $prefix, 'so is the outline');
+        $this->assertStringNotContainsString('<<<SECTION', $prefix, 'nothing of one node is in it');
+        $messages = [];
+        foreach ($requests as $request) {
+            $this->assertSame($prefix, $request->system, "the {$request->step} call opens with the shared prefix");
+            $this->assertCount(1, $request->messages);
+            $this->assertMatchesRegularExpression('/<<<SECTION\R.*\RSECTION\s*$/s', $request->messages[0]['content']);
+            $messages[] = $request->step . "\n" . $request->messages[0]['content'];
+        }
+        $this->assertCount(count($messages), array_unique($messages), 'what differs is the node part, at the end');
     }
 
     /**
@@ -477,10 +600,14 @@ final class orchestrator_test extends \advanced_testcase {
         (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
         $this->connector->reset_counts();
 
-        // A second version of the prompts, identical in content: only the version has to differ.
-        $dir = make_temp_directory('local_aicoursebuilder_prompts_v2');
-        foreach (['brief', 'outline', 'sections', 'activities', 'questions', 'review', 'repair'] as $name) {
-            copy("{$CFG->dirroot}/local/aicoursebuilder/prompts/{$name}.v1.md", "{$dir}/{$name}.v2.md");
+        // A next version of the prompts, identical in content: only the version has to differ.
+        $dir = make_temp_directory('local_aicoursebuilder_prompts_next');
+        $names = ['brief', 'outline', 'sections', 'activities', 'questions', 'review', 'repair', step::PREFIX_PROMPT];
+        foreach ($names as $name) {
+            copy(
+                "{$CFG->dirroot}/local/aicoursebuilder/prompts/{$name}." . prompt::VERSION . '.md',
+                "{$dir}/{$name}.vnext.md",
+            );
         }
 
         $context = new pipeline_context(
@@ -494,7 +621,7 @@ final class orchestrator_test extends \advanced_testcase {
             schemas: new schema_store(),
             sourcetexts: $this->context()->sourcetexts,
             digests: $this->context()->digests,
-            promptversion: 'v2',
+            promptversion: 'vnext',
             promptdir: $dir,
         );
         $this->queue_sections();
@@ -857,6 +984,16 @@ final class orchestrator_test extends \advanced_testcase {
             $system,
             'the text itself is kept, as data',
         );
+    }
+
+    /**
+     * Returns everything a request sent to the model: the system message, then the messages.
+     *
+     * @param request $request The request.
+     * @return string
+     */
+    private function sent(request $request): string {
+        return $request->system . "\n" . implode("\n", array_column($request->messages, 'content'));
     }
 
     /**

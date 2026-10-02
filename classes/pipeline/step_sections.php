@@ -70,6 +70,16 @@ class step_sections extends step {
     }
 
     /**
+     * Opens every call of this step with the prefix shared by the whole job.
+     *
+     * @param array $input Step input.
+     * @return string|null
+     */
+    protected function shared_prefix(array $input): ?string {
+        return $this->render_shared_prefix($input);
+    }
+
+    /**
      * Returns the outline as the neighbouring context of this section.
      *
      * Only the titles and objectives of the other sections are sent: a section has to know what the

@@ -42,6 +42,9 @@ abstract class step {
     /** @var int Repair calls allowed per node, after the local repair has been tried. */
     public const MAX_REPAIR_CALLS = 2;
 
+    /** @var string Prompt that opens every node of the sections, activities and questions steps. */
+    public const PREFIX_PROMPT = 'prefix';
+
     /** @var pipeline_context The job this step runs for. */
     protected pipeline_context $context;
 
@@ -222,6 +225,12 @@ abstract class step {
      * @return request
      */
     public function request_for(array $input, string $nodekey = ''): request {
+        $prefix = $this->shared_prefix($input);
+        if ($prefix !== null) {
+            // The node's own instructions and data go last, after a system message that is the same
+            // byte for byte for every node of the job, so the provider can serve it from its cache.
+            return $this->build_request($prefix, $this->render_prompt($input, $nodekey));
+        }
         return $this->build_request(
             $this->render_prompt($input, $nodekey),
             $this->user_message($input, $nodekey),
@@ -276,6 +285,7 @@ abstract class step {
                 $reason,
                 calls: $spend->calls,
                 cost: $spend->cost,
+                errors: $errors,
             );
         }
         return step_result::needs_manual(
@@ -412,6 +422,61 @@ abstract class step {
      * @return array Placeholder name => value.
      */
     abstract protected function prompt_values(array $input, string $nodekey): array;
+
+    /**
+     * Returns the system message shared by every node of the content steps, or null for a step that
+     * writes its whole prompt into the system message.
+     *
+     * @param array $input Step input.
+     * @return string|null
+     */
+    protected function shared_prefix(array $input): ?string {
+        return null;
+    }
+
+    /**
+     * Renders the shared prefix: course brief, outline and every source, in that order.
+     *
+     * Nothing in it depends on the node, which is the whole point: sections, activities and
+     * questions all open with this exact text, so only the first call of a job pays for it in full.
+     * A prompt version without a prefix template keeps its old layout.
+     *
+     * @param array $input Step input, with `brief` and `outline`.
+     * @return string|null The prefix, or null when this prompt version has none.
+     */
+    protected function render_shared_prefix(array $input): ?string {
+        $prompt = new prompt(self::PREFIX_PROMPT, $this->context->promptversion, $this->context->promptdir);
+        if (!$prompt->exists()) {
+            return null;
+        }
+        return $prompt->render([
+            'language_name' => $this->context->language_name(),
+            'language' => $this->context->language,
+            'brief' => $input['brief'] ?? [],
+            'outline' => $input['outline'] ?? [],
+            'sources' => $this->all_sources(),
+            'source_ids' => $this->context->source_ids_text(),
+        ]);
+    }
+
+    /**
+     * Returns the text of every source, each under its id, in source order.
+     *
+     * @return string
+     */
+    protected function all_sources(): string {
+        if ($this->context->sourcetexts === []) {
+            return 'There are no source documents: write from the outline alone.';
+        }
+        $parts = [];
+        foreach ($this->context->sourcetexts as $id => $text) {
+            $parts[] = "[{$id}]
+{$text}";
+        }
+        return implode("
+
+", $parts);
+    }
 
     /**
      * Returns the user message that goes with this step's prompt.
