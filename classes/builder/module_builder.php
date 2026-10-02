@@ -87,11 +87,19 @@ abstract class module_builder implements builder_interface {
             $info->introeditor['text'] = self::clean_html((string) ($node['intro'] ?? ''));
             $info->introeditor['format'] = FORMAT_HTML;
         }
+        // The ID number of the module is a field of the form, which the modules and the gradebook read.
+        $info->cmidnumber = '';
         $this->add_completion($info, $node['completion'] ?? null);
         $this->add_fields($info, $node, $context);
 
         $created = create_module($info);
-        $this->after_created($created, $node, $context);
+        try {
+            $this->after_created($created, $node, $context);
+        } catch (\Throwable $e) {
+            // A module without its content would be skipped by the next run, which finds it in the course, so it goes.
+            \core_courseformat\formatactions::cm((int) $created->course)->delete((int) $created->coursemodule);
+            throw $e;
+        }
 
         return new build_result(
             $nodeid,
@@ -204,6 +212,32 @@ abstract class module_builder implements builder_interface {
             }
         }
         return $defaults;
+    }
+
+    /**
+     * Returns a site default that Moodle keeps in the core settings under the name of the module, such as forum_maxbytes.
+     *
+     * @param string $name Name of the setting.
+     * @param mixed $fallback What to use when the site has no such setting.
+     * @return mixed
+     */
+    protected function get_core_default(string $name, mixed $fallback): mixed {
+        $value = get_config('core', $name);
+        return $value === false ? $fallback : $value;
+    }
+
+    /**
+     * Turns a date of the blueprint into a timestamp.
+     *
+     * @param string|null $date A date as YYYY-MM-DD.
+     * @param int $hour Hour of the day, 0 for the start of the day and 23 for the end of it.
+     * @param int $minute Minute of the hour.
+     * @return int|null The timestamp, null when there is no valid date.
+     */
+    public static function date_to_timestamp(?string $date, int $hour = 0, int $minute = 0): ?int {
+        $valid = $date !== null && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $date, $matches)
+            && checkdate((int) $matches[2], (int) $matches[3], (int) $matches[1]);
+        return $valid ? make_timestamp((int) $matches[1], (int) $matches[2], (int) $matches[3], $hour, $minute) : null;
     }
 
     /**

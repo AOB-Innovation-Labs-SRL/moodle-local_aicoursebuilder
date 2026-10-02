@@ -22,8 +22,7 @@ namespace local_aicoursebuilder\builder;
  * The book module has no API to add a chapter, only the form of its chapter page, so the chapters are inserted the
  * way that page does it: a row in book_chapters per chapter, in order, the revision of the book raised so that
  * what the students have cached is renewed, and the event that says a chapter was created. A book whose chapters
- * cannot be saved is deleted again, so that the build does not leave an empty book behind that the next run
- * would not try to build.
+ * cannot be saved is deleted again by the base builder.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -65,12 +64,7 @@ class book_builder extends module_builder {
      */
     #[\Override]
     protected function after_created(\stdClass $created, array $node, build_context $context): void {
-        try {
-            $this->add_chapters((int) $created->instance, (int) $created->coursemodule, $node['content']['chapters'] ?? []);
-        } catch (\Throwable $e) {
-            \core_courseformat\formatactions::cm((int) $created->course)->delete((int) $created->coursemodule);
-            throw $e;
-        }
+        $this->add_chapters((int) $created->instance, (int) $created->coursemodule, $node['content']['chapters'] ?? []);
     }
 
     /**

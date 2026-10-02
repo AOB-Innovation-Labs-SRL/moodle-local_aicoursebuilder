@@ -139,10 +139,14 @@ final class build_course_builders_test extends \advanced_testcase {
     public function test_the_default_registry(): void {
         $registry = builder_registry::with_defaults();
 
-        foreach (['course', 'section', 'subsection', 'page', 'label', 'url', 'resource', 'folder', 'book', 'quiz'] as $type) {
+        $built = [
+            'course', 'section', 'subsection', 'page', 'label', 'url', 'resource', 'folder', 'book', 'quiz',
+            'glossary', 'forum', 'wiki', 'choice', 'feedback', 'assign',
+        ];
+        foreach ($built as $type) {
             $this->assertTrue($registry->has($type), $type);
         }
-        foreach (['lesson', 'assign', 'glossary', 'forum', 'wiki', 'choice', 'feedback'] as $type) {
+        foreach (['lesson'] as $type) {
             $this->assertFalse($registry->has($type), $type);
         }
     }
@@ -182,14 +186,20 @@ final class build_course_builders_test extends \advanced_testcase {
         $this->assertCount(1, $built['folder']);
         $this->assertCount(1, $built['subsection']);
         $this->assertCount(1, $built['label']);
-
-        // The other activities were left for the teacher, each one recorded as manual.
-        $map = json_decode($job->buildmap, true);
-        $manual = ['s1.glossary1', 's2.lesson1', 's2.assign1', 's2.forum1', 's2.wiki1', 's3.choice1', 's3.feedback1'];
-        foreach ($manual as $id) {
-            $this->assertSame(build_result::STATUS_MANUAL, $map[$id]['status'], $id);
+        foreach (['glossary', 'wiki', 'choice', 'feedback', 'assign', 'quiz'] as $modname) {
+            $this->assertCount(1, $built[$modname], $modname);
         }
-        foreach (['s1.quiz1', 's1.page1', 's1.book1', 's1.url1', 's1.resource1', 's1.label1', 's1-1.folder1'] as $id) {
+        // A new course has its news forum already.
+        $this->assertContains('Forum de discuții', $built['forum']);
+
+        // The one activity without a builder yet was left for the teacher, recorded as manual.
+        $map = json_decode($job->buildmap, true);
+        $this->assertSame(build_result::STATUS_MANUAL, $map['s2.lesson1']['status']);
+        $created = [
+            's1.quiz1', 's1.page1', 's1.book1', 's1.url1', 's1.resource1', 's1.label1', 's1-1.folder1',
+            's1.glossary1', 's2.forum1', 's2.wiki1', 's2.assign1', 's3.choice1', 's3.feedback1',
+        ];
+        foreach ($created as $id) {
             $this->assertSame(build_result::STATUS_CREATED, $map[$id]['status'], $id);
             $this->assertNotNull($map[$id]['cmid'], $id);
         }
