@@ -182,6 +182,37 @@ class job_manager {
     }
 
     /**
+     * Returns the text and the digest of the sources of a job that the ingestion finished.
+     *
+     * Both are keyed the way the pipeline and the validator know the sources: src and the source id.
+     *
+     * @param int $jobid Job id.
+     * @return array ['texts' => string[], 'digests' => array[]]
+     */
+    public function load_sources(int $jobid): array {
+        global $DB;
+
+        $manager = new source_manager();
+        $texts = [];
+        $digests = [];
+        $sources = $DB->get_records(
+            'local_aicb_source',
+            ['jobid' => $jobid, 'status' => ingest_sources::STATUS_DIGESTED],
+            'id'
+        );
+        foreach ($sources as $source) {
+            $file = $manager->get_extracted_file((int) $source->id);
+            $digest = json_decode((string) $source->digest, true);
+            if (!$file || !is_array($digest)) {
+                continue;
+            }
+            $texts['src' . $source->id] = $file->get_content();
+            $digests['src' . $source->id] = $digest;
+        }
+        return ['texts' => $texts, 'digests' => $digests];
+    }
+
+    /**
      * Returns how much a user, or the whole site, may still spend this month.
      *
      * @param int $userid User id, or budget_guard::SITE_USERID for the whole site.

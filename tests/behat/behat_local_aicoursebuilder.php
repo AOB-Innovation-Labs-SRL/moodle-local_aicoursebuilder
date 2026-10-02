@@ -45,7 +45,7 @@ class behat_local_aicoursebuilder extends behat_base {
      * Returns the URL of a page of a course, for the step "I am on the "..." "..." page".
      *
      * @param string $type Type of the page.
-     * @param string $identifier Short name of the course.
+     * @param string $identifier Short name of the course for the wizard, the request of the job for the editor.
      * @return moodle_url
      */
     protected function resolve_page_instance_url(string $type, string $identifier): moodle_url {
@@ -55,8 +55,60 @@ class behat_local_aicoursebuilder extends behat_base {
             case 'wizard':
                 $courseid = $DB->get_field('course', 'id', ['shortname' => $identifier], MUST_EXIST);
                 return new moodle_url('/local/aicoursebuilder/wizard.php', ['courseid' => $courseid]);
+            case 'review':
+                $jobid = $DB->get_field_select(
+                    'local_aicb_job',
+                    'id',
+                    $DB->sql_compare_text('prompt') . ' = ' . $DB->sql_compare_text(':prompt'),
+                    ['prompt' => $identifier],
+                    MUST_EXIST
+                );
+                return new moodle_url('/local/aicoursebuilder/review.php', ['id' => $jobid]);
             default:
                 throw new Exception('Unrecognised local_aicoursebuilder page type "' . $type . '".');
         }
+    }
+
+    /**
+     * Creates a job in review, owned by a user, with the golden blueprint as its first version.
+     *
+     * One activity of the blueprint is marked for the teacher to check, as the review step of the generation does.
+     * The job has no source files, which the golden blueprint does not need to be valid.
+     *
+     * @Given /^a generated blueprint for "(?P<prompt_string>[^"]*)" is ready for review by "(?P<username_string>[^"]*)"$/
+     * @param string $prompt What the teacher asked for, which names the job.
+     * @param string $username Username of the owner of the job.
+     */
+    public function a_generated_blueprint_is_ready_for_review(string $prompt, string $username): void {
+        global $DB;
+
+        $user = \core_user::get_user_by_username($username, '*', null, MUST_EXIST);
+        $now = time();
+        $jobid = $DB->insert_record('local_aicb_job', (object) [
+            'userid' => $user->id,
+            'mode' => 'newcourse',
+            'categoryid' => \core_course_category::get_default()->id,
+            'status' => 'review',
+            'stage' => 'generate',
+            'progress' => 100,
+            'prompt' => $prompt,
+            'language' => 'ro',
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+
+        $blueprint = json_decode(file_get_contents(__DIR__ . '/../fixtures/blueprint_golden.json'), true);
+        $blueprint['sections'][0]['activities'][1]['review_flag'] = true;
+        $content = json_encode($blueprint, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $DB->insert_record('local_aicb_blueprint', (object) [
+            'jobid' => $jobid,
+            'version' => 1,
+            'content' => $content,
+            'contenthash' => hash('sha256', $content),
+            'status' => 'draft',
+            'usermodified' => $user->id,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
     }
 }

@@ -201,7 +201,7 @@ final class generate_blueprint_test extends \advanced_testcase {
         $this->assertCount(1, $messages);
         $this->assertSame('jobfinished', $messages[0]->eventtype);
         $this->assertEquals($this->user->id, $messages[0]->useridto);
-        $this->assertStringContainsString('wizard.php?jobid=' . $this->jobid, $messages[0]->fullmessage);
+        $this->assertStringContainsString('review.php?id=' . $this->jobid, $messages[0]->fullmessage);
     }
 
     /**

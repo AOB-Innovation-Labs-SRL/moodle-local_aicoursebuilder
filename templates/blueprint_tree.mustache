@@ -1,0 +1,62 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_aicoursebuilder/blueprint_tree
+
+    The parts of the course, one under another and indented by how deep they are: sections, subsections, activities
+    and the questions of a quiz. Choosing one opens it for editing.
+
+    Context variables required for this template:
+    * nodes - The parts of the course, each with:
+        * id - The id of the part
+        * label - Its title or name
+        * kind - What it is: section, subsection, activity or question
+        * type - The type of an activity or question, empty for a section
+        * indent - How far to indent it, 0 to 5
+        * flagged - Whether the generation marked it for a human to check
+        * selected - Whether it is the part being edited
+        * invalid - Whether the validator found something in it
+
+    Example context (json):
+    {
+        "nodes": [
+            {"id": "s1", "label": "Introduction", "kind": "section", "type": "", "indent": 0, "flagged": false,
+             "selected": true, "invalid": false},
+            {"id": "s1.page1", "label": "What is energy", "kind": "activity", "type": "page", "indent": 2,
+             "flagged": true, "selected": false, "invalid": false}
+        ]
+    }
+}}
+<ul class="list-unstyled mb-0" data-region="aicb-tree-list">
+    {{#nodes}}
+        <li class="pl-{{indent}} mb-1 d-flex align-items-center">
+            <button type="button"
+                    class="btn btn-link text-left p-0 {{#selected}}font-weight-bold{{/selected}}"
+                    data-action="aicb-select" data-id="{{id}}"
+                    {{#selected}}aria-current="true"{{/selected}}>
+                {{label}}
+            </button>
+            {{#type}}<span class="badge badge-light ml-2">{{type}}</span>{{/type}}
+            {{#flagged}}
+                <span class="badge badge-warning ml-2" data-region="aicb-flag">{{#str}} editor:needscheck, local_aicoursebuilder {{/str}}</span>
+            {{/flagged}}
+            {{#invalid}}
+                <span class="badge badge-danger ml-2">{{#str}} editor:invalid, local_aicoursebuilder {{/str}}</span>
+            {{/invalid}}
+        </li>
+    {{/nodes}}
+</ul>

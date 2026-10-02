@@ -50,6 +50,9 @@ Feature: Generate a course blueprint from the wizard
     Then I wait until "[data-region='aicb-finished']" "css_element" exists
     And I should see "The blueprint is ready for review." in the "[data-region='aicb-progress']" "css_element"
     And I should see "100%"
+    When I click on "Review the blueprint" "link"
+    Then I should see "Review the course blueprint"
+    And I should see "Version 1"
 
   Scenario: The wizard does not move on while a step is incomplete
     Given I log in as "admin"

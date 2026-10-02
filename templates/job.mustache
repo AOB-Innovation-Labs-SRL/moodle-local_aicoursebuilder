@@ -1,0 +1,34 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_aicoursebuilder/job
+
+    The page of a generation job: what it was asked for, and the place where its progress is shown.
+
+    Context variables required for this template:
+    * prompt - What the teacher asked for
+
+    Example context (json):
+    {
+        "prompt": "An introductory course about renewable energy"
+    }
+}}
+<div data-region="aicb-job">
+    <div data-region="aicb-job-error" class="alert alert-danger d-none" role="alert"></div>
+    <p class="lead">{{prompt}}</p>
+    <div data-region="aicb-job-progress" aria-live="polite"></div>
+</div>

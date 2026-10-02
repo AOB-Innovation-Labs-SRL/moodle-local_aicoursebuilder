@@ -22,15 +22,13 @@
 
     Context variables required for this template:
     * form - The HTML of the wizard form
-    * jobid - The job to follow, 0 for a new one
 
     Example context (json):
     {
-        "form": "<form class=\"mform\"><fieldset><legend>Step</legend></fieldset></form>",
-        "jobid": 0
+        "form": "<form class=\"mform\"><fieldset><legend>Step</legend></fieldset></form>"
     }
 }}
-<div data-region="aicb-wizard" data-jobid="{{jobid}}">
+<div data-region="aicb-wizard">
     <div data-region="aicb-error" class="alert alert-danger d-none" role="alert"></div>
 
     <div data-region="aicb-steps">
