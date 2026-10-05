@@ -27,6 +27,8 @@
     * running - Whether the job is still working
     * finished - Whether the blueprint is ready
     * failed - Whether the job stopped for good
+    * paused - Whether a cost limit paused the job, which can be resumed
+    * canresume - Whether the one looking may resume it
     * error - Why it stopped
     * reviewurl - Where the blueprint can be opened in the editor, empty when it cannot yet
     * courseurl - Where the finished course is, empty when there is none
@@ -40,6 +42,8 @@
         "running": true,
         "finished": false,
         "failed": false,
+        "paused": false,
+        "canresume": true,
         "error": "",
         "reviewurl": "https://example.com/local/aicoursebuilder/review.php?jobid=7",
         "courseurl": ""
@@ -73,6 +77,16 @@
             {{#str}} wizard:failed, local_aicoursebuilder {{/str}} {{error}}
         </div>
     {{/failed}}
+    {{#paused}}
+        <div class="alert alert-warning" role="alert" data-region="aicb-paused">
+            {{#str}} wizard:paused, local_aicoursebuilder {{/str}} {{error}}
+        </div>
+        {{#canresume}}
+            <button type="button" class="btn btn-primary" data-action="aicb-resume">
+                {{#str}} wizard:resume, local_aicoursebuilder {{/str}}
+            </button>
+        {{/canresume}}
+    {{/paused}}
     {{#running}}
         <p class="text-muted">{{#str}} wizard:canclose, local_aicoursebuilder {{/str}}</p>
     {{/running}}

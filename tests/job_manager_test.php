@@ -345,4 +345,174 @@ final class job_manager_test extends \advanced_testcase {
         }
         $this->assertCount(1, \core\task\manager::get_adhoc_tasks(generate_blueprint::class));
     }
+
+    /**
+     * Makes a paused job, as a cost limit leaves it.
+     *
+     * @param string $stage The stage it stopped in.
+     * @param float $actualcost What it had cost when it stopped.
+     * @return \stdClass The job row.
+     */
+    private function paused_job(string $stage = generate_blueprint::STAGE, float $actualcost = 2.0): \stdClass {
+        global $DB;
+        $job = $this->create();
+        $DB->update_record('local_aicb_job', (object) [
+            'id' => $job->id,
+            'status' => job_manager::STATUS_PAUSED,
+            'stage' => $stage,
+            'actualcost' => $actualcost,
+            'error' => 'The cost limit was reached.',
+        ]);
+        return $DB->get_record('local_aicb_job', ['id' => $job->id], '*', MUST_EXIST);
+    }
+
+    /**
+     * Pausing a job keeps its stage, writes the reason and the cost it had run up, and tells its owner.
+     */
+    public function test_pause_keeps_the_stage_and_tells_the_owner(): void {
+        global $DB;
+        $job = $this->create();
+        $DB->update_record('local_aicb_job', (object) ['id' => $job->id, 'status' => 'generating', 'stage' => 'generate']);
+        $job = $DB->get_record('local_aicb_job', ['id' => $job->id], '*', MUST_EXIST);
+        $now = time();
+        $DB->insert_record('local_aicb_step', (object) [
+            'jobid' => $job->id, 'step' => 'brief', 'inputhash' => 'a', 'status' => 'done', 'cost' => 0.75,
+            'timecreated' => $now, 'timemodified' => $now,
+        ]);
+        $sink = $this->redirectMessages();
+
+        $this->manager->pause($job, 'The limit of the job was reached.');
+
+        $paused = $DB->get_record('local_aicb_job', ['id' => $job->id], '*', MUST_EXIST);
+        $this->assertSame(job_manager::STATUS_PAUSED, $paused->status);
+        $this->assertSame('generate', $paused->stage);
+        $this->assertSame('The limit of the job was reached.', $paused->error);
+        $this->assertEquals(0.75, $paused->actualcost);
+        $messages = $sink->get_messages();
+        $this->assertCount(1, $messages);
+        $this->assertSame('budgetexceeded', $messages[0]->eventtype);
+        $this->assertEquals($this->user->id, $messages[0]->useridto);
+    }
+
+    /**
+     * Only a paused job is resumed.
+     */
+    public function test_resume_refuses_a_job_that_is_not_paused(): void {
+        $this->accept_policy();
+
+        try {
+            $this->manager->resume($this->create());
+            $this->fail('A draft job was resumed');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('jobnotpaused', $e->errorcode);
+        }
+        $this->assertCount(0, \core\task\manager::get_adhoc_tasks(generate_blueprint::class));
+    }
+
+    /**
+     * A job is resumed only by an owner who has accepted the AI policy.
+     */
+    public function test_resume_requires_the_ai_policy(): void {
+        try {
+            $this->manager->resume($this->paused_job());
+            $this->fail('A job was resumed without the AI policy');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('aipolicynotaccepted', $e->errorcode);
+        }
+        $this->assertCount(0, \core\task\manager::get_adhoc_tasks(generate_blueprint::class));
+    }
+
+    /**
+     * A job stopped in the generation is resumed in the generation, once, and is no longer paused.
+     */
+    public function test_resume_queues_the_generation(): void {
+        global $DB;
+        $this->accept_policy();
+        $job = $this->paused_job(generate_blueprint::STAGE);
+
+        $this->manager->resume($job);
+
+        $resumed = $DB->get_record('local_aicb_job', ['id' => $job->id], '*', MUST_EXIST);
+        $this->assertSame(job_manager::STATUS_QUEUED, $resumed->status);
+        $this->assertSame(generate_blueprint::STAGE, $resumed->stage);
+        $this->assertNull($resumed->error);
+        $tasks = \core\task\manager::get_adhoc_tasks(generate_blueprint::class);
+        $this->assertCount(1, $tasks);
+        $this->assertEquals($job->id, reset($tasks)->get_custom_data()->jobid);
+        $this->assertCount(0, \core\task\manager::get_adhoc_tasks(ingest_sources::class));
+    }
+
+    /**
+     * A job stopped in the ingestion is resumed in the ingestion.
+     */
+    public function test_resume_queues_the_ingestion(): void {
+        $this->accept_policy();
+
+        $this->manager->resume($this->paused_job(ingest_sources::STAGE));
+
+        $this->assertCount(1, \core\task\manager::get_adhoc_tasks(ingest_sources::class));
+        $this->assertCount(0, \core\task\manager::get_adhoc_tasks(generate_blueprint::class));
+    }
+
+    /**
+     * A limit that is used up keeps the job paused; one that has room, or none, lets it go.
+     */
+    public function test_has_room_to_resume(): void {
+        global $DB;
+        set_config('joblimitusd', '0', 'local_aicoursebuilder');
+        set_config('userlimitusd', '0', 'local_aicoursebuilder');
+        set_config('sitelimitusd', '0', 'local_aicoursebuilder');
+        $job = $this->paused_job(generate_blueprint::STAGE, 2.0);
+        $this->assertTrue($this->manager->has_room_to_resume($job));
+
+        set_config('joblimitusd', '2', 'local_aicoursebuilder');
+        $this->assertFalse($this->manager->has_room_to_resume($job), 'the job limit is used up');
+        set_config('joblimitusd', '2.5', 'local_aicoursebuilder');
+        $this->assertTrue($this->manager->has_room_to_resume($job), 'the job limit has room');
+        set_config('joblimitusd', '0', 'local_aicoursebuilder');
+
+        set_config('userlimitusd', '10', 'local_aicoursebuilder');
+        $row = $DB->insert_record('local_aicb_budget', (object) [
+            'userid' => $this->user->id, 'period' => budget_guard::current_period(), 'spentusd' => 10,
+            'reservedusd' => 0, 'timecreated' => time(), 'timemodified' => time(),
+        ]);
+        $this->assertFalse($this->manager->has_room_to_resume($job), 'the monthly limit of the user is used up');
+        set_config('userlimitusd', '20', 'local_aicoursebuilder');
+        $this->assertTrue($this->manager->has_room_to_resume($job), 'the monthly limit of the user was raised');
+        $DB->set_field('local_aicb_budget', 'limitusd', 10, ['id' => $row]);
+        $this->assertFalse($this->manager->has_room_to_resume($job), 'a limit of his own beats the setting');
+        $DB->set_field('local_aicb_budget', 'limitusd', 15, ['id' => $row]);
+        $this->assertTrue($this->manager->has_room_to_resume($job), 'a raised limit of his own');
+
+        set_config('sitelimitusd', '5', 'local_aicoursebuilder');
+        $DB->insert_record('local_aicb_budget', (object) [
+            'userid' => budget_guard::SITE_USERID, 'period' => budget_guard::current_period(), 'spentusd' => 5,
+            'reservedusd' => 0, 'timecreated' => time(), 'timemodified' => time(),
+        ]);
+        $this->assertFalse($this->manager->has_room_to_resume($job), 'the limit of the site is used up');
+    }
+
+    /**
+     * A user who has used the alert percentage of the monthly limit is flagged by the estimate.
+     */
+    public function test_estimate_flags_a_user_at_the_alert_level(): void {
+        global $DB;
+        set_config('joblimitusd', '0', 'local_aicoursebuilder');
+        set_config('userlimitusd', '10', 'local_aicoursebuilder');
+        set_config('alertpercent', '80', 'local_aicoursebuilder');
+        $job = $this->create();
+        $this->assertFalse($this->manager->estimate($job)['useralert'], 'nothing spent');
+
+        $row = $DB->insert_record('local_aicb_budget', (object) [
+            'userid' => $this->user->id, 'period' => budget_guard::current_period(), 'spentusd' => 7,
+            'reservedusd' => 0.5, 'timecreated' => time(), 'timemodified' => time(),
+        ]);
+        $this->assertFalse($this->manager->estimate($job)['useralert'], '75% used');
+
+        $DB->set_field('local_aicb_budget', 'reservedusd', 1, ['id' => $row]);
+        $this->assertTrue($this->manager->estimate($job)['useralert'], '80% used, the reserved part counts');
+
+        set_config('userlimitusd', '0', 'local_aicoursebuilder');
+        $this->assertFalse($this->manager->estimate($job)['useralert'], 'no limit');
+    }
 }

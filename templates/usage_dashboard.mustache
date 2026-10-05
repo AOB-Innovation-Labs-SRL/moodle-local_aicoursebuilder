@@ -1,0 +1,243 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_aicoursebuilder/usage_dashboard
+
+    The AI usage dashboard: what was spent in a period, per job, user, model and month, and how the limits stand.
+
+    Context variables required for this template:
+    * action - Where the period selector sends its choice
+    * periods - The months the period can be chosen from, and "all time": value, name, selected
+    * totals - The sums of the period: cost, tokensin, tokensout, tokenscached, calls, errors
+    * limitsperiod - The month the limits are for
+    * haslimits - Whether there is a limit to show
+    * limits - How the limits stand: who, limit, unlimited, spent, reserved, percent, alert, exceeded
+    * hasalerts - Whether any limit has reached its alert percentage or is used up
+    * hasjobs - Whether there is a job to show
+    * jobs - The sums per job, with hasjob, url, title and status
+    * hasusers - Whether there is a user to show
+    * users - The sums per user, with name
+    * hasmodels - Whether there is a model to show
+    * models - The sums per model, with connector and model
+    * months - The sums per month, with period
+
+    Example context (json):
+    {
+        "action": "https://example.com/local/aicoursebuilder/usage.php",
+        "periods": [{"value": "2026-10", "name": "2026-10", "selected": true}, {"value": "all", "name": "All time", "selected": false}],
+        "totals": {"cost": "1.3500", "tokensin": "1,900,000", "tokensout": "120,000", "tokenscached": "800,000", "calls": "48", "errors": "2"},
+        "limitsperiod": "2026-10",
+        "haslimits": true,
+        "limits": [{"who": "Ana Popescu", "limit": "20.00", "unlimited": false, "spent": "17.0000", "reserved": "0.0000", "percent": 85, "alert": true, "exceeded": false}],
+        "hasalerts": true,
+        "hasjobs": true,
+        "jobs": [{"hasjob": true, "url": "https://example.com/local/aicoursebuilder/job.php?id=7", "title": "A course about solar energy", "status": "review", "cost": "1.3500", "tokensin": "1,900,000", "tokensout": "120,000", "tokenscached": "800,000", "calls": "48", "errors": "2"}],
+        "hasusers": true,
+        "users": [{"name": "Ana Popescu", "cost": "1.3500", "tokensin": "1,900,000", "tokensout": "120,000", "tokenscached": "800,000", "calls": "48", "errors": "2"}],
+        "hasmodels": true,
+        "models": [{"connector": "deepseek", "model": "deepseek-v4-flash", "cost": "1.3500", "tokensin": "1,900,000", "tokensout": "120,000", "tokenscached": "800,000", "calls": "48", "errors": "2"}],
+        "months": [{"period": "2026-10", "cost": "1.3500", "tokensin": "1,900,000", "tokensout": "120,000", "tokenscached": "800,000", "calls": "48", "errors": "2"}]
+    }
+}}
+<div data-region="aicb-usage">
+    <form method="get" action="{{action}}" class="form-inline mb-3">
+        <label for="aicb-usage-period" class="mr-2">{{#str}} usage:period, local_aicoursebuilder {{/str}}</label>
+        <select id="aicb-usage-period" name="period" class="custom-select mr-2">
+            {{#periods}}
+                <option value="{{value}}" {{#selected}}selected{{/selected}}>{{name}}</option>
+            {{/periods}}
+        </select>
+        <button type="submit" class="btn btn-secondary">{{#str}} usage:show, local_aicoursebuilder {{/str}}</button>
+    </form>
+
+    <div class="row mb-4" data-region="aicb-usage-totals">
+        <div class="col-6 col-md-3 mb-2">
+            <div class="font-weight-bold h4 mb-0">{{totals.cost}} USD</div>
+            <div class="text-muted">{{#str}} usage:cost, local_aicoursebuilder {{/str}}</div>
+        </div>
+        <div class="col-6 col-md-3 mb-2">
+            <div class="font-weight-bold h4 mb-0">{{totals.tokensin}}</div>
+            <div class="text-muted">{{#str}} usage:tokensin, local_aicoursebuilder {{/str}}</div>
+        </div>
+        <div class="col-6 col-md-3 mb-2">
+            <div class="font-weight-bold h4 mb-0">{{totals.tokensout}}</div>
+            <div class="text-muted">{{#str}} usage:tokensout, local_aicoursebuilder {{/str}}</div>
+        </div>
+        <div class="col-6 col-md-3 mb-2">
+            <div class="font-weight-bold h4 mb-0">{{totals.calls}}</div>
+            <div class="text-muted">{{#str}} usage:calls, local_aicoursebuilder {{/str}}</div>
+        </div>
+    </div>
+
+    <h3 class="h5">{{#str}} usage:limitstitle, local_aicoursebuilder, {{limitsperiod}} {{/str}}</h3>
+    {{#hasalerts}}
+        <div class="alert alert-warning" role="alert" data-region="aicb-usage-alert">
+            {{#str}} usage:alerts, local_aicoursebuilder {{/str}}
+        </div>
+    {{/hasalerts}}
+    {{^haslimits}}
+        <p class="text-muted">{{#str}} usage:nolimits, local_aicoursebuilder {{/str}}</p>
+    {{/haslimits}}
+    {{#haslimits}}
+    <table class="table table-sm generaltable" data-region="aicb-usage-limits">
+        <thead>
+            <tr>
+                <th scope="col">{{#str}} usage:who, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:limit, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:spent, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:reserved, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:used, local_aicoursebuilder {{/str}}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#limits}}
+            <tr>
+                <th scope="row">{{who}}</th>
+                <td class="text-right">
+                    {{#unlimited}}{{#str}} usage:unlimited, local_aicoursebuilder {{/str}}{{/unlimited}}
+                    {{^unlimited}}{{limit}}{{/unlimited}}
+                </td>
+                <td class="text-right">{{spent}}</td>
+                <td class="text-right">{{reserved}}</td>
+                <td class="text-right">
+                    {{^unlimited}}
+                        {{#exceeded}}<span class="badge badge-danger">{{#str}} usage:exceeded, local_aicoursebuilder {{/str}} {{percent}}%</span>{{/exceeded}}
+                        {{#alert}}<span class="badge badge-warning">{{percent}}%</span>{{/alert}}
+                        {{^exceeded}}{{^alert}}{{percent}}%{{/alert}}{{/exceeded}}
+                    {{/unlimited}}
+                </td>
+            </tr>
+            {{/limits}}
+        </tbody>
+    </table>
+    {{/haslimits}}
+
+    <h3 class="h5 mt-4">{{#str}} usage:jobstitle, local_aicoursebuilder {{/str}}</h3>
+    {{^hasjobs}}<p class="text-muted">{{#str}} usage:nodata, local_aicoursebuilder {{/str}}</p>{{/hasjobs}}
+    {{#hasjobs}}
+    <table class="table table-sm generaltable" data-region="aicb-usage-jobs">
+        <thead>
+            <tr>
+                <th scope="col">{{#str}} usage:job, local_aicoursebuilder {{/str}}</th>
+                <th scope="col">{{#str}} usage:status, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:cost, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokensin, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokensout, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:calls, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:errors, local_aicoursebuilder {{/str}}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#jobs}}
+            <tr>
+                <th scope="row">{{#hasjob}}<a href="{{url}}">{{title}}</a>{{/hasjob}}{{^hasjob}}{{#str}} usage:nojob, local_aicoursebuilder {{/str}}{{/hasjob}}</th>
+                <td>{{status}}</td>
+                <td class="text-right">{{cost}}</td>
+                <td class="text-right">{{tokensin}}</td>
+                <td class="text-right">{{tokensout}}</td>
+                <td class="text-right">{{calls}}</td>
+                <td class="text-right">{{errors}}</td>
+            </tr>
+            {{/jobs}}
+        </tbody>
+    </table>
+    {{/hasjobs}}
+
+    <h3 class="h5 mt-4">{{#str}} usage:userstitle, local_aicoursebuilder {{/str}}</h3>
+    {{^hasusers}}<p class="text-muted">{{#str}} usage:nodata, local_aicoursebuilder {{/str}}</p>{{/hasusers}}
+    {{#hasusers}}
+    <table class="table table-sm generaltable" data-region="aicb-usage-users">
+        <thead>
+            <tr>
+                <th scope="col">{{#str}} usage:user, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:cost, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokensin, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokensout, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:calls, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:errors, local_aicoursebuilder {{/str}}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#users}}
+            <tr>
+                <th scope="row">{{name}}</th>
+                <td class="text-right">{{cost}}</td>
+                <td class="text-right">{{tokensin}}</td>
+                <td class="text-right">{{tokensout}}</td>
+                <td class="text-right">{{calls}}</td>
+                <td class="text-right">{{errors}}</td>
+            </tr>
+            {{/users}}
+        </tbody>
+    </table>
+    {{/hasusers}}
+
+    <h3 class="h5 mt-4">{{#str}} usage:modelstitle, local_aicoursebuilder {{/str}}</h3>
+    {{^hasmodels}}<p class="text-muted">{{#str}} usage:nodata, local_aicoursebuilder {{/str}}</p>{{/hasmodels}}
+    {{#hasmodels}}
+    <table class="table table-sm generaltable" data-region="aicb-usage-models">
+        <thead>
+            <tr>
+                <th scope="col">{{#str}} usage:connector, local_aicoursebuilder {{/str}}</th>
+                <th scope="col">{{#str}} usage:model, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:cost, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokensin, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokenscached, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokensout, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:calls, local_aicoursebuilder {{/str}}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#models}}
+            <tr>
+                <th scope="row">{{connector}}</th>
+                <td>{{model}}</td>
+                <td class="text-right">{{cost}}</td>
+                <td class="text-right">{{tokensin}}</td>
+                <td class="text-right">{{tokenscached}}</td>
+                <td class="text-right">{{tokensout}}</td>
+                <td class="text-right">{{calls}}</td>
+            </tr>
+            {{/models}}
+        </tbody>
+    </table>
+    {{/hasmodels}}
+
+    <h3 class="h5 mt-4">{{#str}} usage:monthstitle, local_aicoursebuilder {{/str}}</h3>
+    <table class="table table-sm generaltable" data-region="aicb-usage-months">
+        <thead>
+            <tr>
+                <th scope="col">{{#str}} usage:month, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:cost, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokensin, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:tokensout, local_aicoursebuilder {{/str}}</th>
+                <th scope="col" class="text-right">{{#str}} usage:calls, local_aicoursebuilder {{/str}}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#months}}
+                <tr>
+                    <th scope="row">{{period}}</th>
+                    <td class="text-right">{{cost}}</td>
+                    <td class="text-right">{{tokensin}}</td>
+                    <td class="text-right">{{tokensout}}</td>
+                    <td class="text-right">{{calls}}</td>
+                </tr>
+            {{/months}}
+        </tbody>
+    </table>
+</div>

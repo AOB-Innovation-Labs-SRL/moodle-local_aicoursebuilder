@@ -28,6 +28,7 @@
     * joblimit - The limit per job, formatted
     * hasuserlimit - Whether the user has a monthly limit
     * userremaining - What is left of it, formatted
+    * useralert - Whether the user has used the alert percentage of the monthly limit
 
     Example context (json):
     {
@@ -38,7 +39,8 @@
         "hasjoblimit": true,
         "joblimit": "5.00",
         "hasuserlimit": true,
-        "userremaining": "9.83"
+        "userremaining": "9.83",
+        "useralert": false
     }
 }}
 <div class="card mb-3" data-region="aicb-estimate-card">
@@ -56,6 +58,11 @@
                 <li>{{#str}} wizard:estimateuserremaining, local_aicoursebuilder, {{userremaining}} {{/str}}</li>
             {{/hasuserlimit}}
         </ul>
+        {{#useralert}}
+            <div class="alert alert-warning" role="alert" data-region="aicb-estimate-alert">
+                {{#str}} wizard:estimatealert, local_aicoursebuilder {{/str}}
+            </div>
+        {{/useralert}}
         {{^withinbudget}}
             <div class="alert alert-warning mb-0" role="alert">
                 {{#str}} wizard:estimateoverbudget, local_aicoursebuilder {{/str}}

@@ -39,4 +39,18 @@ $messageproviders = [
             'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
         ],
     ],
+    // The AI spending of a user, or of the site, reached the alert threshold.
+    'budgetalert' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
+    // A cost limit paused a job.
+    'budgetexceeded' => [
+        'defaults' => [
+            'popup' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+            'email' => MESSAGE_PERMITTED + MESSAGE_DEFAULT_ENABLED,
+        ],
+    ],
 ];
