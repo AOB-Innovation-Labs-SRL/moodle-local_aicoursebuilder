@@ -424,3 +424,11 @@ if ($hassiteconfig) {
     }
     $ADMIN->add('localplugins', $connectors);
 }
+
+// The usage report is for those who may view it, which is not the same as those who may change the settings.
+$ADMIN->add('localplugins', new admin_externalpage(
+    'local_aicoursebuilder_usage',
+    new lang_string('usage:title', 'local_aicoursebuilder'),
+    new moodle_url('/local/aicoursebuilder/usage.php'),
+    'local/aicoursebuilder:viewusage'
+));

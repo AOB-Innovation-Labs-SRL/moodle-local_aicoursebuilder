@@ -17,8 +17,10 @@
 namespace local_aicoursebuilder;
 
 use local_aicoursebuilder\ai\budget_guard;
+use local_aicoursebuilder\ai\budget_notifier;
 use local_aicoursebuilder\ingest\source_manager;
 use local_aicoursebuilder\pipeline\cost_estimator;
+use local_aicoursebuilder\pipeline\step_store;
 use local_aicoursebuilder\task\generate_blueprint;
 use local_aicoursebuilder\task\ingest_sources;
 
@@ -46,6 +48,9 @@ class job_manager {
 
     /** @var string Job status: stopped for good. */
     public const STATUS_FAILED = 'failed';
+
+    /** @var string Job status: stopped by a cost limit, with its work kept, until it is resumed. */
+    public const STATUS_PAUSED = 'paused';
 
     /** @var string Job mode: a new course. */
     public const MODE_NEWCOURSE = 'newcourse';
@@ -116,8 +121,9 @@ class job_manager {
      * Estimates the cost of a job and checks it against the cost limits.
      *
      * @param \stdClass $job The local_aicb_job row.
-     * @return array ['estimatedcost', 'tokensin', 'tokensout', 'withinbudget', 'joblimit', 'userremaining'];
-     *               userremaining is -1 when the user has no monthly limit.
+     * @return array ['estimatedcost', 'tokensin', 'tokensout', 'withinbudget', 'joblimit', 'userremaining', 'useralert'];
+     *               userremaining is -1 when the user has no monthly limit; useralert says that the user has used
+     *               the alert percentage of it.
      */
     public function estimate(\stdClass $job): array {
         global $DB;
@@ -140,6 +146,7 @@ class job_manager {
             'withinbudget' => $within,
             'joblimit' => $joblimit,
             'userremaining' => $userremaining,
+            'useralert' => $this->at_alert_level((int) $job->userid),
         ];
     }
 
@@ -179,6 +186,98 @@ class job_manager {
             ? ingest_sources::instance((int) $job->id, (int) $job->userid)
             : generate_blueprint::instance((int) $job->id, (int) $job->userid);
         \core\task\manager::queue_adhoc_task($task, true);
+    }
+
+    /**
+     * Stops a job that a cost limit has stopped, keeping the work it did.
+     *
+     * The steps the job finished are in local_aicb_step, so resuming it pays only for what is left. The job keeps its
+     * stage, which says where to resume from, and the reason, which the teacher sees and the notification carries.
+     *
+     * @param \stdClass $job The local_aicb_job row, updated in place.
+     * @param string $reason What stopped it, as budget_exceeded_exception words it.
+     */
+    public function pause(\stdClass $job, string $reason): void {
+        global $DB;
+
+        $job->status = self::STATUS_PAUSED;
+        $job->error = $reason;
+        $job->statusmessage = null;
+        $job->actualcost = (new step_store())->totals((int) $job->id)['cost'] ?? $job->actualcost;
+        $job->timemodified = time();
+        $DB->update_record('local_aicb_job', $job);
+
+        (new budget_notifier())->exceeded($job, $reason);
+    }
+
+    /**
+     * Tells whether every cost limit that applies to a paused job has room again.
+     *
+     * Only a limit that is used up stops it: how much the rest of the work needs is not known before it runs, so a job
+     * that is let go with little room stops again, before it pays for anything, at the first call that does not fit.
+     *
+     * @param \stdClass $job The local_aicb_job row.
+     * @return bool
+     */
+    public function has_room_to_resume(\stdClass $job): bool {
+        $joblimit = (float) get_config('local_aicoursebuilder', 'joblimitusd');
+        if ($joblimit > 0 && (float) $job->actualcost >= $joblimit) {
+            return false;
+        }
+        return $this->remaining((int) $job->userid) != 0.0 && $this->remaining(budget_guard::SITE_USERID) != 0.0;
+    }
+
+    /**
+     * Resumes a paused job: queues the task of the stage it stopped in, which carries on from its checkpoints.
+     *
+     * @param \stdClass $job The local_aicb_job row.
+     * @throws \moodle_exception When the job is not paused, the owner has not accepted the AI policy, or a cost
+     *                           limit that stopped it has still no room.
+     */
+    public function resume(\stdClass $job): void {
+        global $DB;
+
+        if ($job->status !== self::STATUS_PAUSED) {
+            throw new \moodle_exception('jobnotpaused', 'local_aicoursebuilder');
+        }
+        if (!\core_ai\manager::get_user_policy_status((int) $job->userid)) {
+            throw new \moodle_exception('aipolicynotaccepted', 'local_aicoursebuilder');
+        }
+        if (!$this->has_room_to_resume($job)) {
+            throw new \moodle_exception('resumestillover', 'local_aicoursebuilder');
+        }
+
+        $ingesting = $job->stage === ingest_sources::STAGE;
+        $DB->update_record('local_aicb_job', (object) [
+            'id' => $job->id,
+            'status' => self::STATUS_QUEUED,
+            'stage' => $ingesting ? ingest_sources::STAGE : generate_blueprint::STAGE,
+            'error' => null,
+            'timemodified' => time(),
+        ]);
+
+        $task = $ingesting
+            ? ingest_sources::instance((int) $job->id, (int) $job->userid)
+            : generate_blueprint::instance((int) $job->id, (int) $job->userid);
+        \core\task\manager::queue_adhoc_task($task, true);
+    }
+
+    /**
+     * Tells whether a user has used the alert percentage of the monthly limit.
+     *
+     * @param int $userid The user.
+     * @return bool False when there is no limit or no alert percentage.
+     */
+    private function at_alert_level(int $userid): bool {
+        global $DB;
+
+        $percent = (float) get_config('local_aicoursebuilder', 'alertpercent');
+        $row = $DB->get_record('local_aicb_budget', ['userid' => $userid, 'period' => budget_guard::current_period()]);
+        if (!$row || $percent <= 0) {
+            return false;
+        }
+        $limit = $row->limitusd !== null ? (float) $row->limitusd : (float) get_config('local_aicoursebuilder', 'userlimitusd');
+        return $limit > 0 && ((float) $row->spentusd + (float) $row->reservedusd) / $limit * 100 >= $percent;
     }
 
     /**

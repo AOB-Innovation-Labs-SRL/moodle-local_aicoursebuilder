@@ -37,6 +37,7 @@ use local_aicoursebuilder\task\regenerate_node as regenerate_task;
  * @covers     \local_aicoursebuilder\external\approve_blueprint
  * @covers     \local_aicoursebuilder\external\estimate_cost
  * @covers     \local_aicoursebuilder\external\regenerate_node
+ * @covers     \local_aicoursebuilder\external\resume_job
  */
 final class external_functions_test extends \core_external\tests\externallib_testcase {
     /** @var string A sha256 hash for the examples. */
@@ -87,7 +88,12 @@ final class external_functions_test extends \core_external\tests\externallib_tes
             estimate_cost::class => [
                 'params' => ['jobid' => 7],
                 'returns' => ['estimatedcost' => 0.17, 'currency' => 'USD', 'tokensin' => 550000,
-                    'tokensout' => 140000, 'withinbudget' => true, 'joblimit' => 1.5, 'userremaining' => 9.83],
+                    'tokensout' => 140000, 'withinbudget' => true, 'joblimit' => 1.5, 'userremaining' => 9.83,
+                    'useralert' => false],
+            ],
+            resume_job::class => [
+                'params' => ['jobid' => 7],
+                'returns' => ['jobid' => 7, 'status' => 'queued'],
             ],
             regenerate_node::class => [
                 'params' => ['jobid' => 7, 'nodeid' => 's1.quiz1', 'instructions' => 'Mai multe întrebări grele'],
@@ -253,6 +259,7 @@ final class external_functions_test extends \core_external\tests\externallib_tes
             'save_blueprint' => fn() => save_blueprint::execute($jobid, '{"version": "1.0"}', 1),
             'regenerate_node' => fn() => regenerate_node::execute($jobid, 's1.quiz1', ''),
             'start_job' => fn() => start_job::execute($jobid),
+            'resume_job' => fn() => resume_job::execute($jobid),
         ];
         foreach ($writes as $name => $call) {
             try {
@@ -436,6 +443,56 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $this->assertSame(['jobid' => $jobid, 'status' => 'queued'], $started);
         $this->assertSame('queued', $DB->get_field('local_aicb_job', 'status', ['id' => $jobid]));
         $this->assertCount(1, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\generate_blueprint::class));
+    }
+
+    /**
+     * The owner resumes a job that a cost limit paused, and its task is queued; a job that is not paused is refused.
+     */
+    public function test_resume_job_queues_the_task_of_a_paused_job(): void {
+        global $DB;
+        $this->resetAfterTest();
+        set_config('defaultconnector', 'fake', 'local_aicoursebuilder');
+        set_config('joblimitusd', '0', 'local_aicoursebuilder');
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $jobid = $this->create_job_record($teacher->id, $course->id);
+        $this->setUser($teacher);
+        $this->assert_refused('jobnotpaused', fn() => resume_job::execute($jobid));
+
+        $DB->update_record('local_aicb_job', (object) [
+            'id' => $jobid, 'status' => 'paused', 'stage' => 'generate', 'error' => 'The cost limit was reached.',
+        ]);
+        $this->assert_refused('aipolicynotaccepted', fn() => resume_job::execute($jobid));
+
+        \core_ai\manager::user_policy_accepted((int) $teacher->id, \context_system::instance()->id);
+        $resumed = resume_job::execute($jobid);
+
+        $this->assertSame(['jobid' => $jobid, 'status' => 'queued'], $resumed);
+        $this->assertSame('queued', $DB->get_field('local_aicb_job', 'status', ['id' => $jobid]));
+        $this->assertCount(1, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\generate_blueprint::class));
+    }
+
+    /**
+     * A job whose cost limit is still used up stays paused.
+     */
+    public function test_resume_job_refuses_while_a_limit_is_used_up(): void {
+        global $DB;
+        $this->resetAfterTest();
+        set_config('defaultconnector', 'fake', 'local_aicoursebuilder');
+        set_config('joblimitusd', '2', 'local_aicoursebuilder');
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $jobid = $this->create_job_record($teacher->id, $course->id);
+        $DB->update_record('local_aicb_job', (object) [
+            'id' => $jobid, 'status' => 'paused', 'stage' => 'generate', 'actualcost' => 2.0,
+        ]);
+        \core_ai\manager::user_policy_accepted((int) $teacher->id, \context_system::instance()->id);
+        $this->setUser($teacher);
+
+        $this->assert_refused('resumestillover', fn() => resume_job::execute($jobid));
+
+        $this->assertSame('paused', $DB->get_field('local_aicb_job', 'status', ['id' => $jobid]));
+        $this->assertCount(0, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\generate_blueprint::class));
     }
 
     /**

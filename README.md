@@ -7,6 +7,11 @@ which creates a job, shows its estimated cost, starts it and follows it until th
 Once a blueprint is approved the course is built from it: the course, its sections and subsections, and the
 pages, labels, links, files, folders, books, quizzes, glossaries, forums, wikis, choices, feedback activities and
 assignments; only the lesson, which has no builder yet, is left for the teacher to add.
+Spending is limited per job, per user and month, and for the whole site. The usage report at
+`/local/aicoursebuilder/usage.php` (capability `local/aicoursebuilder:viewusage`) shows tokens and cost per job, user,
+model and month from the AI call log, and how each limit stands. The user and the managers are notified when a limit's
+alert percentage is reached; a job that a limit stops is paused, not failed, and its owner resumes it from the job
+page once the limit is raised, without paying again for the steps it had finished.
 
 ## Requirements
 
