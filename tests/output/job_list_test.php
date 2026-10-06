@@ -306,6 +306,98 @@ final class job_list_test extends \advanced_testcase {
     }
 
     /**
+     * Exports a list while recording the SQL that runs, and returns the statements that read the jobs.
+     *
+     * @param \stdClass $viewer Who looks at the list.
+     * @param bool $showall Whether the jobs of everybody are asked for.
+     * @param int $page The page.
+     * @return string[] The SELECT statements on the table of jobs.
+     */
+    private function job_queries(\stdClass $viewer, bool $showall, int $page): array {
+        global $DB;
+        ob_start();
+        $DB->set_debug(true);
+        try {
+            $this->export($viewer, $showall, $page);
+        } finally {
+            $DB->set_debug(false);
+            $log = ob_get_clean();
+        }
+        $queries = [];
+        foreach (preg_split('/^-{20,}$/m', $log) as $chunk) {
+            $chunk = trim($chunk);
+            if (stripos($chunk, 'SELECT') === 0 && str_contains($chunk, 'local_aicb_job')) {
+                $queries[] = $chunk;
+            }
+        }
+        return $queries;
+    }
+
+    /**
+     * Whatever the history holds, the list reads the jobs without loading them all: every query on them either adds
+     * them up or is limited to the page.
+     */
+    public function test_the_list_does_not_load_every_job(): void {
+        for ($i = 1; $i <= 3 * job_list::PERPAGE; $i++) {
+            $this->create_job($this->ana, 'Curs ' . $i, ['timecreated' => 3000000 + $i]);
+            $this->create_job($this->dan, 'Cursul lui Dan ' . $i, ['timecreated' => 3000000 + $i]);
+        }
+
+        foreach ([[$this->ana, false, 0], [$this->ana, false, 2], [$this->manager, true, 1]] as [$viewer, $all, $page]) {
+            $queries = $this->job_queries($viewer, $all, $page);
+            $this->assertNotEmpty($queries);
+            foreach ($queries as $sql) {
+                $this->assertTrue(
+                    str_contains($sql, 'COUNT(') || str_contains($sql, 'LIMIT'),
+                    'A query reads the jobs without adding them up or limiting them: ' . $sql
+                );
+            }
+        }
+        // The page is the right one, and the count behind the paging is of the viewer's jobs.
+        $page = $this->export($this->ana, false, 2);
+        $this->assertCount(job_list::PERPAGE, $page->jobs);
+        $this->assertSame('Curs ' . job_list::PERPAGE, $page->jobs[0]['title']);
+        $all = $this->export($this->manager, true, 5);
+        $this->assertCount(job_list::PERPAGE, $all->jobs);
+        $this->assertCount(0, $this->export($this->manager, true, 6)->jobs);
+    }
+
+    /**
+     * When a viewer may use the plugin in most contexts and not in a few, the few are what the query names; the jobs
+     * that belong to no course, which are in the rest, are not lost with them.
+     */
+    public function test_a_viewer_denied_in_a_few_contexts_sees_the_rest(): void {
+        $allowed = $this->getDataGenerator()->create_course();
+        $second = $this->getDataGenerator()->create_course();
+        $denied = $this->getDataGenerator()->create_course();
+        $category = $this->getDataGenerator()->create_category();
+        $managerrole = $this->getDataGenerator()->create_role();
+        assign_capability('local/aicoursebuilder:use', CAP_ALLOW, $managerrole, \context_system::instance()->id);
+        assign_capability('local/aicoursebuilder:manage', CAP_ALLOW, $managerrole, \context_system::instance()->id);
+        $deniedcontext = \context_course::instance($denied->id);
+        assign_capability('local/aicoursebuilder:use', CAP_PROHIBIT, $managerrole, $deniedcontext->id, true);
+        $viewer = $this->getDataGenerator()->create_user();
+        role_assign($managerrole, $viewer->id, \context_system::instance()->id);
+
+        $this->create_job($this->ana, 'In primul curs', ['courseid' => $allowed->id]);
+        $this->create_job($this->ana, 'In al doilea curs', ['courseid' => $second->id]);
+        $this->create_job($this->ana, 'In cursul interzis', ['courseid' => $denied->id]);
+        $this->create_job($this->ana, 'In categorie', ['courseid' => null, 'categoryid' => $category->id]);
+        $this->create_job($this->ana, 'Fara curs', ['courseid' => null, 'categoryid' => null]);
+
+        $data = $this->export($viewer, true);
+
+        $titles = array_column($data->jobs, 'title');
+        sort($titles);
+        $this->assertSame(['Fara curs', 'In al doilea curs', 'In categorie', 'In primul curs'], $titles);
+        foreach ($this->job_queries($viewer, true, 0) as $sql) {
+            $this->assertTrue(str_contains($sql, 'COUNT(') || str_contains($sql, 'LIMIT'), $sql);
+        }
+        // The count is of the same jobs: exactly one page of four, so no paging bar.
+        $this->assertSame('', $data->pagingbar);
+    }
+
+    /**
      * Returns the manual enrolment instance of a course.
      *
      * @param int $courseid The course.

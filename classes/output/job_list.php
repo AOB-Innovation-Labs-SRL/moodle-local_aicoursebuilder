@@ -39,6 +39,9 @@ class job_list implements \renderable, \templatable {
     /** @var bool Whether the viewer may ask for the jobs of everybody. */
     private bool $canshowall;
 
+    /** @var bool[] Whether the viewer may use the plugin in a context, by context, as far as it was asked. */
+    private array $mayuse = [];
+
     /**
      * Creates the list.
      *
@@ -77,23 +80,23 @@ class job_list implements \renderable, \templatable {
     public function export_for_template(\renderer_base $output): \stdClass {
         global $DB;
 
-        // Only the jobs the viewer may open now are listed, and the page and the count are of those.
-        $visible = $this->visible_ids();
-        $total = count($visible);
-        $pageids = array_slice($visible, $this->page * self::PERPAGE, self::PERPAGE);
-        $jobs = [];
-        if ($pageids) {
-            $records = $DB->get_records_list(
-                'local_aicb_job',
-                'id',
-                $pageids,
-                '',
-                'id, userid, prompt, status, progress, courseid, actualcost, timecreated'
-            );
-            foreach ($pageids as $id) {
-                $jobs[$id] = $records[$id];
-            }
-        }
+        // Only the jobs the viewer may open now are listed, and the page and the count are of those. The count is
+        // worked out per context and the page is read with the filter in the query and a limit, so what is loaded
+        // does not grow with the history of the jobs.
+        $select = $this->showall ? '1 = 1' : 'userid = :userid';
+        $params = $this->showall ? [] : ['userid' => $this->viewerid];
+        [$total, $visiblesql, $visibleparams] = $this->visibility($select, $params);
+        $records = $DB->get_records_select(
+            'local_aicb_job',
+            "($select) AND ($visiblesql)",
+            $params + $visibleparams,
+            'timecreated DESC, id DESC',
+            'id, userid, prompt, status, progress, courseid, categoryid, actualcost, timecreated',
+            $this->page * self::PERPAGE,
+            self::PERPAGE
+        );
+        // A job that came into a context after the count was made was not asked about; it is, before it is shown.
+        $jobs = array_filter($records, fn($job) => $this->may_use_in($job));
         $owners = $this->showall ? $this->owners($jobs) : [];
 
         $rows = [];
@@ -114,61 +117,126 @@ class job_list implements \renderable, \templatable {
     }
 
     /**
-     * Returns the ids of the jobs the viewer may open, the newest first.
+     * Works out how many jobs the viewer may open, and the condition that keeps the others out of a query.
      *
      * The job page and the review page ask for local/aicoursebuilder:use in the context of the job, so that is what
      * decides here, at this moment: a teacher who has lost a course does not see its jobs any more, whatever else they
      * can still use. A job whose course or category is gone has no context to ask in, and is left out.
      *
-     * @return int[] Job ids.
+     * The jobs are counted per context, so what is read from the database is as many rows as there are contexts that
+     * hold jobs, and each context is asked about once. The condition names whichever are fewer, the contexts the
+     * viewer may use or those they may not, so it stays short for a teacher, who uses few, and for a manager, who is
+     * denied almost none.
+     *
+     * @param string $select The condition that says whose jobs are listed.
+     * @param array $params Its parameters.
+     * @return array [how many jobs the viewer may open, the condition, its parameters]
      */
-    private function visible_ids(): array {
+    private function visibility(string $select, array $params): array {
         global $DB;
 
-        $select = $this->showall ? '1 = 1' : 'userid = :userid';
-        $params = $this->showall ? [] : ['userid' => $this->viewerid];
-        $rows = $DB->get_records_select(
-            'local_aicb_job',
-            $select,
-            $params,
-            'timecreated DESC, id DESC',
-            'id, courseid, categoryid'
+        $groups = $DB->get_recordset_sql(
+            "SELECT courseid, categoryid, COUNT(1) AS jobs FROM {local_aicb_job} WHERE $select GROUP BY courseid, categoryid",
+            $params
         );
-
-        // Many jobs share a context, which is asked about once.
-        $allowed = [];
-        $ids = [];
-        foreach ($rows as $row) {
-            $key = !empty($row->courseid)
-                ? 'course' . $row->courseid
-                : (!empty($row->categoryid) ? 'category' . $row->categoryid : 'system');
-            if (!isset($allowed[$key])) {
-                $allowed[$key] = $this->may_use_in($row);
+        $contexts = [];
+        foreach ($groups as $group) {
+            [$type, $id] = $this->context_of($group);
+            $key = $type . $id;
+            if (!isset($contexts[$key])) {
+                $contexts[$key] = ['type' => $type, 'id' => $id, 'jobs' => 0, 'allowed' => $this->may_use_in($group)];
             }
-            if ($allowed[$key]) {
-                $ids[] = (int) $row->id;
+            $contexts[$key]['jobs'] += (int) $group->jobs;
+        }
+        $groups->close();
+
+        $allowed = array_filter($contexts, fn($context) => $context['allowed']);
+        $denied = array_filter($contexts, fn($context) => !$context['allowed']);
+        $total = array_sum(array_column($allowed, 'jobs'));
+        if (count($allowed) <= count($denied)) {
+            return [$total, ...$this->condition($allowed, 'jla')];
+        }
+        if (!$denied) {
+            return [$total, '1 = 1', []];
+        }
+        [$sql, $conditionparams] = $this->condition($denied, 'jld');
+        return [$total, 'NOT ' . $sql, $conditionparams];
+    }
+
+    /**
+     * Returns the condition that holds for the jobs in some contexts.
+     *
+     * Every part of it is true or false, never null, so that it can be negated.
+     *
+     * @param array[] $contexts Contexts as visibility() lists them: type, id.
+     * @param string $prefix Prefix of the names of the parameters.
+     * @return array [condition, parameters]
+     */
+    private function condition(array $contexts, string $prefix): array {
+        global $DB;
+
+        $ids = ['course' => [], 'category' => []];
+        $system = false;
+        foreach ($contexts as $context) {
+            if ($context['type'] === 'system') {
+                $system = true;
+            } else {
+                $ids[$context['type']][] = $context['id'];
             }
         }
-        return $ids;
+
+        $parts = [];
+        $params = [];
+        if ($ids['course']) {
+            [$in, $inparams] = $DB->get_in_or_equal($ids['course'], SQL_PARAMS_NAMED, $prefix . 'c');
+            $parts[] = "(courseid IS NOT NULL AND courseid $in)";
+            $params += $inparams;
+        }
+        if ($ids['category']) {
+            [$in, $inparams] = $DB->get_in_or_equal($ids['category'], SQL_PARAMS_NAMED, $prefix . 'k');
+            $parts[] = "((courseid IS NULL OR courseid = 0) AND categoryid IS NOT NULL AND categoryid $in)";
+            $params += $inparams;
+        }
+        if ($system) {
+            $parts[] = '((courseid IS NULL OR courseid = 0) AND (categoryid IS NULL OR categoryid = 0))';
+        }
+        return [$parts ? '(' . implode(' OR ', $parts) . ')' : '1 = 0', $params];
+    }
+
+    /**
+     * Returns the context a job belongs to, the way job_manager::get_context() has it: the course, else the category,
+     * else the system.
+     *
+     * @param \stdClass $job A row with at least courseid and categoryid.
+     * @return array [type (course, category or system), id (0 for the system)]
+     */
+    private function context_of(\stdClass $job): array {
+        if (!empty($job->courseid)) {
+            return ['course', (int) $job->courseid];
+        }
+        return !empty($job->categoryid) ? ['category', (int) $job->categoryid] : ['system', 0];
     }
 
     /**
      * Tells whether the viewer holds the capability to use the plugin in the context of a job.
      *
-     * The context is the one job_manager::get_context() gives: the course, else the category, else the system.
+     * The answer is kept for the rest of the request, because many jobs share a context.
      *
-     * @param \stdClass $job A local_aicb_job row with at least courseid and categoryid.
+     * @param \stdClass $job A row with at least courseid and categoryid.
      * @return bool
      */
     private function may_use_in(\stdClass $job): bool {
-        if (!empty($job->courseid)) {
-            $context = \context_course::instance((int) $job->courseid, IGNORE_MISSING);
-        } else if (!empty($job->categoryid)) {
-            $context = \context_coursecat::instance((int) $job->categoryid, IGNORE_MISSING);
-        } else {
-            $context = \context_system::instance();
+        [$type, $id] = $this->context_of($job);
+        $key = $type . $id;
+        if (!isset($this->mayuse[$key])) {
+            $context = match ($type) {
+                'course' => \context_course::instance($id, IGNORE_MISSING),
+                'category' => \context_coursecat::instance($id, IGNORE_MISSING),
+                default => \context_system::instance(),
+            };
+            $this->mayuse[$key] = $context && has_capability('local/aicoursebuilder:use', $context, $this->viewerid);
         }
-        return $context && has_capability('local/aicoursebuilder:use', $context, $this->viewerid);
+        return $this->mayuse[$key];
     }
 
     /**
