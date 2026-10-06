@@ -31,10 +31,8 @@ require_once(__DIR__ . '/../../config.php');
 require_login();
 
 $context = context_system::instance();
-if (!(new \local_aicoursebuilder\job_manager())->can_use((int) $USER->id)) {
-    // Nowhere may this user use the plugin; the error says which capability is missing.
-    require_capability('local/aicoursebuilder:use', $context);
-}
+// The answer kept for the navigation link is not what decides access, so require_use() works it out again.
+(new \local_aicoursebuilder\job_manager())->require_use((int) $USER->id);
 
 $showall = optional_param('all', 0, PARAM_BOOL);
 $page = optional_param('page', 0, PARAM_INT);

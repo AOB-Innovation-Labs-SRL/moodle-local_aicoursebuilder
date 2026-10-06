@@ -57,8 +57,8 @@ if (!$categories) {
     // was opened from, or else any course, which the teacher then chooses in the first step.
     if ($courseid) {
         require_capability('local/aicoursebuilder:use', $context);
-    } else if (!(new \local_aicoursebuilder\job_manager())->can_use((int) $USER->id)) {
-        require_capability('local/aicoursebuilder:use', context_system::instance());
+    } else {
+        (new \local_aicoursebuilder\job_manager())->require_use((int) $USER->id);
     }
 }
 

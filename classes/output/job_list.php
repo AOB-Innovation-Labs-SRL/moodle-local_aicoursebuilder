@@ -77,18 +77,23 @@ class job_list implements \renderable, \templatable {
     public function export_for_template(\renderer_base $output): \stdClass {
         global $DB;
 
-        $select = $this->showall ? '1 = 1' : 'userid = :userid';
-        $params = $this->showall ? [] : ['userid' => $this->viewerid];
-        $total = $DB->count_records_select('local_aicb_job', $select, $params);
-        $jobs = $DB->get_records_select(
-            'local_aicb_job',
-            $select,
-            $params,
-            'timecreated DESC, id DESC',
-            'id, userid, prompt, status, progress, courseid, actualcost, timecreated',
-            $this->page * self::PERPAGE,
-            self::PERPAGE
-        );
+        // Only the jobs the viewer may open now are listed, and the page and the count are of those.
+        $visible = $this->visible_ids();
+        $total = count($visible);
+        $pageids = array_slice($visible, $this->page * self::PERPAGE, self::PERPAGE);
+        $jobs = [];
+        if ($pageids) {
+            $records = $DB->get_records_list(
+                'local_aicb_job',
+                'id',
+                $pageids,
+                '',
+                'id, userid, prompt, status, progress, courseid, actualcost, timecreated'
+            );
+            foreach ($pageids as $id) {
+                $jobs[$id] = $records[$id];
+            }
+        }
         $owners = $this->showall ? $this->owners($jobs) : [];
 
         $rows = [];
@@ -106,6 +111,64 @@ class job_list implements \renderable, \templatable {
             'jobs' => $rows,
             'pagingbar' => $output->render(new \paging_bar($total, $this->page, self::PERPAGE, $base)),
         ];
+    }
+
+    /**
+     * Returns the ids of the jobs the viewer may open, the newest first.
+     *
+     * The job page and the review page ask for local/aicoursebuilder:use in the context of the job, so that is what
+     * decides here, at this moment: a teacher who has lost a course does not see its jobs any more, whatever else they
+     * can still use. A job whose course or category is gone has no context to ask in, and is left out.
+     *
+     * @return int[] Job ids.
+     */
+    private function visible_ids(): array {
+        global $DB;
+
+        $select = $this->showall ? '1 = 1' : 'userid = :userid';
+        $params = $this->showall ? [] : ['userid' => $this->viewerid];
+        $rows = $DB->get_records_select(
+            'local_aicb_job',
+            $select,
+            $params,
+            'timecreated DESC, id DESC',
+            'id, courseid, categoryid'
+        );
+
+        // Many jobs share a context, which is asked about once.
+        $allowed = [];
+        $ids = [];
+        foreach ($rows as $row) {
+            $key = !empty($row->courseid)
+                ? 'course' . $row->courseid
+                : (!empty($row->categoryid) ? 'category' . $row->categoryid : 'system');
+            if (!isset($allowed[$key])) {
+                $allowed[$key] = $this->may_use_in($row);
+            }
+            if ($allowed[$key]) {
+                $ids[] = (int) $row->id;
+            }
+        }
+        return $ids;
+    }
+
+    /**
+     * Tells whether the viewer holds the capability to use the plugin in the context of a job.
+     *
+     * The context is the one job_manager::get_context() gives: the course, else the category, else the system.
+     *
+     * @param \stdClass $job A local_aicb_job row with at least courseid and categoryid.
+     * @return bool
+     */
+    private function may_use_in(\stdClass $job): bool {
+        if (!empty($job->courseid)) {
+            $context = \context_course::instance((int) $job->courseid, IGNORE_MISSING);
+        } else if (!empty($job->categoryid)) {
+            $context = \context_coursecat::instance((int) $job->categoryid, IGNORE_MISSING);
+        } else {
+            $context = \context_system::instance();
+        }
+        return $context && has_capability('local/aicoursebuilder:use', $context, $this->viewerid);
     }
 
     /**

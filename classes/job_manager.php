@@ -192,14 +192,17 @@ class job_manager {
      * Tells whether a user may use the plugin anywhere: in the system, in a category or in a course.
      *
      * The capability is a course one, so a teacher holds it in their courses only. The answer decides whether the
-     * plugin is offered to the user at all, on every page, so it is kept in the session for a few minutes.
+     * plugin is offered to the user at all, on every page, so it is kept in the session for a few minutes. That answer
+     * is for showing a link, never for allowing anything: a page that decides access asks for a fresh one, which also
+     * replaces the one kept.
      *
      * @param int $userid The user.
+     * @param bool $usecache False to work the answer out now, ignoring the one kept.
      * @return bool
      */
-    public function can_use(int $userid): bool {
+    public function can_use(int $userid, bool $usecache = true): bool {
         $cache = \cache::make('local_aicoursebuilder', 'canuse');
-        $cached = $cache->get($userid);
+        $cached = $usecache ? $cache->get($userid) : false;
         if ($cached !== false) {
             return (bool) $cached;
         }
@@ -213,6 +216,21 @@ class job_manager {
         }
         $cache->set($userid, (int) $can);
         return $can;
+    }
+
+    /**
+     * Refuses a user who may not use the plugin anywhere, going by what they may do now and not by the answer kept.
+     *
+     * It is the gate of the pages that are open to anybody who can use the plugin in some context, such as the list of
+     * jobs: what each of them then shows is decided again, per job, by the context of the job.
+     *
+     * @param int $userid The user.
+     * @throws \required_capability_exception When the user may use the plugin nowhere.
+     */
+    public function require_use(int $userid): void {
+        if (!$this->can_use($userid, false)) {
+            require_capability('local/aicoursebuilder:use', \context_system::instance(), $userid);
+        }
     }
 
     /**

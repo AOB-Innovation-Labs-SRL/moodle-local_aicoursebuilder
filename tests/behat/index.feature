@@ -16,16 +16,18 @@ Feature: Find my course generations and start a new one
       | teacher2 | Dan       | Ionescu  | teacher2@example.com |
       | student1 | Eva       | Marin    | student1@example.com |
     And the following "courses" exist:
-      | fullname      | shortname |
-      | Energy basics | EB        |
+      | fullname        | shortname |
+      | Energy basics   | EB        |
+      | Energy advanced | EA        |
     And the following "course enrolments" exist:
       | user     | course | role           |
       | teacher1 | EB     | editingteacher |
+      | teacher1 | EA     | editingteacher |
       | teacher2 | EB     | editingteacher |
       | student1 | EB     | student        |
-    And "teacher1" has spent 1.5 USD on AI this month for "A course about solar energy"
-    And "teacher1" has a job for "A course about wind turbines" that a cost limit paused
-    And "teacher2" has spent 2.5 USD on AI this month for "A course about databases"
+    And "teacher1" has a "review" job "A course about solar energy" in "EB" cost 1.5
+    And "teacher1" has a "paused" job "A course about wind turbines" in "EB" cost 0
+    And "teacher2" has a "review" job "A course about databases" in "EB" cost 2.5
 
   Scenario: A teacher sees their own jobs, with their status and cost, and not those of others
     Given I log in as "teacher1"
@@ -39,6 +41,17 @@ Feature: Find my course generations and start a new one
     And I should not see "A course about databases"
     And I should see "Blueprint" in the "[data-region='aicb-jobs-table']" "css_element"
     And I should not see "Show the jobs of all users"
+
+  Scenario: A teacher does not see the jobs of a course they have lost, while they can still use the plugin elsewhere
+    Given "teacher1" has a "review" job "A course about hydrogen" in "EA" cost 7.5
+    And I log in as "teacher1"
+    And I am on the "local_aicoursebuilder > index" page
+    Then I should see "A course about hydrogen" in the "[data-region='aicb-jobs-table']" "css_element"
+    When "teacher1" is no longer enrolled in "EA"
+    And I am on the "local_aicoursebuilder > index" page
+    Then I should see "A course about solar energy" in the "[data-region='aicb-jobs-table']" "css_element"
+    And I should not see "A course about hydrogen"
+    And I should not see "7.5000"
 
   Scenario: The list is reached from the primary navigation by those who may use the plugin
     Given I log in as "teacher1"
