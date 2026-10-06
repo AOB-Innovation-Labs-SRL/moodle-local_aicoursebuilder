@@ -189,6 +189,51 @@ class job_manager {
     }
 
     /**
+     * Tells whether a user may use the plugin anywhere: in the system, in a category or in a course.
+     *
+     * The capability is a course one, so a teacher holds it in their courses only. The answer decides whether the
+     * plugin is offered to the user at all, on every page, so it is kept in the session for a few minutes. That answer
+     * is for showing a link, never for allowing anything: a page that decides access asks for a fresh one, which also
+     * replaces the one kept.
+     *
+     * @param int $userid The user.
+     * @param bool $usecache False to work the answer out now, ignoring the one kept.
+     * @return bool
+     */
+    public function can_use(int $userid, bool $usecache = true): bool {
+        $cache = \cache::make('local_aicoursebuilder', 'canuse');
+        $cached = $usecache ? $cache->get($userid) : false;
+        if ($cached !== false) {
+            return (bool) $cached;
+        }
+
+        $capability = 'local/aicoursebuilder:use';
+        $can = has_capability($capability, \context_system::instance(), $userid);
+        if (!$can) {
+            // One course or category is enough, so there is no need to list them all.
+            [$categories, $courses] = get_user_capability_contexts($capability, true, $userid, true, '', '', '', '', 1);
+            $can = !empty($categories) || !empty($courses);
+        }
+        $cache->set($userid, (int) $can);
+        return $can;
+    }
+
+    /**
+     * Refuses a user who may not use the plugin anywhere, going by what they may do now and not by the answer kept.
+     *
+     * It is the gate of the pages that are open to anybody who can use the plugin in some context, such as the list of
+     * jobs: what each of them then shows is decided again, per job, by the context of the job.
+     *
+     * @param int $userid The user.
+     * @throws \required_capability_exception When the user may use the plugin nowhere.
+     */
+    public function require_use(int $userid): void {
+        if (!$this->can_use($userid, false)) {
+            require_capability('local/aicoursebuilder:use', \context_system::instance(), $userid);
+        }
+    }
+
+    /**
      * Stops a job that a cost limit has stopped, keeping the work it did.
      *
      * The steps the job finished are in local_aicb_step, so resuming it pays only for what is left. The job keeps its

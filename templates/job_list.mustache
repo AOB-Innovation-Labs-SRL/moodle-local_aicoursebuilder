@@ -1,0 +1,104 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template local_aicoursebuilder/job_list
+
+    The generation jobs of a user, or of everybody for a manager, with the way to start a new course.
+
+    Context variables required for this template:
+    * newcourseurl - Where the wizard is
+    * canshowall - Whether the viewer may ask for the jobs of everybody
+    * showall - Whether the jobs of everybody are listed
+    * toggleurl - Where the switch between the own jobs and those of everybody leads
+    * hasjobs - Whether there is a job to list
+    * jobs - The jobs: title, url, owner, status, progress, cost, date, hasreview, reviewurl, hascourse, courseurl
+    * pagingbar - The paging bar, as HTML
+
+    Example context (json):
+    {
+        "newcourseurl": "https://example.com/local/aicoursebuilder/wizard.php",
+        "canshowall": true,
+        "showall": true,
+        "toggleurl": "https://example.com/local/aicoursebuilder/index.php",
+        "hasjobs": true,
+        "jobs": [
+            {
+                "title": "A course about solar energy",
+                "url": "https://example.com/local/aicoursebuilder/job.php?id=7",
+                "owner": "Ana Popescu",
+                "status": "The course is built",
+                "progress": 100,
+                "cost": "1.3500",
+                "date": "5 Oct 2026, 09:30",
+                "hasreview": true,
+                "reviewurl": "https://example.com/local/aicoursebuilder/review.php?id=7",
+                "hascourse": true,
+                "courseurl": "https://example.com/course/view.php?id=12"
+            }
+        ],
+        "pagingbar": ""
+    }
+}}
+<div data-region="aicb-jobs">
+    <div class="d-flex flex-wrap align-items-center mb-3">
+        <a class="btn btn-primary mr-3" href="{{newcourseurl}}" data-action="aicb-new-course">
+            {{#str}} index:newcourse, local_aicoursebuilder {{/str}}
+        </a>
+        {{#canshowall}}
+            <a href="{{toggleurl}}" data-action="aicb-toggle-all">
+                {{#showall}}{{#str}} index:showmine, local_aicoursebuilder {{/str}}{{/showall}}
+                {{^showall}}{{#str}} index:showall, local_aicoursebuilder {{/str}}{{/showall}}
+            </a>
+        {{/canshowall}}
+    </div>
+
+    {{^hasjobs}}
+        <p class="text-muted" data-region="aicb-no-jobs">{{#str}} index:nojobs, local_aicoursebuilder {{/str}}</p>
+    {{/hasjobs}}
+    {{#hasjobs}}
+        <table class="table table-sm generaltable" data-region="aicb-jobs-table">
+            <thead>
+                <tr>
+                    <th scope="col">{{#str}} index:request, local_aicoursebuilder {{/str}}</th>
+                    {{#showall}}<th scope="col">{{#str}} index:owner, local_aicoursebuilder {{/str}}</th>{{/showall}}
+                    <th scope="col">{{#str}} index:status, local_aicoursebuilder {{/str}}</th>
+                    <th scope="col" class="text-right">{{#str}} index:progress, local_aicoursebuilder {{/str}}</th>
+                    <th scope="col" class="text-right">{{#str}} index:cost, local_aicoursebuilder {{/str}}</th>
+                    <th scope="col">{{#str}} index:date, local_aicoursebuilder {{/str}}</th>
+                    <th scope="col">{{#str}} index:actions, local_aicoursebuilder {{/str}}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#jobs}}
+                    <tr>
+                        <th scope="row"><a href="{{url}}">{{title}}</a></th>
+                        {{#showall}}<td>{{owner}}</td>{{/showall}}
+                        <td>{{status}}</td>
+                        <td class="text-right">{{progress}}%</td>
+                        <td class="text-right">{{cost}}</td>
+                        <td>{{date}}</td>
+                        <td>
+                            {{#hasreview}}<a href="{{reviewurl}}" class="mr-2">{{#str}} index:blueprint, local_aicoursebuilder {{/str}}</a>{{/hasreview}}
+                            {{#hascourse}}<a href="{{courseurl}}">{{#str}} index:course, local_aicoursebuilder {{/str}}</a>{{/hascourse}}
+                        </td>
+                    </tr>
+                {{/jobs}}
+            </tbody>
+        </table>
+        {{{pagingbar}}}
+    {{/hasjobs}}
+</div>

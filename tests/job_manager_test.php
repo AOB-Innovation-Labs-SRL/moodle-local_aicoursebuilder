@@ -515,4 +515,66 @@ final class job_manager_test extends \advanced_testcase {
         set_config('userlimitusd', '0', 'local_aicoursebuilder');
         $this->assertFalse($this->manager->estimate($job)['useralert'], 'no limit');
     }
+
+    /**
+     * Whoever holds the capability in the system, in a category or in a course may use the plugin; the others may not.
+     */
+    public function test_can_use(): void {
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course();
+        $category = $generator->create_category();
+
+        $manager = $generator->create_user();
+        $generator->role_assign('manager', $manager->id, \context_system::instance()->id);
+        $teacher = $generator->create_and_enrol($course, 'editingteacher');
+        $student = $generator->create_and_enrol($course, 'student');
+        $categoryteacher = $generator->create_user();
+        $generator->role_assign('editingteacher', $categoryteacher->id, \context_coursecat::instance($category->id)->id);
+        $nobody = $generator->create_user();
+
+        $this->assertTrue($this->manager->can_use((int) $manager->id), 'in the system');
+        $this->assertTrue($this->manager->can_use((int) $teacher->id), 'in a course');
+        $this->assertTrue($this->manager->can_use((int) $categoryteacher->id), 'in a category');
+        $this->assertFalse($this->manager->can_use((int) $student->id), 'a student');
+        $this->assertFalse($this->manager->can_use((int) $nobody->id), 'enrolled nowhere');
+    }
+
+    /**
+     * The gate of the pages does not trust the answer kept: a user whose access was removed is refused at once, and
+     * a user who still has it is let in.
+     */
+    public function test_require_use_works_from_what_the_user_may_do_now(): void {
+        global $DB;
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $this->assertTrue($this->manager->can_use((int) $teacher->id), 'the answer is kept');
+        $this->manager->require_use((int) $teacher->id);
+
+        $instance = $DB->get_record('enrol', ['courseid' => $course->id, 'enrol' => 'manual'], '*', MUST_EXIST);
+        enrol_get_plugin('manual')->unenrol_user($instance, $teacher->id);
+
+        $this->assertTrue($this->manager->can_use((int) $teacher->id), 'the kept answer is stale for the link');
+        try {
+            $this->manager->require_use((int) $teacher->id);
+            $this->fail('A user with no access left was let in');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame('nopermissions', $e->errorcode);
+        }
+        $this->assertFalse($this->manager->can_use((int) $teacher->id), 'the fresh answer replaced the kept one');
+    }
+
+    /**
+     * The answer is kept for a while, so that it is not worked out again on every page.
+     */
+    public function test_can_use_is_remembered(): void {
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_user();
+        $this->assertFalse($this->manager->can_use((int) $user->id));
+
+        $this->getDataGenerator()->enrol_user($user->id, $course->id, 'editingteacher');
+        $this->assertFalse($this->manager->can_use((int) $user->id), 'the earlier answer is kept');
+
+        \cache::make('local_aicoursebuilder', 'canuse')->purge();
+        $this->assertTrue($this->manager->can_use((int) $user->id), 'a fresh answer');
+    }
 }

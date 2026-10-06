@@ -38,6 +38,8 @@ class behat_local_aicoursebuilder extends behat_base {
                 return new moodle_url('/local/aicoursebuilder/wizard.php');
             case 'usage':
                 return new moodle_url('/local/aicoursebuilder/usage.php');
+            case 'index':
+                return new moodle_url('/local/aicoursebuilder/index.php');
             default:
                 throw new Exception('Unrecognised local_aicoursebuilder page "' . $page . '".');
         }
@@ -143,6 +145,53 @@ class behat_local_aicoursebuilder extends behat_base {
             'timecreated' => $now,
             'timemodified' => $now,
         ]);
+    }
+
+    /**
+     * Creates a job in an existing course, owned by a user, with a status and the cost it has run up.
+     *
+     * @Given /^"(?P<user>[^"]*)" has a "(?P<status>[^"]*)" job "(?P<prompt>[^"]*)" in "(?P<course>[^"]*)" cost (?P<cost>[0-9.]+)$/
+     * @param string $user Username of the owner of the job.
+     * @param string $status The status of the job.
+     * @param string $prompt What the teacher asked for, which names the job.
+     * @param string $course Short name of the course the job is in.
+     * @param string $cost What it has cost, in USD.
+     */
+    public function a_job_in_a_course(string $user, string $status, string $prompt, string $course, string $cost): void {
+        global $DB;
+
+        $owner = \core_user::get_user_by_username($user, '*', null, MUST_EXIST);
+        $courseid = $DB->get_field('course', 'id', ['shortname' => $course], MUST_EXIST);
+        $now = time();
+        $DB->insert_record('local_aicb_job', (object) [
+            'userid' => $owner->id,
+            'mode' => 'existingcourse',
+            'courseid' => $courseid,
+            'status' => $status,
+            'stage' => 'generate',
+            'progress' => $status === 'review' ? 100 : 0,
+            'prompt' => $prompt,
+            'language' => 'ro',
+            'actualcost' => $cost,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+    }
+
+    /**
+     * Takes a user out of a course, which is how they lose what they could do there.
+     *
+     * @Given /^"(?P<username_string>[^"]*)" is no longer enrolled in "(?P<course_string>[^"]*)"$/
+     * @param string $username Username of the user.
+     * @param string $shortname Short name of the course.
+     */
+    public function a_user_is_no_longer_enrolled(string $username, string $shortname): void {
+        global $DB;
+
+        $user = \core_user::get_user_by_username($username, '*', null, MUST_EXIST);
+        $courseid = $DB->get_field('course', 'id', ['shortname' => $shortname], MUST_EXIST);
+        $instance = $DB->get_record('enrol', ['courseid' => $courseid, 'enrol' => 'manual'], '*', MUST_EXIST);
+        enrol_get_plugin('manual')->unenrol_user($instance, $user->id);
     }
 
     /**
