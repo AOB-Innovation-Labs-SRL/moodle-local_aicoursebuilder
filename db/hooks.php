@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version metadata for local_aicoursebuilder.
+ * Hook callbacks of local_aicoursebuilder.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -24,9 +24,9 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'local_aicoursebuilder';
-$plugin->version = 2026100600;
-$plugin->requires = 2026042001;
-$plugin->supported = [502, 503];
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+$callbacks = [
+    [
+        'hook' => \core\hook\navigation\primary_extend::class,
+        'callback' => [\local_aicoursebuilder\hook_callbacks::class, 'extend_primary_navigation'],
+    ],
+];

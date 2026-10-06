@@ -53,8 +53,13 @@ foreach (core_course_category::make_categories_list('moodle/course:create') as $
     }
 }
 if (!$categories) {
-    // Without a category the wizard can only add to a course, which needs the capability in some course.
-    require_capability('local/aicoursebuilder:use', $courseid ? $context : context_system::instance());
+    // Without a category the wizard can only add to a course, which needs the capability in some course: the one it
+    // was opened from, or else any course, which the teacher then chooses in the first step.
+    if ($courseid) {
+        require_capability('local/aicoursebuilder:use', $context);
+    } else if (!(new \local_aicoursebuilder\job_manager())->can_use((int) $USER->id)) {
+        require_capability('local/aicoursebuilder:use', context_system::instance());
+    }
 }
 
 $form = new \local_aicoursebuilder\form\wizard_form($url, ['categories' => $categories]);

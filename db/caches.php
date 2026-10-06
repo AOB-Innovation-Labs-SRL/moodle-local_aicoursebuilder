@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Version metadata for local_aicoursebuilder.
+ * Caches of local_aicoursebuilder.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -24,9 +24,12 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->component = 'local_aicoursebuilder';
-$plugin->version = 2026100600;
-$plugin->requires = 2026042001;
-$plugin->supported = [502, 503];
-$plugin->maturity = MATURITY_ALPHA;
-$plugin->release = '0.1.0';
+$definitions = [
+    // Whether a user may use the plugin anywhere, which decides whether the link to it is shown on every page.
+    'canuse' => [
+        'mode' => cache_store::MODE_SESSION,
+        'simplekeys' => true,
+        'simpledata' => true,
+        'ttl' => 300,
+    ],
+];

@@ -189,6 +189,33 @@ class job_manager {
     }
 
     /**
+     * Tells whether a user may use the plugin anywhere: in the system, in a category or in a course.
+     *
+     * The capability is a course one, so a teacher holds it in their courses only. The answer decides whether the
+     * plugin is offered to the user at all, on every page, so it is kept in the session for a few minutes.
+     *
+     * @param int $userid The user.
+     * @return bool
+     */
+    public function can_use(int $userid): bool {
+        $cache = \cache::make('local_aicoursebuilder', 'canuse');
+        $cached = $cache->get($userid);
+        if ($cached !== false) {
+            return (bool) $cached;
+        }
+
+        $capability = 'local/aicoursebuilder:use';
+        $can = has_capability($capability, \context_system::instance(), $userid);
+        if (!$can) {
+            // One course or category is enough, so there is no need to list them all.
+            [$categories, $courses] = get_user_capability_contexts($capability, true, $userid, true, '', '', '', '', 1);
+            $can = !empty($categories) || !empty($courses);
+        }
+        $cache->set($userid, (int) $can);
+        return $can;
+    }
+
+    /**
      * Stops a job that a cost limit has stopped, keeping the work it did.
      *
      * The steps the job finished are in local_aicb_step, so resuming it pays only for what is left. The job keeps its

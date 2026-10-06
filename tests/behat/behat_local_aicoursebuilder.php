@@ -38,6 +38,8 @@ class behat_local_aicoursebuilder extends behat_base {
                 return new moodle_url('/local/aicoursebuilder/wizard.php');
             case 'usage':
                 return new moodle_url('/local/aicoursebuilder/usage.php');
+            case 'index':
+                return new moodle_url('/local/aicoursebuilder/index.php');
             default:
                 throw new Exception('Unrecognised local_aicoursebuilder page "' . $page . '".');
         }
