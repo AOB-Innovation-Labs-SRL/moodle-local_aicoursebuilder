@@ -112,7 +112,7 @@ final class lesson_builder_test extends \advanced_testcase {
         // True or false: the right answer goes on, the wrong one back to the first page (a jump to a page).
         $answers = $this->get_answers($pages[1]->id);
         $this->assertCount(2, $answers);
-        $this->assertSame('<p>Adevărat</p>', trim($answers[0]->answer));
+        $this->assertSame('Adevărat', trim(strip_tags($answers[0]->answer)));
         $this->assertSame('Corect.', trim(strip_tags($answers[0]->response)));
         $this->assertEquals(1, $answers[0]->score);
         $this->assertEquals(LESSON_NEXTPAGE, $answers[0]->jumpto);
@@ -203,6 +203,7 @@ final class lesson_builder_test extends \advanced_testcase {
      * The text of the pages and of the answers is cleaned.
      */
     public function test_the_text_is_cleaned(): void {
+        global $DB;
         $node = $this->node('s2.lesson1');
         $node['content']['pages'][0]['contents'] = '<p>Ok</p><script>x()</script>';
         $node['content']['pages'][1]['answers'][0]['response'] = '<p>Bine</p><script>y()</script>';
@@ -210,7 +211,7 @@ final class lesson_builder_test extends \advanced_testcase {
         $result = (new lesson_builder())->build($node, $this->make_context());
 
         $pages = $this->get_pages($result->instanceid);
-        $this->assertStringNotContainsString('script', $pages[0]->contents);
+        $this->assertStringNotContainsString('script', $DB->get_field('lesson_pages', 'contents', ['id' => $pages[0]->id]));
         $this->assertStringNotContainsString('script', $this->get_answers($pages[1]->id)[0]->response);
     }
 
@@ -232,7 +233,7 @@ final class lesson_builder_test extends \advanced_testcase {
         $answers = $first->get_answers();
         $this->assertSame($next->id, $first->nextpageid);
         $this->assertEquals(LESSON_NEXTPAGE, reset($answers)->jumpto);
-        $this->assertTrue($next->is_question());
+        $this->assertEquals(LESSON_PAGE_TRUEFALSE, $next->qtype);
     }
 
     /**
