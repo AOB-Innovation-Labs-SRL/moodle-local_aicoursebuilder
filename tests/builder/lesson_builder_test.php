@@ -237,6 +237,98 @@ final class lesson_builder_test extends \advanced_testcase {
     }
 
     /**
+     * Presses a button or answers a question of the lesson as the student does, through the web service of the lesson.
+     *
+     * @param int $lessonid Lesson id.
+     * @param int $pageid Page the student is on.
+     * @param array $fields Name => value of the fields the page form sends.
+     * @return array The result of the page.
+     */
+    private function answer_page(int $lessonid, int $pageid, array $fields): array {
+        $data = [];
+        foreach ($fields as $name => $value) {
+            $data[] = ['name' => $name, 'value' => $value];
+        }
+        $result = \mod_lesson_external::process_page($lessonid, $pageid, $data);
+        return \core_external\external_api::clean_returnvalue(\mod_lesson_external::process_page_returns(), $result);
+    }
+
+    /**
+     * A student goes through the whole lesson: a wrong answer sends them back, a right one on, the last ends it.
+     */
+    public function test_a_student_goes_through_the_lesson(): void {
+        global $DB;
+        $result = (new lesson_builder())->build($this->node('s2.lesson1'), $this->make_context());
+        $lessonid = (int) $result->instanceid;
+        $pages = $this->get_pages($lessonid);
+        [$intro, $truefalse, $choice, $term] = array_map(fn($page) => (int) $page->id, $pages);
+
+        $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $this->setUser($student);
+        \mod_lesson_external::launch_attempt($lessonid);
+        $first = \core_external\external_api::clean_returnvalue(
+            \mod_lesson_external::get_page_data_returns(),
+            \mod_lesson_external::get_page_data($lessonid, $intro, '', false, true)
+        );
+        $this->assertStringContainsString('Alegerea sursei depinde', $first['pagecontent'], 'The first page shows its content');
+
+        // The button of the first page leads on to the true or false question. The page of content is not sent through
+        // process_page(): Moodle reads a property that only the questions set, which PHPUnit reports as a warning.
+        $button = $DB->get_record('lesson_answers', ['pageid' => $intro], '*', MUST_EXIST);
+        $this->assertEquals(LESSON_NEXTPAGE, $button->jumpto);
+        $page = \core_external\external_api::clean_returnvalue(
+            \mod_lesson_external::get_page_data_returns(),
+            \mod_lesson_external::get_page_data($lessonid, $truefalse, '', false, true)
+        );
+        $this->assertStringContainsString('energia eoliană', mb_strtolower($page['pagecontent']));
+
+        // A wrong answer jumps back to the first page, with its feedback.
+        $answers = $DB->get_records('lesson_answers', ['pageid' => $truefalse], 'id');
+        [$right, $wrong] = array_values($answers);
+        $step = $this->answer_page($lessonid, $truefalse, [
+            'answerid' => $wrong->id,
+            '_qf__lesson_display_answer_form_truefalse' => 1,
+        ]);
+        $this->assertSame($intro, $step['newpageid']);
+        $this->assertFalse($step['correctanswer']);
+        $this->assertStringContainsString('Mai citiți pagina anterioară', $step['response']);
+
+        // The right one goes on to the multiple choice question.
+        $step = $this->answer_page($lessonid, $truefalse, [
+            'answerid' => $right->id,
+            '_qf__lesson_display_answer_form_truefalse' => 1,
+        ]);
+        $this->assertSame($choice, $step['newpageid']);
+        $this->assertTrue($step['correctanswer']);
+
+        // A wrong choice stays on the page, the right one goes on.
+        [$solar, $hydro] = array_values($DB->get_records('lesson_answers', ['pageid' => $choice], 'id'));
+        $step = $this->answer_page($lessonid, $choice, [
+            'answerid' => $hydro->id,
+            '_qf__lesson_display_answer_form_multichoice_singleanswer' => 1,
+        ]);
+        $this->assertSame($choice, $step['newpageid']);
+        $step = $this->answer_page($lessonid, $choice, [
+            'answerid' => $solar->id,
+            '_qf__lesson_display_answer_form_multichoice_singleanswer' => 1,
+        ]);
+        $this->assertSame($term, $step['newpageid']);
+
+        // The short answer ends the lesson, and the lesson gives a grade.
+        $step = $this->answer_page($lessonid, $term, [
+            'answer' => 'geotermală',
+            '_qf__lesson_display_answer_form_shortanswer' => 1,
+        ]);
+        $this->assertTrue($step['correctanswer']);
+        $this->assertEquals(LESSON_EOL, $step['newpageid']);
+        \core_external\external_api::clean_returnvalue(
+            \mod_lesson_external::finish_attempt_returns(),
+            \mod_lesson_external::finish_attempt($lessonid)
+        );
+        $grade = $DB->get_record('lesson_grades', ['lessonid' => $lessonid, 'userid' => $student->id], '*', MUST_EXIST);
+        $this->assertGreaterThan(0, (float) $grade->grade);
+    }
+    /**
      * The manual completion of the golden blueprint is not needed here: the completion of a node is still set.
      */
     public function test_completion_is_set(): void {

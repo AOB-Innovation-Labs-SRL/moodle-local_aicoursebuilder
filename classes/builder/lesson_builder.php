@@ -53,6 +53,9 @@ class lesson_builder extends module_builder {
     /** @var int Most answers a page can have: the highest value of the maximum number of answers of the lesson. */
     public const MAX_ANSWERS = 20;
 
+    /** @var int Fewest attempts a question gets: with one, a jump back to the same page would never repeat it. */
+    public const MIN_ATTEMPTS = 3;
+
     /** @var int Grade of the lesson, in points. */
     public const GRADE = 100;
 
@@ -105,6 +108,10 @@ class lesson_builder extends module_builder {
             $info->{$field} = (int) ($config->{$setting} ?? 0);
         }
 
+        // A value of 0 is unlimited; a smaller one than the minimum would end a question after its first wrong answer.
+        if ($info->maxattempts !== 0) {
+            $info->maxattempts = max($info->maxattempts, self::MIN_ATTEMPTS);
+        }
         $info->usepassword = 0;
         $info->dependency = 0;
         $info->mediafile = 0;
