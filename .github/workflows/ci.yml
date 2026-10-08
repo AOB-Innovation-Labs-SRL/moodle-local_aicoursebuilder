@@ -43,17 +43,17 @@ jobs:
             echo 'include=[
               {"php":"8.3","moodle-branch":"MOODLE_502_STABLE","database":"pgsql"},
               {"php":"8.3","moodle-branch":"MOODLE_502_STABLE","database":"mariadb"},
-              {"php":"8.3","moodle-branch":"main","database":"pgsql"},
-              {"php":"8.3","moodle-branch":"main","database":"mariadb"},
+              {"php":"8.3","moodle-branch":"MOODLE_503_STABLE","database":"pgsql"},
+              {"php":"8.3","moodle-branch":"MOODLE_503_STABLE","database":"mariadb"},
               {"php":"8.4","moodle-branch":"MOODLE_502_STABLE","database":"pgsql"},
               {"php":"8.4","moodle-branch":"MOODLE_502_STABLE","database":"mariadb"},
-              {"php":"8.4","moodle-branch":"main","database":"pgsql"},
-              {"php":"8.4","moodle-branch":"main","database":"mariadb"}
+              {"php":"8.4","moodle-branch":"MOODLE_503_STABLE","database":"pgsql"},
+              {"php":"8.4","moodle-branch":"MOODLE_503_STABLE","database":"mariadb"}
             ]' | tr -d '\n ' >> "$GITHUB_OUTPUT"
           else
             echo 'include=[
               {"php":"8.3","moodle-branch":"MOODLE_502_STABLE","database":"pgsql"},
-              {"php":"8.4","moodle-branch":"main","database":"mariadb"}
+              {"php":"8.4","moodle-branch":"MOODLE_503_STABLE","database":"mariadb"}
             ]' | tr -d '\n ' >> "$GITHUB_OUTPUT"
           fi
 
@@ -62,9 +62,9 @@ jobs:
     runs-on: ubuntu-24.04
 
     services:
-      # Moodle 5.2 needs PostgreSQL 16 / MariaDB 10.11; Moodle 5.3 (main) needs PostgreSQL 17 / MariaDB 11.
+      # Moodle 5.2 needs PostgreSQL 16 / MariaDB 10.11; Moodle 5.3 (MOODLE_503_STABLE) needs PostgreSQL 17 / MariaDB 11.
       postgres:
-        image: ${{ matrix.database == 'pgsql' && (matrix.moodle-branch == 'main' && 'postgres:17' || 'postgres:16') || '' }}
+        image: ${{ matrix.database == 'pgsql' && (matrix.moodle-branch == 'MOODLE_503_STABLE' && 'postgres:17' || 'postgres:16') || '' }}
         env:
           POSTGRES_USER: 'postgres'
           POSTGRES_HOST_AUTH_METHOD: 'trust'
@@ -73,7 +73,7 @@ jobs:
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 3
 
       mariadb:
-        image: ${{ matrix.database == 'mariadb' && (matrix.moodle-branch == 'main' && 'mariadb:11' || 'mariadb:10.11') || '' }}
+        image: ${{ matrix.database == 'mariadb' && (matrix.moodle-branch == 'MOODLE_503_STABLE' && 'mariadb:11' || 'mariadb:10.11') || '' }}
         env:
           MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: '1'
           MYSQL_CHARACTER_SET_SERVER: "utf8mb4"
@@ -85,7 +85,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # TODO: replace 'main' with MOODLE_503_STABLE after 5 Oct 2026 (Moodle 5.3 release).
         include: ${{ fromJSON(needs.matrix.outputs.include) }}
 
     steps:
