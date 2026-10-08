@@ -61,8 +61,8 @@ class builder_registry {
     /**
      * Creates the registry a build uses: a builder for the course, the sections and every type of activity that is built.
      *
-     * The types that have no builder yet (the lesson, and the competencies and badges of the course) are left
-     * out, and the build marks their nodes manual.
+     * The types that have no builder yet (h5pactivity and scorm, and the competencies and badges of the course) are
+     * left out, and the build marks their nodes manual.
      *
      * @return self
      */
@@ -80,6 +80,7 @@ class builder_registry {
             'quiz' => new quiz(),
             'glossary' => new glossary_builder(),
             'forum' => new forum_builder(),
+            'lesson' => new lesson_builder(),
             'wiki' => new wiki_builder(),
             'choice' => new choice_builder(),
             'feedback' => new feedback_builder(),
