@@ -5,8 +5,8 @@ Current state (version 0.1.0, alpha): the AI connector layer, the ingestion of s
 text, OCR), the generation pipeline (brief, outline, sections) and the wizard at `/local/aicoursebuilder/wizard.php`,
 which creates a job, shows its estimated cost, starts it and follows it until the blueprint is ready for review.
 Once a blueprint is approved the course is built from it: the course, its sections and subsections, and the
-pages, labels, links, files, folders, books, quizzes, glossaries, forums, wikis, choices, feedback activities and
-assignments; only the lesson, which has no builder yet, is left for the teacher to add.
+pages, labels, links, files, folders, books, quizzes, glossaries, forums, lessons, wikis, choices, feedback activities and
+assignments; only the types without a builder yet (H5P and SCORM) are left for the teacher to add.
 The entry point is the list of jobs at `/local/aicoursebuilder/`, linked as "AI Course Builder" in the primary
 navigation for everybody who may use the plugin: a user sees their own jobs, with the way to a new course, and a manager
 can read those of everybody.
