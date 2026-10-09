@@ -107,6 +107,19 @@ if ($hassiteconfig) {
             \local_aicoursebuilder\ingest\extractor_ocr::DEFAULT_LANGUAGE,
             PARAM_RAW_TRIMMED
         ));
+        // The same state as the status check of Moodle: can scanned PDF files be read on this server?
+        $ocrstate = \local_aicoursebuilder\ingest\ocr_status::evaluate();
+        $settings->add(new admin_setting_description(
+            'local_aicoursebuilder/ocrstatus',
+            new lang_string('ocrstatus', 'local_aicoursebuilder'),
+            $OUTPUT->notification(
+                s($ocrstate['summary']),
+                $ocrstate['status'] === \local_aicoursebuilder\ingest\ocr_status::OK
+                    ? \core\output\notification::NOTIFY_SUCCESS
+                    : \core\output\notification::NOTIFY_WARNING,
+                false
+            )
+        ));
 
         $settings->add(new admin_setting_configtext(
             'local_aicoursebuilder/digest_maxinputtokens',
