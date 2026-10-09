@@ -255,7 +255,7 @@
                     "text": {"type": "string", "minLength": 1},
                     "response": {"type": "string"},
                     "jumpto": {"type": "string", "pattern": "^(next|end|this|p[0-9]+)$"},
-                    "score": {"type": "integer"}
+                    "score": {"type": "integer", "description": "Points of the answer; above 0 makes it a right one. When omitted, a right answer (one that moves on: next, end or a later page) gets 1 and any other 0."}
                   }
                 }
               }
