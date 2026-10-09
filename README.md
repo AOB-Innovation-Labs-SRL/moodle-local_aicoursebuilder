@@ -51,6 +51,34 @@ settings says the same.
 1. Copy or clone this repository to `public/local/aicoursebuilder` in your Moodle.
 2. Run `php admin/cli/upgrade.php --non-interactive` (or visit Site administration > Notifications).
 
+## Deployment (test server)
+
+`deploy.sh` pulls a branch (`main` by default) into the plugin directory of the server, runs the Moodle upgrade and
+purges the caches. It needs the plugin directory to be a git clone of this repository that the web user owns, and,
+for a private repository, a read-only deploy key. Set it up once:
+
+```bash
+# 1. A deploy key for the web user. Add the public key in the repository on GitHub, Settings > Deploy keys (read only).
+sudo -u www-data mkdir -p -m 700 /var/www/.ssh
+sudo -u www-data ssh-keygen -t ed25519 -N '' -C 'aicb deploy' -f /var/www/.ssh/aicb_deploy
+sudo cat /var/www/.ssh/aicb_deploy.pub
+ssh-keyscan github.com | sudo -u www-data tee -a /var/www/.ssh/known_hosts   # compare with the fingerprints GitHub publishes
+
+# 2. Make the plugin directory a clone. This overwrites the files that are in it with the ones of main.
+cd /var/www/moodle/public/local/aicoursebuilder
+sudo -u www-data git init -b main
+sudo -u www-data git remote add origin git@github.com:AOB-Innovation-Labs-SRL/moodle-local_aicoursebuilder.git
+sudo -u www-data env GIT_SSH_COMMAND='ssh -i /var/www/.ssh/aicb_deploy -o IdentitiesOnly=yes' git fetch origin main
+sudo -u www-data git reset --hard origin/main
+```
+
+After that a deployment is one command:
+
+```bash
+DEPLOY_KEY=/var/www/.ssh/aicb_deploy ./deploy.sh              # branch main
+DEPLOY_KEY=/var/www/.ssh/aicb_deploy GIT_BRANCH=dev ./deploy.sh
+```
+
 ## Tests
 
 - Code style: `phpcs --standard=moodle .`
