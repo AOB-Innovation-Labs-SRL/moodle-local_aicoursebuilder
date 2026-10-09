@@ -100,6 +100,12 @@ scripts/verifica complet   # before a PR: everything the environment can run (ad
   `VERIFICA_CONTAINER` if the container is not `moodle503-webserver-1`. Behat runs only if it was initialised in
   the container (`php public/admin/tool/behat/cli/init.php`); `VERIFICA_NO_BEHAT=1` skips it. phpdoc is part of the
   moodle phpcs standard; savepoints, mustache and grunt exist only in moodle-plugin-ci, so they run only in CI.
+- **Speed on Windows/macOS:** PHPUnit runs from a copy of Moodle kept on the container's own disk
+  (`/opt/moodle-fast`), not from the mounted tree. After every test Moodle scans its whole code tree again, and on the
+  mounted file system that scan costs about 6 s per test: 768 tests took 92 minutes, and take about 4 minutes from the
+  copy (same results). The first run makes the copy (one-off, 20+ minutes on Windows, lost if the container is
+  recreated); each run then copies the plugin and `phpunit.xml` again, which takes seconds. `VERIFICA_NO_FAST=1` runs
+  in the mounted tree instead. After adding test files, regenerate `phpunit.xml` as in `moodle-env/README.md`.
 - **In CI** (`GITHUB_ACTIONS=true`) the same script runs `moodle-plugin-ci` for all checks, in parallel, after
   `moodle-plugin-ci install`. `.github/workflows/ci.yml` only prepares the environment and calls
   `scripts/verifica complet`.

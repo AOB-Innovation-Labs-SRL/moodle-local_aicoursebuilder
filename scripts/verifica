@@ -19,6 +19,13 @@
 #   VERIFICA_PHPCS       phpcs in the container (default: /tmp/quality/vendor/bin/phpcs)
 #   VERIFICA_BEHAT_CONFIG behat.yml in the container (default: /var/www/behatdata/behatrun/behat/behat.yml)
 #   VERIFICA_NO_BEHAT=1  skip behat (complet only)
+#   VERIFICA_NO_FAST=1   run PHPUnit in the mounted Moodle tree instead of the native copy (see below)
+#
+# Why PHPUnit runs from a copy of Moodle: after every test Moodle resets its class loader and scans the whole code
+# tree again. On Docker Desktop (Windows/macOS) the mounted tree is on a slow file system, and that scan costs about
+# 6 s per test: 768 tests took 92 minutes. The same tests take a few minutes from a copy on the container's own disk.
+# The first run copies Moodle (a one-off, it can take 20+ minutes on Windows; the copy lives in the container and
+# is lost when the container is recreated); every run copies the plugin again, which takes seconds.
 set -u
 
 level="${1:-}"
@@ -94,11 +101,23 @@ dexec() {
     docker exec "$container" "$@"
 }
 
+# fast_tree PLUGIN_PATH FAST_ROOT: makes FAST_ROOT, a copy of the mounted Moodle on the container's own disk, with the
+# current plugin and phpunit.xml in it.
+fast_tree() {
+    local plugin="$1" fast="$2" src=/var/www/html
+    if ! dexec test -f "$fast/.synced"; then
+        echo "First run: copying Moodle to $fast in the container (one-off, can take 20+ minutes on Windows)..." >&2
+        dexec sh -c "rm -rf $fast && mkdir -p $fast && cd $src && tar cf - --exclude=./public/local/aicoursebuilder             --exclude=./node_modules . | tar xf - -C $fast && touch $fast/.synced" || return 1
+    fi
+    dexec sh -c "cp $src/phpunit.xml $fast/phpunit.xml && rm -rf $fast/$plugin_rel && mkdir -p $fast/$plugin_rel         && cd $src/$plugin_rel && tar cf - --exclude=./.git . | tar xf - -C $fast/$plugin_rel" || return 1
+}
+
 run_docker() {
     container="${VERIFICA_CONTAINER:-moodle503-webserver-1}"
     local phpcs="${VERIFICA_PHPCS:-/tmp/quality/vendor/bin/phpcs}"
     local behatcfg="${VERIFICA_BEHAT_CONFIG:-/var/www/behatdata/behatrun/behat/behat.yml}"
-    local plugin="/var/www/html/public/local/aicoursebuilder"
+    plugin_rel="public/local/aicoursebuilder"
+    local plugin="/var/www/html/$plugin_rel"
 
     if ! docker exec "$container" true 2>/dev/null; then
         echo "Container $container is not running. Start the stack (moodle-env/README.md) or set VERIFICA_CONTAINER." >&2
@@ -114,7 +133,12 @@ run_docker() {
         skip phpcs "$phpcs not found in the container (see moodle-env/README.md for how to install moodle-cs)"
     fi
 
-    start phpunit dexec sh -c "cd /var/www/html && vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite"
+    local moodleroot=/var/www/html
+    if [ "${VERIFICA_NO_FAST:-}" != "1" ]; then
+        moodleroot=/opt/moodle-fast
+        fast_tree "$plugin" "$moodleroot" || exit 2
+    fi
+    start phpunit dexec sh -c "cd $moodleroot && vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite"
 
     if [ "$level" = "complet" ]; then
         if [ "${VERIFICA_NO_BEHAT:-}" = "1" ]; then
