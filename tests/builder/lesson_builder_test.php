@@ -328,6 +328,118 @@ final class lesson_builder_test extends \advanced_testcase {
         $grade = $DB->get_record('lesson_grades', ['lessonid' => $lessonid, 'userid' => $student->id], '*', MUST_EXIST);
         $this->assertGreaterThan(0, (float) $grade->grade);
     }
+
+    /**
+     * Returns the lesson of the golden blueprint with every score taken out of its answers.
+     *
+     * @return array The node.
+     */
+    private function lesson_without_scores(): array {
+        $node = $this->node('s2.lesson1');
+        foreach ($node['content']['pages'] as &$page) {
+            foreach ($page['answers'] as &$answer) {
+                unset($answer['score']);
+            }
+        }
+        return $node;
+    }
+
+    /**
+     * An answer with no score gets the lesson's own rule: right when it moves the student on, wrong when it keeps
+     * them on the page or sends them back.
+     */
+    public function test_an_omitted_score_follows_the_jump(): void {
+        $result = (new lesson_builder())->build($this->lesson_without_scores(), $this->make_context());
+
+        $pages = $this->get_pages($result->instanceid);
+        // True or false: the answer that goes on is right, the one that goes back to p1 is wrong.
+        $this->assertEquals([1, 0], array_map(fn($a) => (int) $a->score, $this->get_answers($pages[1]->id)));
+        // Multiple choice: next is right, this page is wrong.
+        $this->assertEquals([1, 0], array_map(fn($a) => (int) $a->score, $this->get_answers($pages[2]->id)));
+        // Short answer: the end of the lesson is right.
+        $this->assertEquals([1], array_map(fn($a) => (int) $a->score, $this->get_answers($pages[3]->id)));
+    }
+
+    /**
+     * A student who gives the right answers of a lesson with no scores is marked right and gets a grade.
+     */
+    public function test_a_student_is_marked_right_when_the_scores_are_omitted(): void {
+        global $DB;
+        $result = (new lesson_builder())->build($this->lesson_without_scores(), $this->make_context());
+        $lessonid = (int) $result->instanceid;
+        [, $truefalse, $choice, $term] = array_map(fn($page) => (int) $page->id, $this->get_pages($lessonid));
+
+        $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $this->setUser($student);
+        \mod_lesson_external::launch_attempt($lessonid);
+
+        [$right, $wrong] = array_values($DB->get_records('lesson_answers', ['pageid' => $truefalse], 'id'));
+        $field = '_qf__lesson_display_answer_form_truefalse';
+        $step = $this->answer_page($lessonid, $truefalse, ['answerid' => $wrong->id, $field => 1]);
+        $this->assertFalse($step['correctanswer'], 'The answer that sends the student back is wrong');
+        $step = $this->answer_page($lessonid, $truefalse, ['answerid' => $right->id, $field => 1]);
+        $this->assertTrue($step['correctanswer'], 'The answer that moves on is right without a score');
+        $this->assertSame($choice, $step['newpageid']);
+
+        [$right, $wrong] = array_values($DB->get_records('lesson_answers', ['pageid' => $choice], 'id'));
+        $field = '_qf__lesson_display_answer_form_multichoice_singleanswer';
+        $step = $this->answer_page($lessonid, $choice, ['answerid' => $wrong->id, $field => 1]);
+        $this->assertFalse($step['correctanswer']);
+        $step = $this->answer_page($lessonid, $choice, ['answerid' => $right->id, $field => 1]);
+        $this->assertTrue($step['correctanswer']);
+        $this->assertSame($term, $step['newpageid']);
+
+        $step = $this->answer_page($lessonid, $term, [
+            'answer' => 'geotermală',
+            '_qf__lesson_display_answer_form_shortanswer' => 1,
+        ]);
+        $this->assertTrue($step['correctanswer']);
+        $this->assertEquals(LESSON_EOL, $step['newpageid']);
+
+        \mod_lesson_external::finish_attempt($lessonid);
+        $grade = $DB->get_record('lesson_grades', ['lessonid' => $lessonid, 'userid' => $student->id], '*', MUST_EXIST);
+        $this->assertGreaterThan(0, (float) $grade->grade, 'The right answers are worth points');
+    }
+
+    /**
+     * A score the blueprint gives is kept, also a score of 0 on an answer that moves on.
+     */
+    public function test_a_given_score_is_kept(): void {
+        $node = $this->node('s2.lesson1');
+        $node['content']['pages'][1]['answers'][0]['score'] = 0;
+        $node['content']['pages'][1]['answers'][1]['score'] = 5;
+
+        $result = (new lesson_builder())->build($node, $this->make_context());
+
+        $pages = $this->get_pages($result->instanceid);
+        $this->assertEquals([0, 5], array_map(fn($a) => (int) $a->score, $this->get_answers($pages[1]->id)));
+    }
+
+    /**
+     * The buttons of a page of content go one under the other.
+     */
+    public function test_the_buttons_are_arranged_vertically(): void {
+        global $DB;
+        $node = $this->node('s2.lesson1');
+        $node['content']['pages'][0]['answers'] = [
+            ['text' => 'Mai departe', 'jumpto' => 'next'],
+            ['text' => 'Sari la final', 'jumpto' => 'p4'],
+        ];
+        $result = (new lesson_builder())->build($node, $this->make_context());
+        $lessonid = (int) $result->instanceid;
+        $intro = (int) $this->get_pages($lessonid)[0]->id;
+        $this->assertEquals(0, $DB->get_field('lesson_pages', 'layout', ['id' => $intro]));
+
+        $student = $this->getDataGenerator()->create_and_enrol($this->course, 'student');
+        $this->setUser($student);
+        \mod_lesson_external::launch_attempt($lessonid);
+        $page = \core_external\external_api::clean_returnvalue(
+            \mod_lesson_external::get_page_data_returns(),
+            \mod_lesson_external::get_page_data($lessonid, $intro, '', false, true)
+        );
+        $this->assertStringContainsString('branchbuttoncontainer vertical', $page['pagecontent']);
+        $this->assertStringNotContainsString('branchbuttoncontainer horizontal', $page['pagecontent']);
+    }
     /**
      * The manual completion of the golden blueprint is not needed here: the completion of a node is still set.
      */

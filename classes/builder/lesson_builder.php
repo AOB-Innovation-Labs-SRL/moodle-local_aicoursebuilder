@@ -146,13 +146,16 @@ class lesson_builder extends module_builder {
         $modulecontext = \context_module::instance((int) $created->coursemodule);
         $maxbytes = (int) get_course($created->course)->maxbytes;
 
+        $pages = array_values($node['content']['pages'] ?? []);
+        $positions = array_flip(array_map('strval', array_column($pages, 'id')));
+
         $pageids = [];
         $links = [];
         $previous = 0;
-        foreach ($node['content']['pages'] ?? [] as $data) {
+        foreach ($pages as $position => $data) {
             $answers = $this->clean_answers($data);
             $page = \lesson_page::create(
-                $this->page_properties($data, $answers, $previous),
+                $this->page_properties($data, $answers, $previous, $position, $positions),
                 $lesson,
                 $modulecontext,
                 $maxbytes
@@ -180,9 +183,17 @@ class lesson_builder extends module_builder {
      * @param array $data The page of the blueprint.
      * @param array[] $answers The answers of the page, cleaned.
      * @param int $previous Id of the page before this one, 0 for the first.
+     * @param int $position Position of the page in the lesson, from 0.
+     * @param int[] $positions Blueprint page id => position in the lesson.
      * @return \stdClass
      */
-    protected function page_properties(array $data, array $answers, int $previous): \stdClass {
+    protected function page_properties(
+        array $data,
+        array $answers,
+        int $previous,
+        int $position = 0,
+        array $positions = []
+    ): \stdClass {
         $qtype = self::QTYPES[$data['type'] ?? 'content'] ?? self::QTYPE_BRANCHTABLE;
         // A branch table and a short answer keep their answers as plain text; the other questions as HTML.
         $plain = $qtype === self::QTYPE_BRANCHTABLE || $qtype === self::QTYPE_SHORTANSWER;
@@ -196,8 +207,8 @@ class lesson_builder extends module_builder {
         ];
         $properties->qtype = $qtype;
         $properties->pageid = $previous;
-        // The buttons of a page of content go one under the other, as in the form.
-        $properties->layout = 1;
+        // The buttons of a page of content go one under the other. lesson_page::create() stores 1 (side by side) when
+        // the layout property is set, whatever its value, and 0 when it is missing, so it is left out here.
         $properties->display = 1;
 
         $properties->answer_editor = [];
@@ -216,9 +227,40 @@ class lesson_builder extends module_builder {
             ];
             // The jump is set after all the pages exist; the lesson needs a valid value to start with.
             $properties->jumpto[$index] = LESSON_NEXTPAGE;
-            $properties->score[$index] = $qtype === self::QTYPE_BRANCHTABLE ? 0 : (int) ($answer['score'] ?? 0);
+            $properties->score[$index] = $qtype === self::QTYPE_BRANCHTABLE
+                ? 0
+                : $this->get_score($answer, $position, $positions);
         }
         return $properties;
+    }
+
+    /**
+     * Returns the score of the answer of a question.
+     *
+     * With custom scoring an answer is right only when its score is above 0, so an answer that has no score in the
+     * blueprint must not be given 0 when it is the right one. It gets the lesson's own rule for a right answer
+     * (lesson::jumpto_is_correct): it is right when it moves the student on, to the next page, to the end or to a page
+     * that comes later, and wrong when it keeps the student on the page or sends them back. A score the blueprint
+     * gives is kept as it is.
+     *
+     * @param array $answer The answer of the blueprint.
+     * @param int $position Position of the page in the lesson, from 0.
+     * @param int[] $positions Blueprint page id => position in the lesson.
+     * @return int
+     */
+    protected function get_score(array $answer, int $position, array $positions): int {
+        if (isset($answer['score'])) {
+            return (int) $answer['score'];
+        }
+        $jumpto = (string) ($answer['jumpto'] ?? 'next');
+        if ($jumpto === 'this') {
+            return 0;
+        }
+        if (isset($positions[$jumpto])) {
+            return $positions[$jumpto] > $position ? 1 : 0;
+        }
+        // Next, end, or a page the lesson does not have (that jump goes to the next page).
+        return 1;
     }
 
     /**
