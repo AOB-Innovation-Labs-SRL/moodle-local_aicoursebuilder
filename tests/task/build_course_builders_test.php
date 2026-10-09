@@ -16,8 +16,18 @@
 
 namespace local_aicoursebuilder\task;
 
+use local_aicoursebuilder\ai\fake_lock_factory;
+use local_aicoursebuilder\builder\assign_builder;
 use local_aicoursebuilder\builder\build_result;
 use local_aicoursebuilder\builder\builder_registry;
+use local_aicoursebuilder\builder\failing_builder;
+use local_aicoursebuilder\builder\half_built_wiki_builder;
+use local_aicoursebuilder\builder\subsection_builder;
+
+defined('MOODLE_INTERNAL') || die();
+
+require_once(__DIR__ . '/../fixtures/failing_builder.php');
+require_once(__DIR__ . '/../fixtures/half_built_wiki_builder.php');
 
 /**
  * Tests of build_course with the builders of the plugin, on the golden blueprint: the course, its sections and the
@@ -266,6 +276,159 @@ final class build_course_builders_test extends \advanced_testcase {
         $this->assertSame($courses, $DB->count_records('course'));
     }
 
+    /**
+     * Runs the build of the job with a registry of builders, as cron does but with the builders of the test.
+     *
+     * @param builder_registry $registry The builders.
+     */
+    private function run_build_with(builder_registry $registry): void {
+        $task = new build_course($registry, new fake_lock_factory());
+        $task->set_custom_data(['jobid' => $this->jobid]);
+        $task->set_userid((int) $this->user->id);
+        ob_start();
+        try {
+            $task->execute();
+        } finally {
+            ob_end_clean();
+        }
+    }
+
+    /**
+     * Returns the job, with its build map decoded.
+     *
+     * @return array [\stdClass $job, array $map]
+     */
+    private function get_job_and_map(): array {
+        global $DB;
+        $job = $DB->get_record('local_aicb_job', ['id' => $this->jobid], '*', MUST_EXIST);
+        return [$job, json_decode((string) $job->buildmap, true) ?: []];
+    }
+
+    /**
+     * Counts the modules of a course by type.
+     *
+     * @param int $courseid Course id.
+     * @return int[] Module name => count.
+     */
+    private function count_modules(int $courseid): array {
+        global $DB;
+        $rows = $DB->get_records_sql(
+            'SELECT m.name, COUNT(cm.id) AS total
+               FROM {course_modules} cm
+               JOIN {modules} m ON m.id = cm.module
+              WHERE cm.course = :courseid AND cm.deletioninprogress = 0
+           GROUP BY m.name',
+            ['courseid' => $courseid]
+        );
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[$row->name] = (int) $row->total;
+        }
+        ksort($counts);
+        return $counts;
+    }
+
+    /**
+     * Returns what the golden blueprint has to build, by module type: every activity, the module of each subsection and
+     * the news forum that Moodle gives a new course.
+     *
+     * @return int[] Module name => count.
+     */
+    private function expected_modules(): array {
+        $blueprint = json_decode(file_get_contents(__DIR__ . '/../fixtures/blueprint_golden.json'), true);
+        $counts = ['forum' => 1];
+        foreach ($blueprint['sections'] as $section) {
+            foreach ($section['activities'] ?? [] as $activity) {
+                $counts[$activity['type']] = ($counts[$activity['type']] ?? 0) + 1;
+            }
+            foreach ($section['subsections'] ?? [] as $subsection) {
+                $counts['subsection'] = ($counts['subsection'] ?? 0) + 1;
+                foreach ($subsection['activities'] ?? [] as $activity) {
+                    $counts[$activity['type']] = ($counts[$activity['type']] ?? 0) + 1;
+                }
+            }
+        }
+        // The types without a builder are left to the teacher.
+        unset($counts['h5pactivity'], $counts['scorm']);
+        // A quiz needs the question bank of the course, which is a module of its own in Moodle 5.
+        if (!empty($counts['quiz'])) {
+            $counts['qbank'] = 1;
+        }
+        ksort($counts);
+        return $counts;
+    }
+
+    /**
+     * A build that is stopped on some nodes by an error, then resumed, gives the same course as a build with no error:
+     * every module once, none twice.
+     */
+    public function test_resume_after_an_injected_error_builds_no_module_twice(): void {
+        global $DB;
+        $this->approve_golden_blueprint();
+
+        // An error on an activity (the assignment), and on a subsection, whose folder then has nowhere to go.
+        $registry = builder_registry::with_defaults();
+        $assign = new failing_builder(new assign_builder(), ['s2.assign1']);
+        $subsection = new failing_builder(new subsection_builder(), ['s1-1']);
+        $registry->register('assign', $assign)->register('subsection', $subsection);
+        $this->run_build_with($registry);
+
+        [$job, $map] = $this->get_job_and_map();
+        $this->assertNotEmpty($job->courseid, 'The course was made');
+        $this->assertSame(build_result::STATUS_FAILED, $map['s2.assign1']['status']);
+        $this->assertSame(build_result::STATUS_FAILED, $map['s1-1']['status']);
+        $this->assertSame(build_result::STATUS_FAILED, $map['s1-1.folder1']['status'], 'Child of the failed subsection');
+        $this->assertSame(build_result::STATUS_CREATED, $map['s1.page1']['status'], 'The independent nodes are built');
+        $partial = $this->count_modules((int) $job->courseid);
+        $this->assertArrayNotHasKey('assign', $partial);
+        $this->assertArrayNotHasKey('folder', $partial);
+        $cmids = array_column(array_filter($map, fn($entry) => !empty($entry['cmid'])), 'cmid');
+
+        // The build is resumed with the error gone: the job is reopened the way a retry reopens it.
+        $assign->armed = false;
+        $subsection->armed = false;
+        $DB->set_field('local_aicb_job', 'status', 'approved', ['id' => $this->jobid]);
+        $this->run_build_with($registry);
+
+        [$job] = $this->get_job_and_map();
+        $this->assertSame('finished', $job->status, (string) $job->error);
+        $this->assertSame($this->expected_modules(), $this->count_modules((int) $job->courseid));
+        // What was built before the error is the same module after the resume: nothing was built again.
+        foreach ($cmids as $cmid) {
+            $this->assertTrue($DB->record_exists('course_modules', ['id' => $cmid]), "Module {$cmid} is still there");
+        }
+        $this->assertSame(1, $DB->count_records('course', ['id' => $job->courseid]));
+    }
+
+    /**
+     * An error in the middle of a real builder, when the module and its wiki exist already, leaves nothing half built:
+     * the resumed build makes the wiki once, with its pages.
+     */
+    public function test_an_error_inside_a_builder_leaves_no_half_built_module(): void {
+        global $DB;
+        $this->approve_golden_blueprint();
+        $wiki = new half_built_wiki_builder();
+        $registry = builder_registry::with_defaults()->register('wiki', $wiki);
+
+        $this->run_build_with($registry);
+
+        [$job, $map] = $this->get_job_and_map();
+        $this->assertSame(build_result::STATUS_FAILED, $map['s2.wiki1']['status']);
+        $wikimodule = $DB->get_field('modules', 'id', ['name' => 'wiki'], MUST_EXIST);
+        $this->assertSame(0, $DB->count_records('course_modules', ['course' => $job->courseid, 'module' => $wikimodule]));
+
+        $wiki->armed = false;
+        $DB->set_field('local_aicb_job', 'status', 'approved', ['id' => $this->jobid]);
+        $this->run_build_with($registry);
+
+        [$job] = $this->get_job_and_map();
+        $this->assertSame('finished', $job->status, (string) $job->error);
+        $this->assertSame(1, $DB->count_records('course_modules', ['course' => $job->courseid, 'module' => $wikimodule]));
+        $wikirow = $DB->get_record('wiki', ['course' => $job->courseid], '*', MUST_EXIST);
+        $subwiki = $DB->get_record('wiki_subwikis', ['wikiid' => $wikirow->id], '*', MUST_EXIST);
+        $this->assertSame(2, $DB->count_records('wiki_pages', ['subwikiid' => $subwiki->id]), 'The pages of the blueprint');
+        $this->assertSame($this->expected_modules(), $this->count_modules((int) $job->courseid));
+    }
     /**
      * A node that fails does not stop the others: a file whose source is gone is failed and the rest is built.
      */
