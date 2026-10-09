@@ -76,7 +76,8 @@ Create a directory only when it gets its first file.
 
 ## Verification before pushing
 
-- Before a push: PHPUnit and phpcs green locally.
+- Before a push: `scripts/verifica complet` green locally (`scripts/verifica rapid` while iterating; see README.md,
+  Verification script). CI runs the same script.
 - CI green on the pull request. CI runs on pull requests to `main` and on demand, never on a push:
   a pull request runs a reduced matrix of two combinations, which between them cover both PHP
   versions, both Moodle branches and both databases.

@@ -84,3 +84,24 @@ DEPLOY_KEY=/var/www/.ssh/aicb_deploy GIT_BRANCH=dev ./deploy.sh
 - Code style: `phpcs --standard=moodle .`
 - PHPUnit: `vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite`
 - CI: GitHub Actions with moodle-plugin-ci, see `.github/workflows/ci.yml`.
+
+### Verification script
+
+One script, `scripts/verifica`, runs the checks, locally and in CI. The independent checks run as parallel
+processes; at the end it shows the log of each one and a summary, and the exit status is 0 only if all passed.
+
+```bash
+scripts/verifica rapid     # iteration: php -l, phpcs and PHPUnit
+scripts/verifica complet   # before a PR: everything the environment can run (adds Behat; in CI also phpdoc,
+                           # savepoints, mustache and grunt)
+```
+
+- **Locally** it runs in the webserver container of the moodle-docker stack (`moodle-env/README.md`). Set
+  `VERIFICA_CONTAINER` if the container is not `moodle503-webserver-1`. Behat runs only if it was initialised in
+  the container (`php public/admin/tool/behat/cli/init.php`); `VERIFICA_NO_BEHAT=1` skips it. phpdoc is part of the
+  moodle phpcs standard; savepoints, mustache and grunt exist only in moodle-plugin-ci, so they run only in CI.
+- **In CI** (`GITHUB_ACTIONS=true`) the same script runs `moodle-plugin-ci` for all checks, in parallel, after
+  `moodle-plugin-ci install`. `.github/workflows/ci.yml` only prepares the environment and calls
+  `scripts/verifica complet`.
+- A pull request that changes only `*.md`, `deploy.sh` or `.gitignore` skips the checks (the jobs still report, so the
+  required status checks of `main` are satisfied).

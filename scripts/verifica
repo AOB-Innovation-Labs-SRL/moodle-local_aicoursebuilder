@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# Single verification entry point, used locally and by GitHub Actions (.github/workflows/ci.yml).
+#
+#   scripts/verifica rapid     iteration: syntax, coding style and PHPUnit
+#   scripts/verifica complet   before a PR: everything the environment can run
+#
+# The independent checks run as parallel processes; the log of each one is shown at the end, with a summary.
+# Exit status is 0 only if every check passed (a skipped check is reported, and does not fail the run).
+#
+# Backend, chosen automatically (override with VERIFICA_BACKEND=ci|docker):
+#   ci      on GitHub Actions: moodle-plugin-ci, which has to be installed already (`moodle-plugin-ci install`).
+#           Runs phplint, phpcs, phpdoc, savepoints, mustache, grunt, phpunit and behat.
+#   docker  locally: the moodle-docker stack of moodle-env/README.md. Runs php -l, phpcs (moodle-cs),
+#           phpunit and behat in the webserver container; phpdoc is part of the moodle phpcs standard, and
+#           savepoints, mustache and grunt exist only in moodle-plugin-ci, so they are left to CI.
+#
+# Variables (docker backend):
+#   VERIFICA_CONTAINER   webserver container (default: moodle503-webserver-1)
+#   VERIFICA_PHPCS       phpcs in the container (default: /tmp/quality/vendor/bin/phpcs)
+#   VERIFICA_BEHAT_CONFIG behat.yml in the container (default: /var/www/behatdata/behatrun/behat/behat.yml)
+#   VERIFICA_NO_BEHAT=1  skip behat (complet only)
+set -u
+
+level="${1:-}"
+case "$level" in
+    rapid | complet) ;;
+    *)
+        echo "Usage: scripts/verifica rapid|complet" >&2
+        exit 2
+        ;;
+esac
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+backend="${VERIFICA_BACKEND:-$([ "${GITHUB_ACTIONS:-}" = "true" ] && echo ci || echo docker)}"
+logdir="$(mktemp -d)"
+trap 'rm -rf "$logdir"' EXIT
+
+# MSYS (Git Bash) rewrites arguments that look like Unix paths; the container paths must reach docker as they are.
+export MSYS_NO_PATHCONV=1
+
+names=()
+pids=()
+starts=()
+skipped=()
+
+# start NAME COMMAND...: runs the command in the background, its output goes to a log.
+start() {
+    local name="$1"
+    shift
+    names+=("$name")
+    starts+=("$(date +%s)")
+    ("$@" >"$logdir/$name.log" 2>&1) &
+    pids+=("$!")
+}
+
+skip() {
+    skipped+=("$1: $2")
+}
+
+# ---- backend: ci ----------------------------------------------------------------------------------------------
+
+ci_static() {
+    # The static checks share one moodle-plugin-ci install and do not use the database; they run one after the
+    # other so the cores stay for PHPUnit and Behat. Every one runs even if an earlier one failed.
+    local rc=0 cmd
+    for cmd in "phplint" "phpcs --max-warnings 0" "phpdoc --max-warnings 0" "savepoints" "mustache" \
+        "grunt --max-lint-warnings 0"; do
+        echo "::group::moodle-plugin-ci $cmd"
+        # shellcheck disable=SC2086
+        moodle-plugin-ci $cmd || rc=1
+        echo "::endgroup::"
+    done
+    return $rc
+}
+
+run_ci() {
+    start static ci_static
+    if [ "$level" = "rapid" ]; then
+        start phpunit moodle-plugin-ci phpunit --fail-on-warning
+        return
+    fi
+    start phpunit moodle-plugin-ci phpunit --fail-on-warning
+    # Behat starts a browser and a second Moodle site, the slowest step: only when the plugin has a feature file.
+    if compgen -G "$plugin_dir/tests/behat/*.feature" >/dev/null; then
+        start behat moodle-plugin-ci behat --profile chrome
+    else
+        skip behat "no feature file in tests/behat"
+    fi
+}
+
+# ---- backend: docker ------------------------------------------------------------------------------------------
+
+dexec() {
+    docker exec "$container" "$@"
+}
+
+run_docker() {
+    container="${VERIFICA_CONTAINER:-moodle503-webserver-1}"
+    local phpcs="${VERIFICA_PHPCS:-/tmp/quality/vendor/bin/phpcs}"
+    local behatcfg="${VERIFICA_BEHAT_CONFIG:-/var/www/behatdata/behatrun/behat/behat.yml}"
+    local plugin="/var/www/html/public/local/aicoursebuilder"
+
+    if ! docker exec "$container" true 2>/dev/null; then
+        echo "Container $container is not running. Start the stack (moodle-env/README.md) or set VERIFICA_CONTAINER." >&2
+        exit 2
+    fi
+
+    start phplint dexec sh -c "cd $plugin && out=\$(find . -name '*.php' -not -path './thirdparty/*' -print0 \
+        | xargs -0 -n40 -P8 php -l 2>&1 | grep -v '^No syntax errors') ; [ -z \"\$out\" ] || { echo \"\$out\"; exit 1; }"
+
+    if dexec test -x "$phpcs"; then
+        start phpcs dexec sh -c "cd $plugin && php -d memory_limit=1G $phpcs --standard=moodle --extensions=php --warning-severity=1 --ignore=*/thirdparty/*,*/amd/build/*,*/vendor/*,*/node_modules/* -q ."
+    else
+        skip phpcs "$phpcs not found in the container (see moodle-env/README.md for how to install moodle-cs)"
+    fi
+
+    start phpunit dexec sh -c "cd /var/www/html && vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite"
+
+    if [ "$level" = "complet" ]; then
+        if [ "${VERIFICA_NO_BEHAT:-}" = "1" ]; then
+            skip behat "VERIFICA_NO_BEHAT=1"
+        elif dexec test -f "$behatcfg"; then
+            start behat dexec sh -c "cd /var/www/html && vendor/bin/behat --config $behatcfg public/local/aicoursebuilder/tests/behat"
+        else
+            skip behat "not initialised in the container (php public/admin/tool/behat/cli/init.php)"
+        fi
+        skip "phpdoc, savepoints, mustache, grunt" "only available through moodle-plugin-ci: they run in CI"
+    fi
+}
+
+# ---- run ------------------------------------------------------------------------------------------------------
+
+t0=$(date +%s)
+echo "verifica $level (backend: $backend)"
+case "$backend" in
+    ci) run_ci ;;
+    docker) run_docker ;;
+    *)
+        echo "Unknown backend: $backend" >&2
+        exit 2
+        ;;
+esac
+
+status=0
+results=()
+for i in "${!pids[@]}"; do
+    if wait "${pids[$i]}"; then
+        rc=0
+    else
+        rc=1
+        status=1
+    fi
+    results+=("$rc:$(($(date +%s) - starts[i]))")
+done
+
+echo
+for i in "${!names[@]}"; do
+    rc="${results[$i]%%:*}"
+    if [ "$rc" != "0" ]; then
+        echo "::group::LOG ${names[$i]} (FAILED)"
+        cat "$logdir/${names[$i]}.log"
+        echo "::endgroup::"
+    else
+        echo "::group::log ${names[$i]}"
+        tail -n 15 "$logdir/${names[$i]}.log"
+        echo "::endgroup::"
+    fi
+done
+
+echo
+echo "== Summary =="
+for i in "${!names[@]}"; do
+    rc="${results[$i]%%:*}"
+    printf '%-10s %s (%ss)\n' "${names[$i]}" "$([ "$rc" = "0" ] && echo OK || echo FAILED)" "${results[$i]#*:}"
+done
+for s in "${skipped[@]+"${skipped[@]}"}"; do
+    echo "SKIPPED    $s"
+done
+echo "Total: $(($(date +%s) - t0))s"
+exit $status

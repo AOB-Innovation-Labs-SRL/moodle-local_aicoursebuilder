@@ -29,9 +29,35 @@ jobs:
   # Chooses the matrix: the reduced one by default, all eight when asked for it.
   matrix:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       include: ${{ steps.pick.outputs.include }}
+      code: ${{ steps.changes.outputs.code }}
     steps:
+      # A pull request that touches only documentation, deploy.sh or .gitignore does not need the matrix. The
+      # workflow cannot use `paths-ignore`: the branch protection of main requires the checks by name, and a
+      # workflow skipped by a path filter leaves them pending for ever. So the jobs always run and report, and
+      # the steps that cost time are skipped when `code` is false.
+      - name: Check out repository code
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Look for changes that need verification
+        id: changes
+        shell: bash
+        run: |
+          code=true
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if ! git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qvE '(\.md|^deploy\.sh|^\.gitignore)$'; then
+              code=false
+              echo 'Only documentation, deploy.sh or .gitignore changed: the checks are skipped.'
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
       - name: Pick the matrix
         id: pick
         shell: bash
@@ -60,6 +86,7 @@ jobs:
   test:
     needs: matrix
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
 
     services:
       # Moodle 5.2 needs PostgreSQL 16 / MariaDB 10.11; Moodle 5.3 (MOODLE_503_STABLE) needs PostgreSQL 17 / MariaDB 11.
@@ -89,12 +116,14 @@ jobs:
 
     steps:
       - name: Check out repository code
+        if: ${{ needs.matrix.outputs.code == 'true' }}
         uses: actions/checkout@v6
         with:
           path: plugin
           persist-credentials: false
 
       - name: Setup PHP ${{ matrix.php }}
+        if: ${{ needs.matrix.outputs.code == 'true' }}
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -104,12 +133,14 @@ jobs:
       # pdftotext and pdftoppm (Poppler) run the PDF fallback and OCR tests, tesseract with the Romanian
       # data reads the scans; the tests are skipped when a program is missing.
       - name: Install pdftotext and tesseract
-        run: sudo apt-get update && sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-ron
+        if: ${{ needs.matrix.outputs.code == 'true' }}
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-ron
 
       # Asked of the tools rather than hard coded, so the cache cannot silently miss if a runner image
       # changes the default directory.
       - name: Find the composer and npm cache directories
         id: cachedirs
+        if: ${{ needs.matrix.outputs.code == 'true' }}
         shell: bash
         run: |
           echo "composer=$(composer config --global cache-dir)" >> "$GITHUB_OUTPUT"
@@ -118,6 +149,7 @@ jobs:
       # moodle-plugin-ci is installed with composer create-project, so its own dependencies are what the
       # cache is for. The key holds the PHP version because the resolved packages depend on it.
       - name: Cache the composer files of moodle-plugin-ci
+        if: ${{ needs.matrix.outputs.code == 'true' }}
         uses: actions/cache@v4
         with:
           path: ${{ steps.cachedirs.outputs.composer }}
@@ -127,6 +159,7 @@ jobs:
 
       # moodle-plugin-ci install runs npm inside the Moodle checkout for Grunt.
       - name: Cache the npm files
+        if: ${{ needs.matrix.outputs.code == 'true' }}
         uses: actions/cache@v4
         with:
           path: ${{ steps.cachedirs.outputs.npm }}
@@ -136,6 +169,7 @@ jobs:
 
       # moodle-plugin-ci 4.x (^4) supports Moodle 5.0-5.3 (see its CHANGELOG, 4.5.6 - 4.5.11).
       - name: Initialise moodle-plugin-ci
+        if: ${{ needs.matrix.outputs.code == 'true' }}
         run: |
           composer create-project -n --no-dev --prefer-dist moodlehq/moodle-plugin-ci ci ^4
           echo $(cd ci/bin; pwd) >> $GITHUB_PATH
@@ -144,67 +178,25 @@ jobs:
           echo "NVM_DIR=$HOME/.nvm" >> $GITHUB_ENV
 
       - name: Install moodle-plugin-ci
+        if: ${{ needs.matrix.outputs.code == 'true' }}
         run: moodle-plugin-ci install --plugin ./plugin --db-host=127.0.0.1
         env:
           DB: ${{ matrix.database }}
           MOODLE_BRANCH: ${{ matrix.moodle-branch }}
 
-      - name: PHP Lint
-        if: ${{ !cancelled() }}
-        run: moodle-plugin-ci phplint
-
-      - name: Moodle Code Checker
-        if: ${{ !cancelled() }}
-        run: moodle-plugin-ci phpcs --max-warnings 0
-
-      - name: Moodle PHPDoc Checker
-        if: ${{ !cancelled() }}
-        run: moodle-plugin-ci phpdoc --max-warnings 0
-
-      - name: Check upgrade savepoints
-        if: ${{ !cancelled() }}
-        run: moodle-plugin-ci savepoints
-
-      - name: Mustache Lint
-        if: ${{ !cancelled() }}
-        run: moodle-plugin-ci mustache
-
-      - name: Grunt
-        if: ${{ !cancelled() }}
-        run: moodle-plugin-ci grunt --max-lint-warnings 0
-
-      - name: PHPUnit tests
-        if: ${{ !cancelled() }}
-        run: moodle-plugin-ci phpunit --fail-on-warning
-
-      # Behat starts a browser and a second Moodle site, which is the slowest step by far: it is worth
-      # running only when the plugin actually has a feature file.
-      - name: Look for Behat features
-        id: features
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          if compgen -G 'plugin/tests/behat/*.feature' > /dev/null; then
-            echo 'found=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'found=false' >> "$GITHUB_OUTPUT"
-            echo 'No feature file in tests/behat, skipping Behat.'
-          fi
-
-      - name: Behat features
-        id: behat
-        if: ${{ !cancelled() && steps.features.outputs.found == 'true' }}
-        run: moodle-plugin-ci behat --profile chrome
+      # The checks (phplint, phpcs, phpdoc, savepoints, mustache, grunt, PHPUnit, Behat) are defined once, in
+      # scripts/verifica, which runs the independent ones in parallel on the runner and fails if any of them
+      # failed. Locally the same script runs against the Docker stack.
+      - name: Verify (scripts/verifica complet)
+        id: verifica
+        if: ${{ needs.matrix.outputs.code == 'true' }}
+        run: plugin/scripts/verifica complet
 
       - name: Upload Behat Faildump
-        if: ${{ failure() && steps.behat.outcome == 'failure' }}
+        if: ${{ failure() && steps.verifica.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
           name: Behat Faildump (${{ join(matrix.*, ', ') }})
           path: ${{ github.workspace }}/moodledata/behat_dump
           retention-days: 7
           if-no-files-found: ignore
-
-      - name: Mark cancelled jobs as failed.
-        if: ${{ cancelled() }}
-        run: exit 1
