@@ -18,8 +18,33 @@ page once the limit is raised, without paying again for the steps it had finishe
 
 ## Requirements
 
+### Required
+
 - Moodle 5.2 or 5.3 (`$plugin->supported = [502, 503]`).
-- PHP 8.3 or newer, PostgreSQL 16+ or MariaDB 10.11+ (per Moodle 5.2).
+- PHP 8.3 or newer, and the database that Moodle asks for: PostgreSQL 16+ or MariaDB 10.11+ for Moodle 5.2,
+  PostgreSQL 17+ or MariaDB 11.4+ for Moodle 5.3.
+
+### Optional, on the server
+
+The plugin installs and runs without these. They are used to read some of the source files of a course:
+
+- **poppler-utils** (`pdftotext`, `pdftoppm`) and **tesseract-ocr with the language data of the documents**, for
+  Romanian `tesseract-ocr-ron`: they read a PDF that is a scan, with no text layer, and give a fallback for PDF files
+  that the PHP extractor cannot read.
+- **LibreOffice** (`soffice`): a fallback for DOCX and PPTX files that the PHP extractors cannot read.
+- **`proc_open` allowed** in the `disable_functions` of PHP: the programs above are run with it, so on a hosting that
+  blocks it none of them can run, even if they are installed.
+
+What is lost without them: a scanned PDF cannot be read, and the PDF, DOCX and PPTX files that the PHP extractors
+cannot read have no fallback. Everything else works. The teacher is told to upload a version of the document with
+text (not scanned).
+
+The AI model only receives the text that was extracted. The provider that is chosen (DeepSeek or any other) does not
+change which files can be read.
+
+Set the paths of the programs and the OCR language in Site administration > Plugins > Local plugins > AI Course
+Builder. Site administration > Reports > System status shows whether OCR is available, and the OCR section of the
+settings says the same.
 
 ## Installation
 
