@@ -76,7 +76,14 @@ Create a directory only when it gets its first file.
 
 ## Verification before pushing
 
-- Before a push: PHPUnit and phpcs green locally.
+- After each task: `scripts/verifica stil` green (php -l and phpcs on the changed files; seconds). Do not run PHPUnit
+  after every task.
+- After a group of tasks (for example 2-3 times a day): `scripts/verifica schimbari` green (PHPUnit only on the tests
+  that use what changed since the last green run; 1-2 minutes).
+- Before opening a pull request: `scripts/verifica rapid` green (about 4 minutes), or rely on CI for it. CI is the gate
+  for `main`. Do not run the whole suite after every small change.
+- Work on your own branch and push often: CI runs on pull requests only, so a push costs nothing. A pull request is
+  opened when a group of tasks is done, not for each task of 15 minutes.
 - CI green on the pull request. CI runs on pull requests to `main` and on demand, never on a push:
   a pull request runs a reduced matrix of two combinations, which between them cover both PHP
   versions, both Moodle branches and both databases.
