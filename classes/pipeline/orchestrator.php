@@ -18,6 +18,7 @@ namespace local_aicoursebuilder\pipeline;
 
 use local_aicoursebuilder\ai\budget_exceeded_exception;
 use local_aicoursebuilder\ai\parallel_executor;
+use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\ai\result;
 use local_aicoursebuilder\blueprint\version_store;
 
@@ -237,7 +238,16 @@ class orchestrator {
         }
 
         $executor = new parallel_executor($connector, $route['connector']);
-        $outcomes = $executor->run($requests, fn() => null);
+        // The sections are the first calls of the job to carry the shared prefix. Sent all at once,
+        // none of them finds it in the provider's cache yet and every one pays for it in full, so the
+        // first goes alone and the rest follow once it has returned. Activities and questions open
+        // with the same prefix, which the sections have already put in the cache.
+        if ($step->get_step() === request::STEP_SECTIONS && count($requests) > 1) {
+            $outcomes = $this->send($executor, array_slice($requests, 0, 1, true));
+            $outcomes += $this->send($executor, array_slice($requests, 1, null, true));
+        } else {
+            $outcomes = $this->send($executor, $requests);
+        }
 
         $answers = [];
         foreach ($outcomes as $id => $outcome) {
@@ -255,6 +265,17 @@ class orchestrator {
             }
         }
         return $answers;
+    }
+
+    /**
+     * Sends one batch of requests concurrently and returns what came back for each.
+     *
+     * @param parallel_executor $executor The executor of the step's connector.
+     * @param request[] $requests Requests keyed by section id.
+     * @return array result or connector_exception per section id.
+     */
+    protected function send(parallel_executor $executor, array $requests): array {
+        return $executor->run($requests, fn() => null);
     }
 
     /**

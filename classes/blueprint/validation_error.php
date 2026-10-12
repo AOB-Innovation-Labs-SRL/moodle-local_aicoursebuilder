@@ -52,6 +52,9 @@ final class validation_error {
     /** @var string The output is not the JSON object the step asked for. */
     public const CODE_NOT_JSON = 'not_json';
 
+    /** @var string Schema keyword of an object that carries keys the schema does not allow. */
+    public const KEYWORD_ADDITIONAL_PROPERTIES = 'additionalProperties';
+
     /** @var string[] Every code, in the order they are reported. */
     public const CODES = [
         self::CODE_NOT_JSON,
@@ -70,6 +73,9 @@ final class validation_error {
      * @param string $path JSON Pointer of the offending value, such as /sections/0/activities/2/id.
      * @param string $code One of the CODE_* constants.
      * @param string $message English message for the model, never shown to a user as it is.
+     * @param string $keyword Schema keyword the value broke (required, enum, additionalProperties...),
+     *                        empty for an error that did not come from the schema.
+     * @param string[] $keys Names of the keys the schema rejected, for additionalProperties only.
      */
     public function __construct(
         /** @var string JSON Pointer of the offending value. */
@@ -78,6 +84,10 @@ final class validation_error {
         public readonly string $code,
         /** @var string English message for the model. */
         public readonly string $message,
+        /** @var string Schema keyword the value broke, empty when the error is not a schema one. */
+        public readonly string $keyword = '',
+        /** @var string[] Names of the keys the schema rejected (additionalProperties). */
+        public readonly array $keys = [],
     ) {
     }
 
