@@ -21,6 +21,7 @@ use local_aicoursebuilder\ai\connector_exception;
 use local_aicoursebuilder\ai\fake_connector;
 use local_aicoursebuilder\ai\fake_lock_factory;
 use local_aicoursebuilder\ai\output_limits;
+use local_aicoursebuilder\ai\parallel_executor;
 use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\ai\router;
 use local_aicoursebuilder\blueprint\schema_store;
@@ -603,7 +604,10 @@ final class orchestrator_test extends \advanced_testcase {
 
         // A next version of the prompts, identical in content: only the version has to differ.
         $dir = make_temp_directory('local_aicoursebuilder_prompts_next');
-        $names = ['brief', 'outline', 'sections', 'activities', 'questions', 'review', 'repair', step::PREFIX_PROMPT];
+        $names = [
+            'brief', 'outline', 'sections', 'activities', 'questions', 'questions_fill', 'review', 'repair',
+            step::PREFIX_PROMPT,
+        ];
         foreach ($names as $name) {
             copy(
                 "{$CFG->dirroot}/local/aicoursebuilder/prompts/{$name}." . prompt::VERSION . '.md',
@@ -842,7 +846,7 @@ final class orchestrator_test extends \advanced_testcase {
         $this->assertSame(1 + step::MAX_REPAIR_CALLS, $reason['attempts']);
         $this->assertNotEmpty($reason['errors']);
         foreach ($reason['errors'] as $error) {
-            $this->assertSame(['path', 'code'], array_keys($error), 'no validator message, which can quote the model');
+            $this->assertSame(['path', 'code', 'keyword'], array_keys($error), 'no validator message, which can quote the model');
         }
         $this->assertStringNotContainsString('not-an-id', json_encode($reason), 'nothing the model wrote is stored');
     }
@@ -1057,6 +1061,305 @@ final class orchestrator_test extends \advanced_testcase {
      */
     private function sent(request $request): string {
         return $request->system . "\n" . implode("\n", array_column($request->messages, 'content'));
+    }
+
+    /**
+     * Returns the fixture of the activities of one section.
+     *
+     * @param string $id Section id.
+     * @return array
+     */
+    private function activities_fixture(string $id): array {
+        $path = dirname(__DIR__) . '/fixtures/ai/activities/' . $id . '.json';
+        return json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Returns the fixture of the quiz of one section.
+     *
+     * @param string $id Section id.
+     * @return array
+     */
+    private function quiz_fixture(string $id): array {
+        $path = dirname(__DIR__) . '/fixtures/ai/questions/' . $id . '.json';
+        return json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Starts a new fake connector and queues a whole run on it, with other answers for section s1.
+     *
+     * @param array|null $s1section Answer of the sections step for s1, null for its fixture.
+     * @param array[]|null $s1quizzes Answers of the questions step for s1 in the order it asks for
+     *                                them, null for the fixture.
+     */
+    private function queue_run(?array $s1section = null, ?array $s1quizzes = null): void {
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        foreach (['s1', 's1-1', 's2', 's3'] as $id) {
+            $answer = $id === 's1' && $s1section !== null ? $s1section : $this->section_fixture($id);
+            $this->connector->push(request::STEP_SECTIONS, $answer, $id);
+            $this->connector->push(request::STEP_ACTIVITIES, $this->activities_fixture($id), $id);
+        }
+        foreach (['s1', 's2', 's3'] as $id) {
+            $answers = $id === 's1' && $s1quizzes !== null ? $s1quizzes : [$this->quiz_fixture($id)];
+            foreach ($answers as $answer) {
+                $this->connector->push(request::STEP_QUESTIONS, $answer, $id);
+            }
+        }
+    }
+
+    /**
+     * Returns the questions of the quiz of the first section of a blueprint.
+     *
+     * @param array $blueprint The blueprint.
+     * @return array
+     */
+    private function first_quiz_questions(array $blueprint): array {
+        foreach ($blueprint['sections'][0]['activities'] as $activity) {
+            if ($activity['type'] === 'quiz') {
+                return $activity['content']['questions'];
+            }
+        }
+        return [];
+    }
+
+    /**
+     * Keys the schema does not allow are deleted, and the answer goes on with no repair call.
+     */
+    public function test_extra_keys_are_deleted_without_a_repair(): void {
+        $section = $this->section_fixture('s1');
+        $section['summary'] = 'not in the schema';
+        $section['activities'][0]['content']['extra_one'] = 1;
+        $section['activities'][1]['content']['extra_two'] = 2;
+        $section['activities'][1]['duration'] = 5;
+        $this->queue_run($section);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $encoded = json_encode($outcome->blueprint);
+        foreach (['extra_one', 'extra_two', '"duration"', 'not in the schema'] as $gone) {
+            $this->assertStringNotContainsString($gone, $encoded);
+        }
+
+        $reason = $this->done_reason(request::STEP_SECTIONS, 's1');
+        $this->assertSame(failure_reason::TYPE_CLEANED, $reason['type']);
+        $this->assertSame(0, $reason['repairs']);
+        $removed = array_merge(...array_column($reason['warnings'], 'removed'));
+        sort($removed);
+        $this->assertSame(['duration', 'extra_one', 'extra_two', 'summary'], $removed, 'only key names are kept');
+        $this->assertStringNotContainsString('not in the schema', json_encode($reason));
+    }
+
+    /**
+     * The saved reason names the schema keyword and the rejected key, never a value.
+     */
+    public function test_the_reason_names_the_keyword_and_the_rejected_key(): void {
+        // An extra key next to a duplicate id: the second fault is not one that deleting a key settles.
+        $broken = $this->section_fixture('s1');
+        $broken['activities'][0]['content']['secret_note'] = 'a sentence from the sources';
+        $broken['activities'][1]['id'] = $broken['activities'][0]['id'];
+        $this->queue_run($broken);
+        $this->connector->push(request::STEP_REPAIR, $broken);
+        $this->connector->push(request::STEP_REPAIR, $broken);
+
+        (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $reason = $this->stored_reason(request::STEP_SECTIONS, 's1');
+        $this->assertSame(failure_reason::TYPE_REPAIR_EXHAUSTED, $reason['type']);
+        $keyed = array_values(array_filter($reason['errors'], fn($error) => isset($error['keys'])));
+        $this->assertCount(1, $keyed);
+        $this->assertSame('additionalProperties', $keyed[0]['keyword']);
+        $this->assertSame(['secret_note'], $keyed[0]['keys']);
+        $this->assertStringNotContainsString('a sentence from the sources', json_encode($reason));
+    }
+
+    /**
+     * Questions beyond the maximum of an objective are dropped locally, the first ones kept.
+     */
+    public function test_questions_over_the_maximum_are_cut_without_a_repair(): void {
+        set_config('questions_min', '5', 'local_aicoursebuilder');
+        set_config('questions_max', '5', 'local_aicoursebuilder');
+        $quiz = $this->quiz_fixture('s1');
+        $original = $quiz['quiz']['content']['questions'];
+        // Two more questions for s1.o1, with ids of the section's reserved range that are free.
+        $quiz['quiz']['content']['questions'][] = array_replace($original[0], ['id' => 'q11']);
+        $quiz['quiz']['content']['questions'][] = array_replace($original[1], ['id' => 'q12']);
+        $this->queue_run(null, [$quiz]);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $kept = $this->first_quiz_questions($outcome->blueprint);
+        $this->assertSame(array_column($original, 'id'), array_column($kept, 'id'));
+        $warning = $this->done_reason(request::STEP_QUESTIONS, 's1')['warnings'][0];
+        $this->assertSame('maxItems', $warning['keyword']);
+        $this->assertSame(2, $warning['removed']);
+    }
+
+    /**
+     * An objective short of questions gets one call for the missing ones only, and no repair.
+     */
+    public function test_missing_questions_are_asked_for_on_their_own(): void {
+        $quiz = $this->quiz_fixture('s1');
+        $original = $quiz['quiz']['content']['questions'];
+        // Two of the five questions of s1.o2 are lost.
+        $quiz['quiz']['content']['questions'] = array_values(array_filter(
+            $original,
+            fn($question) => !in_array($question['id'], ['q9', 'q10'], true),
+        ));
+        // The ids of a fill are placeholders that get renumbered, and a question for an objective
+        // that is not short is not taken.
+        $fill = ['id' => 's1', 'quiz' => [
+            'id' => 's1.quiz1',
+            'type' => 'quiz',
+            'name' => 'Missing',
+            'content' => ['questions' => [
+                array_replace($original[8], ['id' => 'q1']),
+                array_replace($original[9], ['id' => 'q1']),
+                array_replace($original[0], ['id' => 'q1']),
+            ]],
+        ]];
+        $this->queue_run(null, [$quiz, $fill]);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $questions = $this->first_quiz_questions($outcome->blueprint);
+        $this->assertCount(10, $questions);
+        $this->assertCount(10, array_unique(array_column($questions, 'id')), 'every id is unique');
+        $perobjective = array_count_values(array_column($questions, 'objective_ref'));
+        $this->assertSame(5, $perobjective['s1.o1']);
+        $this->assertSame(5, $perobjective['s1.o2']);
+        $this->assertSame(['q9', 'q10'], array_slice(array_column($questions, 'id'), 8), 'the free ids are reused');
+        $warning = $this->done_reason(request::STEP_QUESTIONS, 's1')['warnings'][0];
+        $this->assertSame('minItems', $warning['keyword']);
+        $this->assertSame(2, $warning['added']);
+
+        $fills = array_values(array_filter(
+            $this->connector->requests(request::STEP_QUESTIONS),
+            fn(request $request) => str_contains($this->sent($request), 'questions_needed'),
+        ));
+        $this->assertCount(1, $fills);
+        $this->assertStringContainsString('"questions_needed": 2', $this->sent($fills[0]));
+        $this->assertStringContainsString('"objective": "s1.o2"', $this->sent($fills[0]));
+        $this->assertStringNotContainsString('"objective": "s1.o1"', $this->sent($fills[0]));
+    }
+
+    /**
+     * When the call for the missing questions fails, the shortfall is repaired as it was before.
+     */
+    public function test_a_failed_fill_falls_back_to_repair(): void {
+        $whole = $this->quiz_fixture('s1');
+        $short = $whole;
+        $short['quiz']['content']['questions'] = array_slice($whole['quiz']['content']['questions'], 0, 8);
+        $this->queue_run(null, [
+            $short,
+            new connector_exception(connector_exception::HTTP_ERROR, 500),
+        ]);
+        $this->connector->push(request::STEP_REPAIR, $whole);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR));
+    }
+
+    /**
+     * Returns the position of the link activity in the section fixture of s1.
+     *
+     * @param array $section The section answer.
+     * @return int
+     */
+    private function url_index(array $section): int {
+        foreach ($section['activities'] as $index => $activity) {
+            if ($activity['type'] === 'url') {
+                return $index;
+            }
+        }
+        $this->fail('the s1 fixture has no link activity');
+    }
+
+    /**
+     * A link to an address that is in no source is dropped, and the rest of the section is kept.
+     */
+    public function test_a_link_that_is_not_in_the_sources_is_dropped(): void {
+        $section = $this->section_fixture('s1');
+        $section['activities'][$this->url_index($section)]['content']['externalurl'] = 'https://invented.example/page';
+        $this->queue_run($section);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $this->assertStringNotContainsString('invented.example', json_encode($outcome->blueprint));
+        $warning = $this->done_reason(request::STEP_SECTIONS, 's1')['warnings'][0];
+        $this->assertSame('url_not_in_sources', $warning['keyword']);
+        $this->assertSame(1, $warning['removed']);
+    }
+
+    /**
+     * A key the model misnamed is not deleted: the repair is told which key is missing and sees the
+     * answer as it was written.
+     */
+    public function test_a_misnamed_key_goes_to_repair_as_written(): void {
+        $section = $this->section_fixture('s1');
+        $index = $this->url_index($section);
+        $fixed = $section;
+        $section['activities'][$index]['content'] = ['url' => 'https://ro.wikipedia.org/wiki/Energie_regenerabil%C4%83'];
+        $this->queue_run($section);
+        $this->connector->push(request::STEP_REPAIR, $fixed);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR));
+        $repair = $this->sent($this->connector->requests(request::STEP_REPAIR)[0]);
+        $this->assertStringContainsString('The required properties (externalurl) are missing', $repair);
+        $this->assertStringContainsString('"url": "https:', $repair, 'the repair sees the key as it was written');
+    }
+
+    /**
+     * The first section goes alone, so that it puts the shared prefix in the provider's cache, and
+     * the others follow together; activities and questions need no such first call.
+     */
+    public function test_the_first_section_goes_alone_to_warm_the_cache(): void {
+        $orchestrator = new class ($this->context()) extends orchestrator {
+            /** @var int[][] Size of each batch sent, per step. */
+            public array $batches = [];
+
+            #[\Override]
+            protected function send(parallel_executor $executor, array $requests): array {
+                $this->batches[reset($requests)->step][] = count($requests);
+                return parent::send($executor, $requests);
+            }
+        };
+
+        $orchestrator->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([1, 3], $orchestrator->batches[request::STEP_SECTIONS]);
+        $this->assertSame([4], $orchestrator->batches[request::STEP_ACTIVITIES]);
+        $this->assertSame([3], $orchestrator->batches[request::STEP_QUESTIONS]);
+    }
+
+    /**
+     * Reads the reason stored on the step row of a node that finished with a warning.
+     *
+     * @param string $step Pipeline step.
+     * @param string $nodekey Node key.
+     * @return array The decoded reason.
+     */
+    private function done_reason(string $step, string $nodekey): array {
+        global $DB;
+
+        $row = $DB->get_record('local_aicb_step', ['jobid' => $this->jobid, 'step' => $step, 'nodekey' => $nodekey]);
+        $this->assertSame('done', $row->status);
+        $reason = failure_reason::decode($row->error);
+        $this->assertNotNull($reason, 'the step row holds the warnings');
+        return $reason;
     }
 
     /**

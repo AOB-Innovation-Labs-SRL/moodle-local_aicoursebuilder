@@ -17,6 +17,7 @@
 namespace local_aicoursebuilder\pipeline;
 
 use local_aicoursebuilder\ai\request;
+use local_aicoursebuilder\blueprint\validation_error;
 
 /**
  * Step 3: writes the teaching material of one section, one sub-call per section.
@@ -77,6 +78,60 @@ class step_sections extends step {
      */
     protected function shared_prefix(array $input): ?string {
         return $this->render_shared_prefix($input);
+    }
+
+    /**
+     * Drops the link activities whose address is not in the sources.
+     *
+     * The prompt forbids a URL that is not written in the sources, and the validator rejects one,
+     * but a model writes the address of a real page it remembers and repeats it when asked to
+     * repair. A link nobody can verify is not worth the section: it is dropped, the way a link
+     * the teacher did not give would be, and the section keeps its other activities. When the link
+     * was the only activity there is nothing to keep, and the answer goes to the validator as it is.
+     *
+     * @param array $output The decoded answer.
+     * @param array $input Step input.
+     * @param string $nodekey Section id.
+     * @param spend $spend Running total of what this node has cost.
+     * @return array The answer without those activities.
+     */
+    protected function normalize(array $output, array $input, string $nodekey, spend $spend): array {
+        $activities = $output['activities'] ?? null;
+        if (!is_array($activities) || !array_is_list($activities) || $this->context->sourcetexts === []) {
+            return $output;
+        }
+        $kept = array_values(array_filter($activities, fn($activity) => !$this->is_unsourced_link($activity)));
+        if ($kept === [] || count($kept) === count($activities)) {
+            return $output;
+        }
+        $this->warnings[] = [
+            'path' => '/activities',
+            'keyword' => validation_error::CODE_URL_NOT_IN_SOURCES,
+            'removed' => count($activities) - count($kept),
+        ];
+        $output['activities'] = $kept;
+        return $output;
+    }
+
+    /**
+     * Tells whether an activity is a link to an address that no source contains.
+     *
+     * @param mixed $activity One activity of the answer.
+     * @return bool
+     */
+    protected function is_unsourced_link(mixed $activity): bool {
+        $url = is_array($activity) && ($activity['type'] ?? null) === 'url'
+            ? ($activity['content']['externalurl'] ?? null)
+            : null;
+        if (!is_string($url)) {
+            return false;
+        }
+        foreach ($this->context->sourcetexts as $text) {
+            if (str_contains($text, $url)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

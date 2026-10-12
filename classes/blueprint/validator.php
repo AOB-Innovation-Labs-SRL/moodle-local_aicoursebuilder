@@ -114,17 +114,49 @@ class validator {
             return [];
         }
         $formatter = new \Opis\JsonSchema\Errors\ErrorFormatter();
+        // Next to the message the formatter is asked for the keyword that failed and the keys it
+        // rejected, so nobody downstream has to read them back out of the English message.
+        $describe = static fn(\Opis\JsonSchema\Errors\ValidationError $error) => [
+            'message' => $formatter->formatErrorMessage($error) . self::allowed_values($error),
+            'keyword' => $error->keyword(),
+            'keys' => $error->keyword() === validation_error::KEYWORD_ADDITIONAL_PROPERTIES
+                ? array_map('strval', (array) ($error->args()['properties'] ?? []))
+                : [],
+        ];
         $errors = [];
-        foreach ($formatter->formatKeyed($result->error()) as $path => $messages) {
-            foreach ((array) $messages as $message) {
+        foreach ($formatter->formatKeyed($result->error(), $describe) as $path => $found) {
+            foreach ($found as $one) {
                 $errors[] = new validation_error(
                     $path === '/' ? '' : $path,
                     validation_error::CODE_SCHEMA,
-                    $message,
+                    $one['message'],
+                    $one['keyword'],
+                    $one['keys'],
                 );
             }
         }
         return $errors;
+    }
+
+    /**
+     * Returns the values an enum accepts, as a sentence for the repair prompt.
+     *
+     * The schema library says only that the value is not one of the enum, which gives a model that
+     * repairs the answer nothing to correct it with; it keeps writing the same wrong word.
+     *
+     * @param \Opis\JsonSchema\Errors\ValidationError $error The schema error.
+     * @return string The sentence, starting with a full stop, empty for any other error.
+     */
+    protected static function allowed_values(\Opis\JsonSchema\Errors\ValidationError $error): string {
+        if ($error->keyword() !== 'enum') {
+            return '';
+        }
+        $data = $error->schema()->info()->data();
+        if (!is_object($data) || !isset($data->enum) || !is_array($data->enum)) {
+            return '';
+        }
+        $values = array_map(fn($value) => json_encode($value, JSON_UNESCAPED_UNICODE), $data->enum);
+        return '. Allowed values: ' . implode(', ', $values) . '.';
     }
 
     /**

@@ -427,6 +427,28 @@ final class validator_test extends \basic_testcase {
     }
 
     /**
+     * A value outside an enum is reported with the values the enum accepts, and an extra key with its
+     * keyword and its name, so that neither a repair nor the stored reason has to read the message.
+     */
+    public function test_enum_and_extra_key_errors_carry_what_is_needed_to_fix_them(): void {
+        $blueprint = $this->golden;
+        $blueprint['sections'][0]['activities'][0]['completion'] = ['mode' => 'automatic'];
+        $errors = $this->validator->validate($blueprint, $this->sourcetexts);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame('enum', $errors[0]->keyword);
+        $this->assertStringContainsString('Allowed values: "none", "manual", "auto"', $errors[0]->message);
+
+        $blueprint = $this->golden;
+        $blueprint['sections'][0]['activities'][0]['content']['stray'] = 1;
+        $errors = $this->validator->validate($blueprint, $this->sourcetexts);
+
+        $this->assertCount(1, $errors);
+        $this->assertSame(validation_error::KEYWORD_ADDITIONAL_PROPERTIES, $errors[0]->keyword);
+        $this->assertSame(['stray'], $errors[0]->keys);
+    }
+
+    /**
      * An error carries the path, the code and the message, and a list of them encodes for a prompt.
      */
     public function test_errors_encode_for_the_repair_prompt(): void {

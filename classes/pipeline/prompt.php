@@ -34,12 +34,12 @@ namespace local_aicoursebuilder\pipeline;
  */
 class prompt {
     /** @var string Version of the prompts this release ships. */
-    public const VERSION = 'v2';
+    public const VERSION = 'v3';
 
     /** @var string[] Marker words a value must never be able to write at the start of a line. */
     protected const MARKERS = [
         'REQUEST', 'SOURCES', 'BRIEF', 'OUTLINE', 'SECTION', 'ERRORS', 'DOCUMENT',
-        'CHUNKS', 'ACTIVITIES', 'BLUEPRINT', 'INSTRUCTIONS', 'REQUIRED_IDS', 'TARGET_ID',
+        'CHUNKS', 'ACTIVITIES', 'BLUEPRINT', 'INSTRUCTIONS', 'REQUIRED_IDS', 'TARGET_ID', 'OBJECTIVES', 'MISSING',
     ];
 
     /** @var string Name of the prompt, such as brief, outline, sections or repair. */

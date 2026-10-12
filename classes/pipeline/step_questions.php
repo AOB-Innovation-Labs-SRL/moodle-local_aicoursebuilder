@@ -16,6 +16,7 @@
 
 namespace local_aicoursebuilder\pipeline;
 
+use local_aicoursebuilder\ai\connector_exception;
 use local_aicoursebuilder\ai\request;
 use local_aicoursebuilder\blueprint\validation_error;
 
@@ -100,6 +101,10 @@ class step_questions extends step {
             'section_id' => $nodekey,
             'quiz_id' => $nodekey . '.quiz1',
             'section' => $input['section'] ?? [],
+            'objectives' => array_map(
+                fn($objective) => ['id' => $objective['id'] ?? '', 'text' => $objective['text'] ?? ''],
+                $objectives,
+            ),
             'chunks' => $input['chunks'] ?? [],
             'questions_min' => $minimum,
             'questions_max' => $maximum,
@@ -166,6 +171,199 @@ class step_questions extends step {
             }
         }
         return $chunks;
+    }
+
+    /**
+     * Brings the number of questions per objective into range before the answer is validated.
+     *
+     * Over the maximum, the first questions of the objective are kept and the rest dropped. Under the
+     * minimum, one call asks for the missing questions only, so nothing the model already wrote
+     * right is rewritten (a full repair rewrites the whole quiz and does not fix the count). The
+     * validator keeps its minimum: whatever is still short after this is reported as before.
+     *
+     * @param array $output The decoded quiz answer.
+     * @param array $input Step input.
+     * @param string $nodekey Section id.
+     * @param spend $spend Running total of what this node has cost.
+     * @return array The answer with the counts settled where that was possible.
+     */
+    protected function normalize(array $output, array $input, string $nodekey, spend $spend): array {
+        $questions = $output['quiz']['content']['questions'] ?? null;
+        $objectives = array_column($input['section']['objectives'] ?? [], 'id');
+        if (!is_array($questions) || !array_is_list($questions) || $objectives === []) {
+            return $output;
+        }
+        $minimum = $input['questions_min'] ?? self::limits()[0];
+        $maximum = $input['questions_max'] ?? self::limits()[1];
+
+        $written = count($questions);
+        $questions = self::keep_first($questions, $objectives, $maximum);
+        if (count($questions) < $written) {
+            $this->warnings[] = [
+                'path' => '/quiz/content/questions',
+                'keyword' => 'maxItems',
+                'removed' => $written - count($questions),
+            ];
+        }
+        $missing = self::missing($questions, $objectives, $minimum);
+        if ($missing !== []) {
+            $added = $this->fetch_missing($questions, $missing, $input, $nodekey, $spend);
+            if ($added !== []) {
+                $this->warnings[] = [
+                    'path' => '/quiz/content/questions',
+                    'keyword' => 'minItems',
+                    'removed' => 0,
+                    'added' => count($added),
+                ];
+            }
+            $questions = array_merge($questions, $added);
+        }
+        $output['quiz']['content']['questions'] = $questions;
+        return $output;
+    }
+
+    /**
+     * Drops the questions of an objective beyond the first $maximum.
+     *
+     * @param array $questions The questions, in the order the model wrote them.
+     * @param string[] $objectives Objective ids of the section.
+     * @param int $maximum Most questions kept per objective.
+     * @return array The questions that stay, in their order.
+     */
+    public static function keep_first(array $questions, array $objectives, int $maximum): array {
+        $seen = array_fill_keys($objectives, 0);
+        return array_values(array_filter($questions, function ($question) use (&$seen, $maximum) {
+            $ref = is_array($question) ? ($question['objective_ref'] ?? null) : null;
+            if (!is_string($ref) || !array_key_exists($ref, $seen)) {
+                return true;
+            }
+            return ++$seen[$ref] <= $maximum;
+        }));
+    }
+
+    /**
+     * Returns how many questions each objective is short of the minimum.
+     *
+     * @param array $questions The questions.
+     * @param string[] $objectives Objective ids of the section.
+     * @param int $minimum Fewest questions an objective needs.
+     * @return int[] Objective id => questions missing, only for objectives that are short.
+     */
+    public static function missing(array $questions, array $objectives, int $minimum): array {
+        $counts = array_fill_keys($objectives, 0);
+        foreach ($questions as $question) {
+            $ref = is_array($question) ? ($question['objective_ref'] ?? null) : null;
+            if (is_string($ref) && array_key_exists($ref, $counts)) {
+                $counts[$ref]++;
+            }
+        }
+        $short = [];
+        foreach ($counts as $id => $count) {
+            if ($count < $minimum) {
+                $short[$id] = $minimum - $count;
+            }
+        }
+        return $short;
+    }
+
+    /**
+     * Asks for the questions an objective is short of, and numbers them from the section's free ids.
+     *
+     * A call that fails, or an answer that is no use, leaves the quiz as it was: the validator then
+     * reports the shortfall and the repair path goes on from there, as it did before this call existed.
+     *
+     * @param array $questions The questions the quiz has.
+     * @param int[] $missing Objective id => questions missing.
+     * @param array $input Step input.
+     * @param string $nodekey Section id.
+     * @param spend $spend Running total of what this node has cost.
+     * @return array The new questions, at most the number asked for per objective.
+     * @throws \local_aicoursebuilder\ai\budget_exceeded_exception When a limit stops the call.
+     */
+    protected function fetch_missing(array $questions, array $missing, array $input, string $nodekey, spend $spend): array {
+        $free = self::free_ids($questions, $input);
+        if ($free === []) {
+            return [];
+        }
+        try {
+            $result = $this->call($this->fill_request($questions, $missing, $input, $nodekey), $spend);
+        } catch (connector_exception $e) {
+            return [];
+        }
+        $answer = json_repair::decode($result->content);
+        $fresh = $answer['quiz']['content']['questions'] ?? null;
+        if (!is_array($fresh) || !array_is_list($fresh)) {
+            return [];
+        }
+
+        $added = [];
+        foreach ($fresh as $question) {
+            $ref = is_array($question) ? ($question['objective_ref'] ?? null) : null;
+            if (!is_string($ref) || ($missing[$ref] ?? 0) < 1 || $free === []) {
+                continue;
+            }
+            $question['id'] = array_shift($free);
+            $added[] = $question;
+            $missing[$ref]--;
+        }
+        return $added;
+    }
+
+    /**
+     * Returns the question ids of the section's reserved range that no question uses yet.
+     *
+     * @param array $questions The questions the quiz has.
+     * @param array $input Step input.
+     * @return string[] Ids, lowest first.
+     */
+    protected static function free_ids(array $questions, array $input): array {
+        $first = (int) ($input['question_first'] ?? 1);
+        $last = $first + count($input['section']['objectives'] ?? []) * ($input['questions_max'] ?? self::limits()[1]) - 1;
+        $used = [];
+        foreach ($questions as $question) {
+            if (is_array($question) && isset($question['id'])) {
+                $used[(string) $question['id']] = true;
+            }
+        }
+        $free = [];
+        for ($number = $first; $number <= $last; $number++) {
+            if (!isset($used['q' . $number])) {
+                $free[] = 'q' . $number;
+            }
+        }
+        return $free;
+    }
+
+    /**
+     * Returns the request that asks for the questions an objective is short of.
+     *
+     * It opens with the same shared prefix as every other call of the job, so the provider serves
+     * the brief, outline and sources from its cache.
+     *
+     * @param array $questions The questions the quiz has.
+     * @param int[] $missing Objective id => questions missing.
+     * @param array $input Step input.
+     * @param string $nodekey Section id.
+     * @return request
+     */
+    protected function fill_request(array $questions, array $missing, array $input, string $nodekey): request {
+        $names = [];
+        foreach ($questions as $question) {
+            if (is_array($question) && isset($question['objective_ref'], $question['name'])) {
+                $names[$question['objective_ref']][] = $question['name'];
+            }
+        }
+        $wanted = [];
+        foreach ($missing as $id => $count) {
+            $wanted[] = ['objective' => $id, 'questions_needed' => $count, 'already_written' => $names[$id] ?? []];
+        }
+        $values = $this->prompt_values($input, $nodekey) + ['missing' => $wanted];
+        $prompt = (new prompt('questions_fill', $this->context->promptversion, $this->context->promptdir))
+            ->render($values);
+        $prefix = $this->shared_prefix($input);
+        return $prefix !== null
+            ? $this->build_request($prefix, $prompt)
+            : $this->build_request($prompt, $this->user_message($input, $nodekey));
     }
 
     /**

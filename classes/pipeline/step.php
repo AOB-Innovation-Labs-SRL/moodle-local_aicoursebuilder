@@ -43,11 +43,17 @@ abstract class step {
     /** @var int Repair calls allowed per node, after the local repair has been tried. */
     public const MAX_REPAIR_CALLS = 2;
 
+    /** @var int Most times extra keys are deleted and the answer validated again, one object per round. */
+    public const MAX_CLEAN_ROUNDS = 50;
+
     /** @var string Prompt that opens every node of the sections, activities and questions steps. */
     public const PREFIX_PROMPT = 'prefix';
 
     /** @var int Output limit the last repair call of this node was cut off at, 0 when it was not. */
     protected int $repairtruncatedat = 0;
+
+    /** @var array[] What this node had fixed locally, without a model call: path, keyword and what was removed. */
+    protected array $warnings = [];
 
     /** @var pipeline_context The job this step runs for. */
     protected pipeline_context $context;
@@ -256,8 +262,12 @@ abstract class step {
      * @throws budget_exceeded_exception When a limit stops a repair call before it is sent.
      */
     protected function finish_node(string $content, array $input, string $nodekey, spend $spend): step_result {
+        $this->warnings = [];
         $output = json_repair::decode($content);
-        $errors = $this->validate($output, $input, $nodekey);
+        if ($output !== null) {
+            $output = $this->normalize($output, $input, $nodekey, $spend);
+        }
+        $errors = $this->validate_cleaned($output, $input, $nodekey);
 
         $repairs = 0;
         $this->repairtruncatedat = 0;
@@ -268,8 +278,8 @@ abstract class step {
             if ($repaired === null) {
                 break;
             }
-            $output = $repaired;
-            $errors = $this->validate($output, $input, $nodekey);
+            $output = $this->normalize($repaired, $input, $nodekey, $spend);
+            $errors = $this->validate_cleaned($output, $input, $nodekey);
         }
 
         if ($errors === []) {
@@ -280,10 +290,19 @@ abstract class step {
                 tokenscached: $spend->tokenscached,
                 cost: $spend->cost,
                 calls: $spend->calls,
+                error: $this->warnings === []
+                    ? ''
+                    : failure_reason::from_warnings($this->warnings, $repairs, 1 + $repairs),
             );
         }
 
-        $reason = failure_reason::from_validation($errors, $repairs, 1 + $repairs, $this->repairtruncatedat);
+        $reason = failure_reason::from_validation(
+            $errors,
+            $repairs,
+            1 + $repairs,
+            $this->repairtruncatedat,
+            $this->warnings,
+        );
         $placeholder = $this->placeholder($nodekey, $input);
         if ($placeholder === null) {
             return step_result::failed(
@@ -303,6 +322,76 @@ abstract class step {
             calls: $spend->calls,
             error: $reason,
         );
+    }
+
+    /**
+     * Puts a decoded answer in the shape the step needs before it is validated, without asking the
+     * model to rewrite it.
+     *
+     * Runs on the first answer and again on every repaired one. A step overrides it to settle what
+     * is cheaper to settle locally than with a repair call; the default leaves the answer alone.
+     *
+     * @param array $output The decoded answer.
+     * @param array $input Everything the step needs.
+     * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @param spend $spend Running total of what this node has cost, for a step that makes a call here.
+     * @return array The answer to validate.
+     * @throws budget_exceeded_exception When a limit stops a call before it is sent.
+     */
+    protected function normalize(array $output, array $input, string $nodekey, spend $spend): array {
+        return $output;
+    }
+
+    /**
+     * Validates an answer, first deleting the keys the schema does not allow when they are all that
+     * is wrong with it.
+     *
+     * An extra key is not worth a repair call: deleting it costs nothing and cannot damage what the
+     * model got right. The answer is validated again after each deletion, since the validator reports
+     * one object at a time, and a node whose only fault was extra keys goes on with no repair. When
+     * the answer is still invalid afterwards, the deletions are undone and the repair sees the answer
+     * as the model wrote it.
+     *
+     * @param array|null $output The decoded answer, cleaned in place; null when it was not JSON.
+     * @param array $input Everything the step needs.
+     * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @return validation_error[]
+     */
+    protected function validate_cleaned(?array &$output, array $input, string $nodekey): array {
+        $errors = $this->validate($output, $input, $nodekey);
+        if ($output === null || !extra_keys::are_all_extra($errors)) {
+            return $errors;
+        }
+
+        $original = $output;
+        $originalerrors = $errors;
+        $warned = count($this->warnings);
+        for ($round = 0; $round < self::MAX_CLEAN_ROUNDS && extra_keys::are_all_extra($errors); $round++) {
+            [$stripped, $removed] = extra_keys::strip($output, $errors);
+            if ($removed === 0) {
+                break;
+            }
+            foreach ($errors as $error) {
+                $this->warnings[] = [
+                    'path' => $error->path,
+                    'keyword' => $error->keyword,
+                    'removed' => $error->keys,
+                ];
+            }
+            $output = $stripped;
+            $errors = $this->validate($output, $input, $nodekey);
+        }
+
+        if ($errors !== []) {
+            // Deleting the keys did not settle the answer. A key the model misnamed (a `url` where the
+            // schema has `externalurl`) is the case: once it is gone the object is empty and the error
+            // that is left no longer says what the model should write. The repair gets the answer as
+            // the model wrote it, with the errors that name the keys.
+            $output = $original;
+            $errors = $originalerrors;
+            $this->warnings = array_slice($this->warnings, 0, $warned);
+        }
+        return $errors;
     }
 
     /**

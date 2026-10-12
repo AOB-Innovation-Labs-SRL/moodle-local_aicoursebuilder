@@ -23,7 +23,8 @@ use local_aicoursebuilder\blueprint\validation_error;
  * Why a node was left for manual completion, as stored in local_aicb_step.error.
  *
  * The reason is a small JSON object: the type of failure, the HTTP status when there was one, the
- * path and code of the first validator errors, and how many calls the node took. It never carries
+ * path, code, schema keyword and rejected key names of the first validator errors, and how many
+ * calls the node took. It never carries
  * a validator message or anything the model wrote, since either can quote the sources or the
  * teacher's brief, and the column is shown to whoever can see the job.
  *
@@ -41,6 +42,9 @@ final class failure_reason {
     /** @var string The answer stopped at the output token limit, so its JSON was cut off. */
     public const TYPE_TRUNCATED = 'truncated';
 
+    /** @var string The node validated, after the pipeline fixed something in it without a model call. */
+    public const TYPE_CLEANED = 'cleaned';
+
     /** @var string The provider answered with an HTTP error or could not be reached. */
     public const TYPE_HTTP = 'http';
 
@@ -57,15 +61,30 @@ final class failure_reason {
      * @param int $repairs Repair calls made.
      * @param int $attempts Calls made in all, the first one included.
      * @param int $truncatedat Output limit the last repair was cut off at, 0 when it was not.
+     * @param array[] $warnings What the pipeline fixed locally on the way, see from_warnings().
      * @return string JSON reason.
      */
-    public static function from_validation(array $errors, int $repairs, int $attempts, int $truncatedat = 0): string {
+    public static function from_validation(
+        array $errors,
+        int $repairs,
+        int $attempts,
+        int $truncatedat = 0,
+        array $warnings = [],
+    ): string {
         $kept = [];
         foreach (array_slice(array_values($errors), 0, self::MAX_ERRORS) as $error) {
-            $kept[] = ['path' => $error->path, 'code' => $error->code];
+            $entry = ['path' => $error->path, 'code' => $error->code];
+            if ($error->keyword !== '') {
+                $entry['keyword'] = $error->keyword;
+            }
+            $keys = self::safe_keys($error->keys);
+            if ($keys !== []) {
+                $entry['keys'] = $keys;
+            }
+            $kept[] = $entry;
         }
         $type = $repairs > 0 ? self::TYPE_REPAIR_EXHAUSTED : self::TYPE_VALIDATION;
-        return self::encode([
+        $reason = [
             'type' => $truncatedat > 0 ? self::TYPE_TRUNCATED : $type,
             'httpcode' => 0,
             'maxtokens' => $truncatedat,
@@ -73,6 +92,34 @@ final class failure_reason {
             'errorcount' => count($errors),
             'repairs' => $repairs,
             'attempts' => $attempts,
+        ];
+        if ($warnings !== []) {
+            $reason['warnings'] = self::safe_warnings($warnings);
+        }
+        return self::encode($reason);
+    }
+
+    /**
+     * Describes a node that validated after the pipeline fixed something in it without a model call.
+     *
+     * Each warning is a fix the teacher may want to know about: a key the schema does not allow that
+     * was deleted, or questions over the maximum that were dropped. It names the path, the schema
+     * keyword and what was removed by key name or count, never a value.
+     *
+     * @param array[] $warnings Fixes made: ['path' => string, 'keyword' => string, 'removed' => string[]|int].
+     * @param int $repairs Repair calls made.
+     * @param int $attempts Calls made in all, the first one included.
+     * @return string JSON reason.
+     */
+    public static function from_warnings(array $warnings, int $repairs, int $attempts): string {
+        return self::encode([
+            'type' => self::TYPE_CLEANED,
+            'httpcode' => 0,
+            'errors' => [],
+            'errorcount' => 0,
+            'repairs' => $repairs,
+            'attempts' => $attempts,
+            'warnings' => self::safe_warnings($warnings),
         ]);
     }
 
@@ -132,6 +179,40 @@ final class failure_reason {
         }
         $reason = json_decode($stored, true);
         return is_array($reason) && isset($reason['type']) ? $reason : null;
+    }
+
+    /**
+     * Returns the rejected key names that are safe to store.
+     *
+     * A key name is something the model wrote, so only a plain identifier is kept: a "key" that is
+     * really a sentence quoting the sources or the brief is dropped, never stored.
+     *
+     * @param string[] $keys Key names the schema rejected.
+     * @return string[]
+     */
+    protected static function safe_keys(array $keys): array {
+        $safe = array_filter($keys, fn($key) => preg_match('/^[A-Za-z0-9_.-]{1,40}$/', (string) $key) === 1);
+        return array_slice(array_values($safe), 0, self::MAX_ERRORS);
+    }
+
+    /**
+     * Keeps the first warnings, with rejected key names filtered like those of an error.
+     *
+     * @param array[] $warnings Fixes made.
+     * @return array[]
+     */
+    protected static function safe_warnings(array $warnings): array {
+        $kept = [];
+        foreach (array_slice(array_values($warnings), 0, self::MAX_ERRORS) as $warning) {
+            $removed = $warning['removed'] ?? [];
+            $kept[] = [
+                'path' => (string) ($warning['path'] ?? ''),
+                'keyword' => (string) ($warning['keyword'] ?? ''),
+                'removed' => is_array($removed) ? self::safe_keys($removed) : (int) $removed,
+                'added' => (int) ($warning['added'] ?? 0),
+            ];
+        }
+        return $kept;
     }
 
     /**
