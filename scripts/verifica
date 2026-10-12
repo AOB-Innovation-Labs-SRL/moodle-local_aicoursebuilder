@@ -1,3 +1,4 @@
+        moodle-plugin-ci $cmd || rc=1
 #!/usr/bin/env bash
 # Single verification entry point, used locally and by GitHub Actions (.github/workflows/ci.yml).
 #
@@ -92,15 +93,33 @@ skip() {
 ci_static() {
     # The static checks share one moodle-plugin-ci install and do not use the database; they run one after the
     # other so the cores stay for PHPUnit and Behat. Every one runs even if an earlier one failed.
+    #
+    # phpdoc goes first, and says when it is done: it puts MoodleCheck in the local/ directory of the Moodle
+    # site, and a plugin scan made while it is half there (PHPUnit runs at the same time) fails with
+    # "failed to open stream: local/moodlecheck/version.php", which --fail-on-warning turns into a failed run.
     local rc=0 cmd
-    for cmd in "phplint" "phpcs --max-warnings 0" "phpdoc --max-warnings 0" "savepoints" "mustache" \
+    echo "=== moodle-plugin-ci phpdoc --max-warnings 0"
+    moodle-plugin-ci phpdoc --max-warnings 0 || rc=1
+    touch "$logdir/phpdoc.done"
+    for cmd in "phplint" "phpcs --max-warnings 0" "savepoints" "mustache" \
         "grunt --max-lint-warnings 0"; do
         # No ::group:: here: GitHub does not nest groups, and this log is shown inside one.
         echo "=== moodle-plugin-ci $cmd"
         # shellcheck disable=SC2086
         moodle-plugin-ci $cmd || rc=1
+        touch "$logdir/phpdoc.done"
     done
     return $rc
+}
+
+# ci_phpunit: PHPUnit, started once phpdoc has finished with the local/ directory of the Moodle site.
+ci_phpunit() {
+    local waited=0
+    while [ ! -e "$logdir/phpdoc.done" ] && [ "$waited" -lt 600 ]; do
+        sleep 1
+        waited=$((waited + 1))
+    done
+    moodle-plugin-ci phpunit --fail-on-warning
 }
 
 run_ci() {
@@ -109,7 +128,7 @@ run_ci() {
         exit 2
     fi
     start static ci_static
-    start phpunit moodle-plugin-ci phpunit --fail-on-warning
+    start phpunit ci_phpunit
     [ "$level" = "rapid" ] && return
     # Behat starts a browser and a second Moodle site, the slowest step: only when the plugin has a feature file.
     if compgen -G "$plugin_dir/tests/behat/*.feature" >/dev/null; then
