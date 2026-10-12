@@ -59,6 +59,7 @@ class estimate_cost extends job_api {
             'withinbudget' => $estimate['withinbudget'],
             'joblimit' => $estimate['joblimit'],
             'userremaining' => $estimate['userremaining'],
+            'useralert' => $estimate['useralert'],
         ];
     }
 
@@ -76,6 +77,7 @@ class estimate_cost extends job_api {
             'withinbudget' => new external_value(PARAM_BOOL, 'Whether the job fits the job and monthly limits'),
             'joblimit' => new external_value(PARAM_FLOAT, 'Per-job limit, 0 when unlimited'),
             'userremaining' => new external_value(PARAM_FLOAT, 'Monthly budget left for the user, -1 when unlimited'),
+            'useralert' => new external_value(PARAM_BOOL, 'Whether the user has used the alert percentage of the monthly limit'),
         ]);
     }
 }

@@ -48,14 +48,19 @@ class budget_guard {
     /** @var \core\lock\lock_factory Lock factory used to serialise reservations per row. */
     protected \core\lock\lock_factory $lockfactory;
 
+    /** @var budget_notifier Tells people when spending reaches the alert threshold. */
+    protected budget_notifier $notifier;
+
     /**
      * Creates the guard.
      *
      * @param \core\lock\lock_factory|null $lockfactory Lock factory, null for the site's configured
      *                                                   one (\core\lock\lock_config::get_lock_factory()).
+     * @param budget_notifier|null $notifier Notifier of the alert threshold, null for the default one.
      */
-    public function __construct(?\core\lock\lock_factory $lockfactory = null) {
+    public function __construct(?\core\lock\lock_factory $lockfactory = null, ?budget_notifier $notifier = null) {
         $this->lockfactory = $lockfactory ?? \core\lock\lock_config::get_lock_factory(self::LOCK_TYPE);
+        $this->notifier = $notifier ?? new budget_notifier();
     }
 
     /**
@@ -247,7 +252,11 @@ class budget_guard {
     }
 
     /**
-     * Marks alertsent when a row has reached the alert threshold; never sends anything.
+     * Tells about a row that has reached the alert threshold, once, and re-arms the alert when it falls below it.
+     *
+     * alertsent keeps the alert from being sent again for every call after the threshold. It is cleared when the
+     * spending is back under the threshold, which is what raising the limit does, so that the threshold of the new
+     * limit is told as well.
      *
      * @param int $userid User id, or SITE_USERID for the site row.
      * @param string $period Month, YYYY-MM.
@@ -255,16 +264,17 @@ class budget_guard {
     protected function maybe_mark_alert(int $userid, string $period): void {
         global $DB;
         $row = $DB->get_record('local_aicb_budget', ['userid' => $userid, 'period' => $period], '*', MUST_EXIST);
-        if ($row->alertsent) {
-            return;
-        }
         $limit = $row->limitusd !== null ? (float) $row->limitusd : $this->default_limit($userid);
-        if ($limit <= 0) {
+        $percent = (float) get_config('local_aicoursebuilder', 'alertpercent');
+        if ($limit <= 0 || $percent <= 0) {
             return;
         }
-        $percent = (float) get_config('local_aicoursebuilder', 'alertpercent');
-        if (((float) $row->spentusd / $limit) * 100 >= $percent) {
+        $reached = ((float) $row->spentusd / $limit) * 100 >= $percent;
+        if ($reached && !$row->alertsent) {
             $DB->set_field('local_aicb_budget', 'alertsent', 1, ['id' => $row->id]);
+            $this->notifier->alert($userid, $period, (float) $row->spentusd, $limit);
+        } else if (!$reached && $row->alertsent) {
+            $DB->set_field('local_aicb_budget', 'alertsent', 0, ['id' => $row->id]);
         }
     }
 

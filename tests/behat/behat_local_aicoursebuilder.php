@@ -36,6 +36,10 @@ class behat_local_aicoursebuilder extends behat_base {
         switch (strtolower($page)) {
             case 'wizard':
                 return new moodle_url('/local/aicoursebuilder/wizard.php');
+            case 'usage':
+                return new moodle_url('/local/aicoursebuilder/usage.php');
+            case 'index':
+                return new moodle_url('/local/aicoursebuilder/index.php');
             default:
                 throw new Exception('Unrecognised local_aicoursebuilder page "' . $page . '".');
         }
@@ -56,6 +60,7 @@ class behat_local_aicoursebuilder extends behat_base {
                 $courseid = $DB->get_field('course', 'id', ['shortname' => $identifier], MUST_EXIST);
                 return new moodle_url('/local/aicoursebuilder/wizard.php', ['courseid' => $courseid]);
             case 'review':
+            case 'job':
                 $jobid = $DB->get_field_select(
                     'local_aicb_job',
                     'id',
@@ -63,7 +68,7 @@ class behat_local_aicoursebuilder extends behat_base {
                     ['prompt' => $identifier],
                     MUST_EXIST
                 );
-                return new moodle_url('/local/aicoursebuilder/review.php', ['id' => $jobid]);
+                return new moodle_url('/local/aicoursebuilder/' . strtolower($type) . '.php', ['id' => $jobid]);
             default:
                 throw new Exception('Unrecognised local_aicoursebuilder page type "' . $type . '".');
         }
@@ -107,6 +112,134 @@ class behat_local_aicoursebuilder extends behat_base {
             'contenthash' => hash('sha256', $content),
             'status' => 'draft',
             'usermodified' => $user->id,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+    }
+
+    /**
+     * Creates a job that a cost limit paused, and makes its owner accept the AI policy so that the job can be resumed.
+     *
+     * The job stopped in the generation, with nothing paid for yet.
+     *
+     * @Given /^"(?P<username_string>[^"]*)" has a job for "(?P<prompt_string>[^"]*)" that a cost limit paused$/
+     * @param string $username Username of the owner of the job.
+     * @param string $prompt What the teacher asked for, which names the job.
+     */
+    public function a_job_paused_by_a_cost_limit(string $username, string $prompt): void {
+        global $DB;
+
+        $user = \core_user::get_user_by_username($username, '*', null, MUST_EXIST);
+        \core_ai\manager::user_policy_accepted((int) $user->id, \context_system::instance()->id);
+        $now = time();
+        $DB->insert_record('local_aicb_job', (object) [
+            'userid' => $user->id,
+            'mode' => 'newcourse',
+            'categoryid' => \core_course_category::get_default()->id,
+            'status' => 'paused',
+            'stage' => 'generate',
+            'progress' => 0,
+            'prompt' => $prompt,
+            'language' => 'ro',
+            'error' => get_string('budgetexceeded', 'local_aicoursebuilder', (object) ['scope' => 'job', 'limit' => 2.5]),
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+    }
+
+    /**
+     * Creates a job in an existing course, owned by a user, with a status and the cost it has run up.
+     *
+     * @Given /^"(?P<user>[^"]*)" has a "(?P<status>[^"]*)" job "(?P<prompt>[^"]*)" in "(?P<course>[^"]*)" cost (?P<cost>[0-9.]+)$/
+     * @param string $user Username of the owner of the job.
+     * @param string $status The status of the job.
+     * @param string $prompt What the teacher asked for, which names the job.
+     * @param string $course Short name of the course the job is in.
+     * @param string $cost What it has cost, in USD.
+     */
+    public function a_job_in_a_course(string $user, string $status, string $prompt, string $course, string $cost): void {
+        global $DB;
+
+        $owner = \core_user::get_user_by_username($user, '*', null, MUST_EXIST);
+        $courseid = $DB->get_field('course', 'id', ['shortname' => $course], MUST_EXIST);
+        $now = time();
+        $DB->insert_record('local_aicb_job', (object) [
+            'userid' => $owner->id,
+            'mode' => 'existingcourse',
+            'courseid' => $courseid,
+            'status' => $status,
+            'stage' => 'generate',
+            'progress' => $status === 'review' ? 100 : 0,
+            'prompt' => $prompt,
+            'language' => 'ro',
+            'actualcost' => $cost,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+    }
+
+    /**
+     * Takes a user out of a course, which is how they lose what they could do there.
+     *
+     * @Given /^"(?P<username_string>[^"]*)" is no longer enrolled in "(?P<course_string>[^"]*)"$/
+     * @param string $username Username of the user.
+     * @param string $shortname Short name of the course.
+     */
+    public function a_user_is_no_longer_enrolled(string $username, string $shortname): void {
+        global $DB;
+
+        $user = \core_user::get_user_by_username($username, '*', null, MUST_EXIST);
+        $courseid = $DB->get_field('course', 'id', ['shortname' => $shortname], MUST_EXIST);
+        $instance = $DB->get_record('enrol', ['courseid' => $courseid, 'enrol' => 'manual'], '*', MUST_EXIST);
+        enrol_get_plugin('manual')->unenrol_user($instance, $user->id);
+    }
+
+    /**
+     * Records AI spending of a user in the current month: a call of a job in the log, and the budget row of the month.
+     *
+     * @Given /^"(?P<username_string>[^"]*)" has spent (?P<cost>[0-9.]+) USD on AI this month for "(?P<prompt_string>[^"]*)"$/
+     * @param string $username Username of the user who spent.
+     * @param string $cost The amount, in USD.
+     * @param string $prompt What the job was asked for, which names the job.
+     */
+    public function a_user_has_spent_on_ai(string $username, string $cost, string $prompt): void {
+        global $DB;
+
+        $user = \core_user::get_user_by_username($username, '*', null, MUST_EXIST);
+        $now = time();
+        $jobid = $DB->insert_record('local_aicb_job', (object) [
+            'userid' => $user->id,
+            'mode' => 'newcourse',
+            'categoryid' => \core_course_category::get_default()->id,
+            'status' => 'review',
+            'stage' => 'generate',
+            'progress' => 100,
+            'prompt' => $prompt,
+            'language' => 'ro',
+            'actualcost' => $cost,
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $DB->insert_record('local_aicb_ailog', (object) [
+            'userid' => $user->id,
+            'jobid' => $jobid,
+            'step' => 'sections',
+            'connector' => 'deepseek',
+            'model' => 'deepseek-flash',
+            'tokensin' => 1500000,
+            'tokensout' => 250000,
+            'tokenscached' => 900000,
+            'cost' => $cost,
+            'durationms' => 1200,
+            'status' => 'success',
+            'timecreated' => $now,
+        ]);
+        $DB->insert_record('local_aicb_budget', (object) [
+            'userid' => $user->id,
+            'period' => \local_aicoursebuilder\ai\budget_guard::current_period(),
+            'spentusd' => $cost,
+            'reservedusd' => 0,
+            'alertsent' => 0,
             'timecreated' => $now,
             'timemodified' => $now,
         ]);

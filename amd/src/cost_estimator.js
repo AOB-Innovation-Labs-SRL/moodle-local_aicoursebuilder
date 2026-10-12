@@ -42,6 +42,7 @@ export const show = async(region, jobid) => {
         joblimit: estimate.joblimit.toFixed(2),
         hasuserlimit: estimate.userremaining >= 0,
         userremaining: estimate.userremaining.toFixed(2),
+        useralert: estimate.useralert,
     });
     Templates.replaceNodeContents(region, html, js);
     return estimate;

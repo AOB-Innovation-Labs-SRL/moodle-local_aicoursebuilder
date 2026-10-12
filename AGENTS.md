@@ -1,7 +1,13 @@
 # AGENTS.md — local_aicoursebuilder
 
 Moodle local plugin (`local_aicoursebuilder`). The repo root is the plugin root.
-Targets Moodle 5.2 and 5.3 (`$plugin->supported = [502, 503]`), PHP 8.3+.
+Targets Moodle 5.2 and 5.3 (`$plugin->supported = [502, 503]`), PHP 8.3+. `$plugin->requires` is the 5.2.0 build on
+purpose, so that the plugin installs on 5.2 as well; CI tests both branches, `MOODLE_502_STABLE` and `MOODLE_503_STABLE`.
+Moodle 5.3 needs PostgreSQL 17 or MariaDB 11.4, Moodle 5.2 PostgreSQL 16 or MariaDB 10.11.
+
+The OCR programs (poppler, tesseract with `ron`, LibreOffice) are an optional dependency: the plugin installs and runs
+without them. `ocr_status::evaluate()` says what the server has; it feeds the status check of Moodle and the OCR section
+of the settings. See README.md, Requirements.
 
 ## Target structure
 
@@ -70,12 +76,22 @@ Create a directory only when it gets its first file.
 
 ## Verification before pushing
 
-- Before a push: PHPUnit and phpcs green locally.
+- After each task: `scripts/verifica stil` green (php -l and phpcs on the changed files; seconds). Do not run PHPUnit
+  after every task.
+- After a group of tasks (for example 2-3 times a day): `scripts/verifica schimbari` green (PHPUnit only on the tests
+  that use what changed since the last green run; 1-2 minutes).
+- Before opening a pull request: `scripts/verifica rapid` green (about 4 minutes), or rely on CI for it. CI is the gate
+  for `main`. Do not run the whole suite after every small change.
+- Work on your own branch and push often: CI runs on pull requests only, so a push costs nothing. A pull request is
+  opened when a group of tasks is done, not for each task of 15 minutes.
 - CI green on the pull request. CI runs on pull requests to `main` and on demand, never on a push:
   a pull request runs a reduced matrix of two combinations, which between them cover both PHP
   versions, both Moodle branches and both databases.
 - The full matrix of eight is run by hand, from the Actions tab (`workflow_dispatch`, `full=true`),
   before every Friday integration and before every release.
+- The job names of the matrix hold its values (`test (8.3, MOODLE_502_STABLE, pgsql)`), and the branch protection of
+  `main` requires status checks by name: when a value of the matrix changes, update the required checks too.
+- Deploying to the test server: `deploy.sh`, see README.md, Deployment.
 
 ## Local environment (Docker)
 

@@ -16,6 +16,7 @@
 
 namespace local_aicoursebuilder\task;
 
+use local_aicoursebuilder\ai\budget_exceeded_exception;
 use local_aicoursebuilder\ingest\chunk;
 use local_aicoursebuilder\ingest\chunker;
 use local_aicoursebuilder\ingest\digest_builder;
@@ -23,6 +24,7 @@ use local_aicoursebuilder\ingest\extractor_factory;
 use local_aicoursebuilder\ingest\ingest_exception;
 use local_aicoursebuilder\ingest\normalizer;
 use local_aicoursebuilder\ingest\source_manager;
+use local_aicoursebuilder\job_manager;
 
 /**
  * Ingests the sources of a job: extracts their text, cuts it into chunks and makes their digest (spec 3.5, 3.8).
@@ -38,6 +40,8 @@ use local_aicoursebuilder\ingest\source_manager;
  * local_aicb_step), so a repeated or resumed run does not repeat work, and does not pay for an AI call twice.
  * A source that fails is marked failed with its error and is not tried again by this task; it does not stop
  * the others. The job fails only when none of its sources is digested; otherwise the task queues generate_blueprint.
+ * A cost limit that stops a digest pauses the job instead, leaving the source as it was, so that resuming it goes on
+ * from there.
  * The job progress is the share of the phases that were done, within the ingest stage.
  *
  * @package    local_aicoursebuilder
@@ -58,10 +62,13 @@ class ingest_sources extends \core\task\adhoc_task {
     private const PHASES = 3;
 
     /** @var string[] Job statuses in which the task does nothing. */
-    private const DONE_STATUSES = ['cancelled', 'failed', 'finished'];
+    private const DONE_STATUSES = ['cancelled', 'failed', 'finished', 'paused'];
 
     /** @var \stdClass[] The source rows of the job being ingested, by id, kept up to date while the task runs. */
     private array $sources = [];
+
+    /** @var budget_exceeded_exception|null The cost limit that stopped the digest of a source, if one did. */
+    private ?budget_exceeded_exception $stoppedbybudget = null;
 
     /**
      * Creates the task of a job, ready to be queued.
@@ -109,11 +116,20 @@ class ingest_sources extends \core\task\adhoc_task {
         ]);
         $this->report($job);
 
+        $this->stoppedbybudget = null;
         foreach ($this->sources as $source) {
             $this->ingest_source($job, $source);
             gc_collect_cycles();
+            if ($this->stoppedbybudget) {
+                break;
+            }
         }
 
+        if ($this->stoppedbybudget) {
+            // The source that was being digested is left as it was, so that resuming the job picks it up again.
+            (new job_manager())->pause($job, $this->stoppedbybudget->getMessage());
+            return;
+        }
         if (!$this->fail_job_without_digest($job)) {
             // At least one source has a digest: the blueprint is generated from what there is.
             \core\task\manager::queue_adhoc_task(generate_blueprint::instance((int) $job->id, (int) $job->userid), true);
@@ -147,9 +163,11 @@ class ingest_sources extends \core\task\adhoc_task {
     /**
      * Runs a phase of a source; a failure marks the source failed with the error and stops its phases.
      *
+     * A cost limit is not a failure of the source: the source keeps its status, and the whole task stops.
+     *
      * @param \stdClass $source The local_aicb_source row, updated in place.
      * @param callable $phase The phase.
-     * @return bool False when the phase failed.
+     * @return bool False when the phase failed or a cost limit stopped it.
      */
     private function run_phase(\stdClass $source, callable $phase): bool {
         global $DB;
@@ -157,6 +175,9 @@ class ingest_sources extends \core\task\adhoc_task {
         try {
             $phase();
             return true;
+        } catch (budget_exceeded_exception $e) {
+            $this->stoppedbybudget = $e;
+            return false;
         } catch (\Throwable $e) {
             $source->status = source_manager::STATUS_FAILED;
             $source->error = $e->getMessage();

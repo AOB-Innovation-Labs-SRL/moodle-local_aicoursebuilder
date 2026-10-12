@@ -1,0 +1,432 @@
+#!/usr/bin/env bash
+# Single verification entry point, used locally and by GitHub Actions (.github/workflows/ci.yml).
+#
+#   scripts/verifica stil      after each task: php -l and phpcs on the changed files, no PHPUnit (seconds)
+#   scripts/verifica schimbari after a group of tasks: stil, plus PHPUnit on the tests the changes touch (1-2 minutes)
+#   scripts/verifica rapid     before a PR: php -l, phpcs and the whole PHPUnit suite (or leave the PR to CI)
+#   scripts/verifica complet   everything the environment can run (adds Behat locally; in CI the checks of CI)
+#
+# stil and schimbari work on the .php files that changed (commits, working tree and new files) since the last green
+# run of the same level: after a green run the script saves the commit in refs/verifica/stil-ok (stil) or
+# refs/verifica/ok (schimbari, rapid, complet), and the next run starts from it. With no such reference, or one that
+# is not an ancestor of HEAD (after a rebase), it starts from origin/main. Docker backend only.
+#
+# schimbari runs PHPUnit only on the tests that use what changed. For a changed file of classes/ or tests/fixtures/ they
+# are found by name: the test files that mention the class (qualified name anywhere in tests/, bare name in the tests
+# of the same namespace); if none does, the tests of its directory (tests/<dir>), else a note says so. A changed
+# *_test.php runs by itself. A change in version.php or db/ (except db/install.xml) runs install_test and upgrade_test,
+# after bringing the PHPUnit test site up to date if Moodle says it is not (util.php --diag, then init.php: a few
+# minutes). lang/ changes need no PHPUnit. The whole suite runs only for db/install.xml, lib.php, schema/ and prompts/.
+# No Behat: it runs in CI. The tests go to PHPUnit as one --filter, because PHPUnit does not find *_test.php files in
+# a directory.
+#
+# The independent checks run as parallel processes; the log of each one is shown at the end, with a summary.
+# Exit status is 0 only if every check passed (a skipped check is reported, and does not fail the run).
+#
+# Backend, chosen automatically (override with VERIFICA_BACKEND=ci|docker):
+#   ci      on GitHub Actions: moodle-plugin-ci, which has to be installed already (`moodle-plugin-ci install`).
+#           Runs phplint, phpcs, phpdoc, savepoints, mustache, grunt, phpunit and behat.
+#   docker  locally: the Docker stack that mounts this plugin (AGENTS.md, Local environment). Runs php -l, phpcs (moodle-cs),
+#           phpunit and behat in the webserver container; phpdoc is part of the moodle phpcs standard, and
+#           savepoints, mustache and grunt exist only in moodle-plugin-ci, so they are left to CI.
+#
+# Variables (docker backend; none is needed when the stack of the plugin is running):
+#   VERIFICA_CONTAINER   webserver container (default: the running one that mounts this plugin, found by itself)
+#   VERIFICA_PHPCS       phpcs in the container (default: /tmp/quality/vendor/bin/phpcs or /quality/vendor/bin/phpcs)
+#   VERIFICA_BEHAT_CONFIG behat.yml in the container (default: /var/www/behatdata/behatrun/behat/behat.yml)
+#   VERIFICA_NO_BEHAT=1  skip behat (complet only)
+#   VERIFICA_RESYNC=1    make the copy of Moodle again (it is also made again when public/version.php differs)
+#   VERIFICA_NO_FAST=1   run PHPUnit in the mounted Moodle tree instead of the native copy (see below)
+#
+# Why PHPUnit runs from a copy of Moodle: after every test Moodle resets its class loader and scans the whole code
+# tree again. On Docker Desktop (Windows/macOS) the mounted tree is on a slow file system, and that scan costs about
+# 6 s per test: 768 tests took 92 minutes. The same tests take a few minutes from a copy on the container's own disk.
+# The first run copies Moodle (a one-off, it can take 20+ minutes on Windows; the copy lives in the container and
+# is lost when the container is recreated); every run copies the plugin again, which takes seconds.
+set -u
+
+level="${1:-}"
+case "$level" in
+    stil | schimbari | rapid | complet) ;;
+    *)
+        echo "Usage: scripts/verifica stil|schimbari|rapid|complet" >&2
+        exit 2
+        ;;
+esac
+
+plugin_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+backend="${VERIFICA_BACKEND:-$([ "${GITHUB_ACTIONS:-}" = "true" ] && echo ci || echo docker)}"
+logdir="$(mktemp -d)"
+trap 'rm -rf "$logdir"' EXIT
+
+# MSYS (Git Bash) rewrites arguments that look like Unix paths; the container paths must reach docker as they are.
+export MSYS_NO_PATHCONV=1
+
+names=()
+pids=()
+skipped=()
+
+# start NAME COMMAND...: runs the command in the background, its output goes to a log.
+start() {
+    local name="$1"
+    shift
+    names+=("$name")
+    # The duration is measured inside the subshell: waiting for the jobs one by one would charge a fast check with
+    # the time of the slower ones before it.
+    (
+        t=$(date +%s)
+        "$@" >"$logdir/$name.log" 2>&1
+        rc=$?
+        echo $(($(date +%s) - t)) >"$logdir/$name.time"
+        exit $rc
+    ) &
+    pids+=("$!")
+}
+
+skip() {
+    skipped+=("$1: $2")
+}
+
+# ---- backend: ci ----------------------------------------------------------------------------------------------
+
+ci_static() {
+    # The static checks share one moodle-plugin-ci install and do not use the database; they run one after the
+    # other so the cores stay for PHPUnit and Behat. Every one runs even if an earlier one failed.
+    local rc=0 cmd
+    for cmd in "phplint" "phpcs --max-warnings 0" "phpdoc --max-warnings 0" "savepoints" "mustache" \
+        "grunt --max-lint-warnings 0"; do
+        # No ::group:: here: GitHub does not nest groups, and this log is shown inside one.
+        echo "=== moodle-plugin-ci $cmd"
+        # shellcheck disable=SC2086
+        moodle-plugin-ci $cmd || rc=1
+    done
+    return $rc
+}
+
+run_ci() {
+    if [ "$level" = "stil" ] || [ "$level" = "schimbari" ]; then
+        echo "The level $level exists only for the docker backend; CI runs complet." >&2
+        exit 2
+    fi
+    start static ci_static
+    start phpunit moodle-plugin-ci phpunit --fail-on-warning
+    [ "$level" = "rapid" ] && return
+    # Behat starts a browser and a second Moodle site, the slowest step: only when the plugin has a feature file.
+    if compgen -G "$plugin_dir/tests/behat/*.feature" >/dev/null; then
+        start behat moodle-plugin-ci behat --profile chrome
+    else
+        skip behat "no feature file in tests/behat"
+    fi
+}
+
+# ---- changed files (level schimbari) --------------------------------------------------------------------------
+
+# tests_for_class FILE: the test files that mention the class that FILE defines (a file of classes/ or of
+# tests/fixtures/), found by name: the qualified name anywhere in the tests, the bare name in the tests of the same
+# namespace. More tests than needed is the safe error; fewer is not, so a name that is a common word only costs time.
+tests_for_class() {
+    local f="$1" name dir q
+    name="$(basename "$f" .php)"
+    cd "$plugin_dir" || return
+    case "$f" in
+        tests/fixtures/*)
+            grep -rlw --include='*_test.php' "$name" tests
+            ;;
+        classes/*/*)
+            dir="$(echo "$f" | cut -d/ -f2)"
+            q='local_aicoursebuilder\\'"$dir"'\\(.*\\)?'"$name"'\b'
+            {
+                grep -rlE --include='*_test.php' "$q" tests
+                grep -lw "$name" "tests/$dir"/*_test.php 2>/dev/null
+            } | sort -u
+            ;;
+        classes/*)
+            q='local_aicoursebuilder\\'"$name"'\b'
+            {
+                grep -rlE --include='*_test.php' "$q" tests
+                grep -lw "$name" tests/*_test.php 2>/dev/null
+            } | sort -u
+            ;;
+    esac
+}
+
+# Sets: changed_php (existing .php files, not thirdparty), phpunit_all (1 = whole suite), phpunit_targets (paths
+# relative to the plugin: test directories or files) and phpunit_reason.
+pgit() {
+    (cd "$plugin_dir" && git "$@")
+}
+
+compute_changes() {
+    local base="origin/main" ref=refs/verifica/ok f d changed found hits
+    [ "$level" = "stil" ] && ref=refs/verifica/stil-ok
+    if pgit rev-parse --verify -q "$ref" >/dev/null && pgit merge-base --is-ancestor "$ref" HEAD; then
+        base="$ref"
+    else
+        pgit rev-parse --verify -q "$base" >/dev/null || {
+            echo "$base not found: run 'git fetch origin'." >&2
+            exit 2
+        }
+    fi
+    echo "Changes since $base ($(pgit rev-parse --short "$base"))"
+    changed=$({
+        pgit diff --name-only "$base"...HEAD
+        pgit diff --name-only HEAD
+        pgit ls-files -o --exclude-standard
+    } | sort -u)
+    changed_php=()
+    phpunit_all=0
+    phpunit_targets=()
+    phpunit_notes=()
+    phpunit_init=0
+    phpunit_reason=""
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in
+            db/install.xml | lib.php | schema/* | prompts/*)
+                phpunit_all=1
+                phpunit_reason="$f is global"
+                ;;
+            version.php | db/*)
+                # The test site has to be brought up to date (see phpunitprep in run_docker); the tests that look at
+                # the install and the upgrade follow.
+                phpunit_init=1
+                phpunit_targets+=(tests/install_test.php tests/upgrade_test.php)
+                ;;
+        esac
+        # prompts/*.md are versioned prompts: they are code, not documentation.
+        case "$f" in thirdparty/* | amd/build/* | .github/* | scripts/*) continue ;; prompts/*) ;; *.md) continue ;; esac
+        [ -e "$plugin_dir/$f" ] || continue
+        case "$f" in *.php) changed_php+=("$f") ;; esac
+        case "$f" in
+            classes/*.php | tests/fixtures/*.php)
+                found=$(tests_for_class "$f")
+                if [ -n "$found" ]; then
+                    mapfile -t hits <<<"$found"
+                    phpunit_targets+=("${hits[@]}")
+                else
+                    d="tests/$(echo "$f" | cut -d/ -f2)"
+                    if [[ "$f" == classes/*/* && -d "$plugin_dir/$d" ]]; then
+                        # No test names the class: the tests of its directory are the next best thing.
+                        phpunit_targets+=("$d")
+                    else
+                        phpunit_notes+=("$f: no test mentions it")
+                    fi
+                fi
+                ;;
+            tests/behat/*) ;;
+            tests/*_test.php | tests/*/*_test.php) phpunit_targets+=("$f") ;;
+            tests/*/*) phpunit_targets+=("$(echo "$f" | cut -d/ -f1-2)") ;;
+        esac
+    done <<<"$changed"
+    if [ "${#phpunit_targets[@]}" -gt 0 ]; then
+        mapfile -t phpunit_targets < <(printf '%s\n' "${phpunit_targets[@]}" | sort -u)
+    fi
+}
+
+# ---- backend: docker ------------------------------------------------------------------------------------------
+
+dexec() {
+    docker exec "$container" "$@"
+}
+
+# The webserver container of the stack that mounts this plugin: the one with a bind mount at the plugin path whose
+# source ends with the name of the plugin directory. Whatever the stack or the service is called.
+find_container() {
+    local c base
+    base="$(basename "$plugin_dir")"
+    for c in $(docker ps --format '{{.Names}}' 2>/dev/null); do
+        # One line per mount: "destination|source". The source is a Windows or a Unix path.
+        if docker inspect "$c" --format '{{range .Mounts}}{{.Destination}}|{{.Source}}{{println}}{{end}}' 2>/dev/null \
+            | grep -qiE "^/var/www/html/public/local/aicoursebuilder\|.*[/\\\\]$base\$"; then
+            echo "$c"
+            return
+        fi
+    done
+}
+
+# moodle-cs (phpcs with the moodle standard): the places where the stacks keep it.
+find_phpcs() {
+    local p
+    for p in /tmp/quality/vendor/bin/phpcs /quality/vendor/bin/phpcs; do
+        if dexec test -x "$p"; then
+            echo "$p"
+            return
+        fi
+    done
+    echo /tmp/quality/vendor/bin/phpcs
+}
+
+# fast_tree FAST_ROOT: makes FAST_ROOT, a copy of the mounted Moodle on the container's own disk, with the current
+# plugin and phpunit.xml in it. The Moodle copy is made again when it is missing, when VERIFICA_RESYNC=1, or when
+# public/version.php of the mounted Moodle differs from the one in the copy (Moodle was updated).
+fast_tree() {
+    local fast="$1" src=/var/www/html why=""
+    if ! dexec test -f "$fast/.synced"; then
+        why="first run"
+    elif [ "${VERIFICA_RESYNC:-}" = "1" ]; then
+        why="VERIFICA_RESYNC=1"
+    elif ! dexec cmp -s "$src/public/version.php" "$fast/public/version.php"; then
+        why="Moodle was updated"
+    fi
+    if [ -n "$why" ]; then
+        echo "Copying Moodle to $fast in the container ($why; can take 20+ minutes on Windows)..." >&2
+        dexec sh -c "rm -rf $fast && mkdir -p $fast && cd $src             && tar cf - --exclude=./$plugin_rel --exclude=./node_modules . | tar xf - -C $fast             && touch $fast/.synced" || return 1
+    fi
+    dexec sh -c "cp $src/phpunit.xml $fast/phpunit.xml && rm -rf $fast/$plugin_rel && mkdir -p $fast/$plugin_rel         && cd $src/$plugin_rel && tar cf - --exclude=./.git . | tar xf - -C $fast/$plugin_rel" || return 1
+}
+
+run_docker() {
+    container="${VERIFICA_CONTAINER:-$(find_container)}"
+    local phpcs behatcfg="${VERIFICA_BEHAT_CONFIG:-/var/www/behatdata/behatrun/behat/behat.yml}"
+    plugin_rel="public/local/aicoursebuilder"
+    local plugin="/var/www/html/$plugin_rel"
+
+    if [ -z "$container" ] || ! docker exec "$container" true 2>/dev/null; then
+        echo "No running container has this plugin mounted at $plugin. Start the Docker stack of the plugin (AGENTS.md," >&2
+        echo "Local environment) or set VERIFICA_CONTAINER to its webserver container." >&2
+        exit 2
+    fi
+    phpcs="${VERIFICA_PHPCS:-$(find_phpcs)}"
+    echo "Container: $container"
+
+    # What php -l and phpcs look at: the whole plugin, or only the changed files (paths have no spaces or quotes).
+    local listfiles="find . -name '*.php' -not -path './thirdparty/*' -print0" phpcsfiles="."
+    local onlychanged=0
+    if [ "$level" = "stil" ] || [ "$level" = "schimbari" ]; then
+        onlychanged=1
+        compute_changes
+        echo "Changed .php files: ${#changed_php[@]}"
+        listfiles="printf '%s\\0' ${changed_php[*]:-}"
+        phpcsfiles="${changed_php[*]:-}"
+    fi
+
+    if [ "$onlychanged" = "1" ] && [ "${#changed_php[@]}" -eq 0 ]; then
+        skip "phplint, phpcs" "no changed .php file"
+    else
+        start phplint dexec sh -c "cd $plugin && out=\$($listfiles | xargs -0 -n40 -P8 php -l 2>&1 \
+            | grep -v '^No syntax errors') ; [ -z \"\$out\" ] || { echo \"\$out\"; exit 1; }"
+    fi
+
+    if [ "$onlychanged" = "1" ] && [ "${#changed_php[@]}" -eq 0 ]; then
+        :
+    elif dexec test -x "$phpcs"; then
+        start phpcs dexec sh -c "cd $plugin && php -d memory_limit=1G $phpcs --standard=moodle --extensions=php --warning-severity=1 --ignore=*/thirdparty/*,*/amd/build/*,*/vendor/*,*/node_modules/* -q $phpcsfiles"
+    else
+        norecord=1
+        skip phpcs "moodle-cs not found in the container: set VERIFICA_PHPCS, or install it (README.md, Verification script)"
+    fi
+
+    # What PHPUnit runs: nothing (stil), the targets the changes map to (schimbari), or the whole suite.
+    local phpunitcmd="" phpunitprep="" n
+    if [ "$level" = "schimbari" ]; then
+        for n in "${phpunit_notes[@]+"${phpunit_notes[@]}"}"; do
+            echo "PHPUnit note: $n"
+        done
+        if [ "$phpunit_init" = "1" ]; then
+            # version.php or db/ changed: if the test site is not up to date (--diag says so), initialise it again.
+            phpunitprep="php public/admin/tool/phpunit/cli/util.php --diag >/dev/null 2>&1 || php public/admin/tool/phpunit/cli/init.php --disable-composer; "
+        fi
+    fi
+    if [ "$level" = "stil" ]; then
+        skip phpunit "level stil does not run PHPUnit (use schimbari)"
+    elif [ "$level" != "schimbari" ] || [ "$phpunit_all" = "1" ]; then
+        [ "$level" = "schimbari" ] && echo "PHPUnit: whole suite ($phpunit_reason)"
+        phpunitcmd="vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite"
+    elif [ "${#phpunit_targets[@]}" -gt 0 ]; then
+        echo "PHPUnit: ${phpunit_targets[*]}"
+        # PHPUnit takes one path per run and, given a directory, looks only for *Test.php, not Moodle's *_test.php
+        # (it would say "No tests executed!" and pass). So the targets become one --filter on the test ids of the
+        # suite, which are namespace\class::method, with the namespace local_aicoursebuilder\<directory>.
+        local t id
+        phpunit_filter=""
+        for t in "${phpunit_targets[@]}"; do
+            id="local_aicoursebuilder\\\\${t#tests/}"
+            id="${id//\//\\\\}"
+            case "$t" in
+                *.php) id="${id%.php}::" ;;
+                *) id="$id\\\\" ;;
+            esac
+            phpunit_filter+="${phpunit_filter:+|}$id"
+        done
+        phpunitcmd='vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite --fail-on-empty-test-suite --filter "$VERIFICA_FILTER"'
+    else
+        skip phpunit "no changed file maps to a test"
+    fi
+    if [ -n "$phpunitcmd" ]; then
+        local moodleroot=/var/www/html
+        if [ "${VERIFICA_NO_FAST:-}" != "1" ]; then
+            moodleroot=/opt/moodle-fast
+            fast_tree "$moodleroot" || exit 2
+        fi
+        # The filter goes in an environment variable: it holds backslashes, which would not survive three layers of quotes.
+        start phpunit docker exec -e "VERIFICA_FILTER=${phpunit_filter:-}" "$container" sh -c "cd $moodleroot && $phpunitprep$phpunitcmd"
+    fi
+
+    if [ "$level" = "complet" ]; then
+        if [ "${VERIFICA_NO_BEHAT:-}" = "1" ]; then
+            skip behat "VERIFICA_NO_BEHAT=1"
+        elif dexec test -f "$behatcfg"; then
+            start behat dexec sh -c "cd /var/www/html && vendor/bin/behat --config $behatcfg public/local/aicoursebuilder/tests/behat"
+        else
+            skip behat "not initialised in the container (php public/admin/tool/behat/cli/init.php)"
+        fi
+        skip "phpdoc, savepoints, mustache, grunt" "only available through moodle-plugin-ci: they run in CI"
+    fi
+}
+
+# ---- run ------------------------------------------------------------------------------------------------------
+
+t0=$(date +%s)
+echo "verifica $level (backend: $backend)"
+case "$backend" in
+    ci) run_ci ;;
+    docker) run_docker ;;
+    *)
+        echo "Unknown backend: $backend" >&2
+        exit 2
+        ;;
+esac
+
+status=0
+results=()
+for i in "${!pids[@]}"; do
+    if wait "${pids[$i]}"; then
+        rc=0
+    else
+        rc=1
+        status=1
+    fi
+    results+=("$rc:$(cat "$logdir/${names[$i]}.time" 2>/dev/null || echo "?")")
+done
+
+echo
+for i in "${!names[@]}"; do
+    rc="${results[$i]%%:*}"
+    if [ "$rc" != "0" ]; then
+        echo "::group::LOG ${names[$i]} (FAILED)"
+        cat "$logdir/${names[$i]}.log"
+        echo "::endgroup::"
+    else
+        echo "::group::log ${names[$i]}"
+        tail -n 15 "$logdir/${names[$i]}.log"
+        echo "::endgroup::"
+    fi
+done
+
+echo
+echo "== Summary =="
+for i in "${!names[@]}"; do
+    rc="${results[$i]%%:*}"
+    printf '%-10s %s (%ss)\n' "${names[$i]}" "$([ "$rc" = "0" ] && echo OK || echo FAILED)" "${results[$i]#*:}"
+done
+for s in "${skipped[@]+"${skipped[@]}"}"; do
+    echo "SKIPPED    $s"
+done
+echo "Total: $(($(date +%s) - t0))s"
+
+# A green run is the starting point of the next one (see the header). Not on CI, and never after a failure.
+if [ "$status" = "0" ] && [ "$backend" = "docker" ] && [ "${norecord:-0}" != "1" ]; then
+    pgit update-ref refs/verifica/stil-ok HEAD
+    [ "$level" != "stil" ] && pgit update-ref refs/verifica/ok HEAD
+fi
+exit $status

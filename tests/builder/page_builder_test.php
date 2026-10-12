@@ -177,6 +177,29 @@ final class page_builder_test extends \advanced_testcase {
     }
 
     /**
+     * A module whose content cannot be saved is deleted again, so no empty module is left behind.
+     */
+    public function test_a_module_without_its_content_is_deleted(): void {
+        global $DB;
+        $builder = new class extends page_builder {
+            #[\Override]
+            protected function after_created(\stdClass $created, array $node, build_context $context): void {
+                throw new \RuntimeException('no content');
+            }
+        };
+
+        try {
+            $builder->build($this->node('s1.page1'), $this->make_context());
+            $this->fail('Expected the failure to be passed on');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('no content', $e->getMessage());
+        }
+
+        $moduleid = $DB->get_field('modules', 'id', ['name' => 'page']);
+        $this->assertSame(0, $DB->count_records('course_modules', ['course' => $this->course->id, 'module' => $moduleid]));
+    }
+
+    /**
      * Activities go into the section of the job in an existing course, or the first one when it has none.
      */
     public function test_the_section_falls_back_to_the_one_of_the_job(): void {

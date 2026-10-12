@@ -107,6 +107,19 @@ if ($hassiteconfig) {
             \local_aicoursebuilder\ingest\extractor_ocr::DEFAULT_LANGUAGE,
             PARAM_RAW_TRIMMED
         ));
+        // The same state as the status check of Moodle: can scanned PDF files be read on this server?
+        $ocrstate = \local_aicoursebuilder\ingest\ocr_status::evaluate();
+        $settings->add(new admin_setting_description(
+            'local_aicoursebuilder/ocrstatus',
+            new lang_string('ocrstatus', 'local_aicoursebuilder'),
+            $OUTPUT->notification(
+                s($ocrstate['summary']),
+                $ocrstate['status'] === \local_aicoursebuilder\ingest\ocr_status::OK
+                    ? \core\output\notification::NOTIFY_SUCCESS
+                    : \core\output\notification::NOTIFY_WARNING,
+                false
+            )
+        ));
 
         $settings->add(new admin_setting_configtext(
             'local_aicoursebuilder/digest_maxinputtokens',
@@ -424,3 +437,11 @@ if ($hassiteconfig) {
     }
     $ADMIN->add('localplugins', $connectors);
 }
+
+// The usage report is for those who may view it, which is not the same as those who may change the settings.
+$ADMIN->add('localplugins', new admin_externalpage(
+    'local_aicoursebuilder_usage',
+    new lang_string('usage:title', 'local_aicoursebuilder'),
+    new moodle_url('/local/aicoursebuilder/usage.php'),
+    'local/aicoursebuilder:viewusage'
+));

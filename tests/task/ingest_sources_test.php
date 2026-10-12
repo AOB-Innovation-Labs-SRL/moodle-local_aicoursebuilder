@@ -16,9 +16,12 @@
 
 namespace local_aicoursebuilder\task;
 
+use local_aicoursebuilder\ai\fake_connector;
+use local_aicoursebuilder\ai\router;
 use local_aicoursebuilder\ingest\extraction_result;
 use local_aicoursebuilder\ingest\source_fixtures;
 use local_aicoursebuilder\ingest\source_manager;
+use local_aicoursebuilder\job_manager;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -383,6 +386,44 @@ final class ingest_sources_test extends \advanced_testcase {
         $this->assertNotNull((new source_manager())->get_extracted_file($source->id));
         $this->assertTrue($DB->record_exists('local_aicb_chunk', ['sourceid' => $source->id]));
         $this->assertSame('error', $DB->get_field('local_aicb_step', 'status', ['jobid' => $this->jobid]));
+    }
+
+    /**
+     * A cost limit that stops the digest pauses the job, not the source; resuming the job goes on from there.
+     */
+    public function test_a_cost_limit_pauses_the_job_and_resuming_it_goes_on(): void {
+        $sources = $this->add_sources(['notes.txt' => 'Energia regenerabilă provine din surse care se refac natural.']);
+        router::set_test_connector((new fake_connector())->set_cost_per_call(1.0));
+        set_config('joblimitusd', '0.5', 'local_aicoursebuilder');
+        $sink = $this->redirectMessages();
+
+        try {
+            $this->run_task();
+
+            $job = $this->reload('local_aicb_job', $this->jobid);
+            $this->assertSame(job_manager::STATUS_PAUSED, $job->status);
+            $this->assertSame(ingest_sources::STAGE, $job->stage);
+            $this->assertStringContainsString('0.5', $job->error);
+            $source = $this->reload('local_aicb_source', $sources['notes.txt']->id);
+            $this->assertSame('extracted', $source->status);
+            $this->assertNull($source->error);
+            $this->assertCount(0, \core\task\manager::get_adhoc_tasks(generate_blueprint::class));
+            $messages = $sink->get_messages();
+            $this->assertCount(1, $messages);
+            $this->assertSame('budgetexceeded', $messages[0]->eventtype);
+
+            // The limit is raised and the job resumed: the ingestion goes on and hands over to the generation.
+            set_config('joblimitusd', '0', 'local_aicoursebuilder');
+            \core_ai\manager::user_policy_accepted((int) $this->user->id, \context_system::instance()->id);
+            (new job_manager())->resume($job);
+            $this->assertSame(job_manager::STATUS_QUEUED, $this->reload('local_aicb_job', $this->jobid)->status);
+            $this->runAdhocTasks(ingest_sources::class);
+
+            $this->assertSame('digested', $this->reload('local_aicb_source', $sources['notes.txt']->id)->status);
+            $this->assertCount(1, \core\task\manager::get_adhoc_tasks(generate_blueprint::class));
+        } finally {
+            router::set_test_connector(null);
+        }
     }
 
     /**

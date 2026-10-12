@@ -103,3 +103,18 @@ Feature: Generate a course blueprint from the wizard
     And I run all adhoc tasks
     Then I wait until "[data-region='aicb-finished']" "css_element" exists
     And I should see "The blueprint is ready for review." in the "[data-region='aicb-progress']" "css_element"
+
+  Scenario: The wizard warns somebody who has used most of the monthly AI budget
+    Given the following config values are set as admin:
+      | userlimitusd | 10 | local_aicoursebuilder |
+      | alertpercent | 80 | local_aicoursebuilder |
+    And "admin" has spent 8.5 USD on AI this month for "An earlier course"
+    And I log in as "admin"
+    And I am on the "local_aicoursebuilder > wizard" page
+    When I set the field "What do you want to do?" to "Create a new course"
+    And I press "Next"
+    And I set the field "What is the course about?" to "An introductory course about renewable energy"
+    And I press "Next"
+    And I press "Next"
+    Then I should see "Estimated cost"
+    And I should see "You have used most of your monthly AI budget." in the "[data-region='aicb-estimate-alert']" "css_element"

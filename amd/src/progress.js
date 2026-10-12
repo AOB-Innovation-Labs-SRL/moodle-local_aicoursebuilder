@@ -34,13 +34,18 @@ const COMPONENT = 'local_aicoursebuilder';
 const POLL_SECONDS = 4;
 
 /** Statuses after which the job does not change by itself. */
-const FINAL_STATUSES = ['review', 'approved', 'building', 'finished', 'failed', 'cancelled'];
+const FINAL_STATUSES = ['review', 'approved', 'building', 'finished', 'failed', 'cancelled', 'paused'];
 
 /** Statuses of a job the teacher can open in the editor. */
 const EDITABLE_STATUSES = ['review', 'approved', 'building', 'finished'];
 
 /** What the page says about each status. */
-const STAGES = ['draft', 'queued', 'ingesting', 'generating', 'review', 'approved', 'building', 'finished', 'failed', 'cancelled'];
+const STAGES = [
+    'draft', 'queued', 'ingesting', 'generating', 'paused', 'review', 'approved', 'building', 'finished', 'failed', 'cancelled',
+];
+
+/** The pipeline stage a job pauses in when a cost limit stops its ingestion; any other stage is the generation. */
+const INGEST_STAGE = 'ingest';
 
 /**
  * Tells whether a job has stopped changing by itself.
@@ -60,10 +65,15 @@ export const isFinal = (status) => FINAL_STATUSES.includes(status);
  * @returns {Number}
  */
 export const percentOf = (status) => {
-    if (status.status === 'ingesting') {
+    // A paused job is shown where it stopped.
+    let phase = status.status;
+    if (phase === 'paused') {
+        phase = status.stage === INGEST_STAGE ? 'ingesting' : 'generating';
+    }
+    if (phase === 'ingesting') {
         return Math.round(status.progress / 2);
     }
-    if (status.status === 'generating') {
+    if (phase === 'generating') {
         const done = status.steps.filter((step) => step.status === 'done' || step.status === 'manual').length;
         return 50 + Math.min(45, done * 5);
     }
@@ -76,7 +86,8 @@ export const percentOf = (status) => {
  * @param {HTMLElement} region Where to show it.
  * @param {Object} status What local_aicoursebuilder_get_job_status returned.
  * @param {Object} strings The stage names, keyed by status.
- * @param {Object} links Where the teacher can go from here: reviewurl and courseurl, either may be empty.
+ * @param {Object} links Where the teacher can go from here: reviewurl and courseurl, either may be empty, and whether
+ *                       the one looking may resume a paused job (canresume, true unless said otherwise).
  */
 export const render = async(region, status, strings, links = {}) => {
     const {html, js} = await Templates.renderForPromise('local_aicoursebuilder/wizard_progress', {
@@ -87,6 +98,9 @@ export const render = async(region, status, strings, links = {}) => {
         running: !isFinal(status.status),
         finished: status.status === 'review',
         failed: status.status === 'failed',
+        paused: status.status === 'paused',
+        // Only the owner of the job may resume it; the page that knows who is looking says so.
+        canresume: links.canresume !== false,
         error: status.error,
         reviewurl: EDITABLE_STATUSES.includes(status.status) ? links.reviewurl : '',
         courseurl: status.status === 'finished' ? links.courseurl : '',
@@ -134,6 +148,23 @@ export const watch = (region, jobid, links = {}, onError = () => null) => {
             onError(error);
         }
     };
+    // The button of a paused job is drawn anew with every status, so one listener on the region serves them all.
+    region.addEventListener('click', async(event) => {
+        const button = event.target.closest('[data-action="aicb-resume"]');
+        if (!button) {
+            return;
+        }
+        event.preventDefault();
+        button.disabled = true;
+        try {
+            await Ajax.call([{methodname: 'local_aicoursebuilder_resume_job', args: {jobid}}])[0];
+            clearTimeout(timer);
+            poll();
+        } catch (error) {
+            button.disabled = false;
+            onError(error);
+        }
+    });
     poll();
 
     return {
