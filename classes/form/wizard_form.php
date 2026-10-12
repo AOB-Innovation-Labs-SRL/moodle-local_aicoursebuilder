@@ -107,7 +107,7 @@ class wizard_form extends \moodleform {
         $mform->setType('tone', PARAM_TEXT);
 
         $mform->addElement('header', self::STEP_SOURCES, get_string('wizard:stepsources', 'local_aicoursebuilder'));
-        $mform->addElement('static', 'sourceshelp', '', get_string('wizard:sourceshelp', 'local_aicoursebuilder'));
+        $mform->addElement('static', 'sourceshelp', '', self::sources_help());
         $mform->addElement(
             'filemanager',
             'sources',
@@ -125,7 +125,37 @@ class wizard_form extends \moodleform {
     }
 
     /**
+     * Returns the help of the sources step, with the limits a teacher has to respect.
+     *
+     * The limits are written out because the filemanager does not always show them: for somebody who has
+     * moodle/course:ignorefilesizelimits (an administrator or a manager) Moodle replaces the maximum size with
+     * "Unlimited" and does not check the size of an upload. The server still refuses such a file, see
+     * source_manager::save_from_draft(). The size is the one of the settings, lowered to the maximum of the site
+     * when that is smaller, as Moodle does for everybody else.
+     *
+     * @return string
+     */
+    public static function sources_help(): string {
+        global $CFG;
+
+        $manager = new source_manager();
+        $maxbytes = $manager->get_max_file_bytes();
+        if ($CFG->maxbytes > 0) {
+            $maxbytes = min($maxbytes, (int) $CFG->maxbytes);
+        }
+        $types = array_map(fn($type) => '.' . $type, $manager->get_allowed_types());
+        return get_string('wizard:sourceshelp', 'local_aicoursebuilder', (object) [
+            'maxsize' => display_size($maxbytes),
+            'maxfiles' => $manager->get_max_files(),
+            'types' => $types ? implode(', ', $types) : get_string('none'),
+        ]);
+    }
+
+    /**
      * Returns the options of the sources filemanager, from the source limits of the settings.
+     *
+     * Moodle lowers maxbytes to the maximum of the site, and ignores it for somebody who has
+     * moodle/course:ignorefilesizelimits; sources_help() states the limits for that case.
      *
      * @return array
      */
