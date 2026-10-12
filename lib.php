@@ -46,3 +46,12 @@ function local_aicoursebuilder_extend_navigation_course(navigation_node $navigat
         new pix_icon('i/settings', '')
     );
 }
+
+/**
+ * Tells Moodle which status checks the plugin adds to Site administration > Reports > System status.
+ *
+ * @return \core\check\check[]
+ */
+function local_aicoursebuilder_status_checks(): array {
+    return [new \local_aicoursebuilder\check\ocr()];
+}

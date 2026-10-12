@@ -81,4 +81,11 @@ $functions = [
         'ajax' => true,
         'capabilities' => 'local/aicoursebuilder:use',
     ],
+    'local_aicoursebuilder_resume_job' => [
+        'classname' => \local_aicoursebuilder\external\resume_job::class,
+        'description' => 'Resumes a job that a cost limit paused, from the steps it had finished.',
+        'type' => 'write',
+        'ajax' => true,
+        'capabilities' => 'local/aicoursebuilder:use',
+    ],
 ];

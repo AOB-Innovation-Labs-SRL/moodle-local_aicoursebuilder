@@ -12,7 +12,7 @@
         <FIELD NAME="categoryid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Category of the new course"/>
         <FIELD NAME="courseid" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Target existing course, or the course created by the build"/>
         <FIELD NAME="sectionnum" TYPE="int" LENGTH="10" NOTNULL="false" SEQUENCE="false" COMMENT="Target section in an existing course"/>
-        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="draft" SEQUENCE="false" COMMENT="draft, queued, ingesting, generating, review, approved, building, finished, failed, cancelled"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="20" NOTNULL="true" DEFAULT="draft" SEQUENCE="false" COMMENT="draft, queued, ingesting, generating, paused, review, approved, building, finished, failed, cancelled"/>
         <FIELD NAME="stage" TYPE="char" LENGTH="30" NOTNULL="false" SEQUENCE="false" COMMENT="Current pipeline step"/>
         <FIELD NAME="progress" TYPE="int" LENGTH="3" NOTNULL="true" DEFAULT="0" SEQUENCE="false" COMMENT="Progress 0-100"/>
         <FIELD NAME="statusmessage" TYPE="char" LENGTH="255" NOTNULL="false" SEQUENCE="false" COMMENT="Short progress message"/>

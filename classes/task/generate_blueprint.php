@@ -34,10 +34,11 @@ use local_aicoursebuilder\pipeline\step_store;
  * review. It makes the AI calls so that no web request has to; the orchestrator persists every step as it
  * finishes, so a task that is stopped or run again resumes from where it got to and pays only for what is left.
  *
- * A job can stop in two ways, and both are written in the job. A run that reached the end leaves the job in review,
+ * A job can stop in three ways, and all are written in the job. A run that reached the end leaves the job in review,
  * even when the validator still finds something in the blueprint or a section is marked for a human: that is
- * what the review is for. A run that could not produce the brief or the outline, or that hit a cost limit, fails
- * the job with the reason, and the teacher is told.
+ * what the review is for. A run that could not produce the brief or the outline fails the job with the reason, and
+ * the teacher is told. A run that hit a cost limit pauses the job instead, with the reason, and the teacher and the
+ * managers are told: the job_manager resumes it once the limit is raised, and it pays only for what is left.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -111,6 +112,11 @@ class generate_blueprint extends \core\task\adhoc_task {
             return;
         }
 
+        if ($outcome->reason === pipeline_outcome::REASON_BUDGET) {
+            // Not a failure: what was paid for is kept, and the job goes on once the limit is raised.
+            (new job_manager())->pause($job, $outcome->message);
+            return;
+        }
         if (!$outcome->blueprint) {
             $this->fail($job, $outcome->message, $outcome->totals);
             return;

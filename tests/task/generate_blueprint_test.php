@@ -291,31 +291,67 @@ final class generate_blueprint_test extends \advanced_testcase {
     }
 
     /**
-     * A cost limit stops the job, and what it finished is kept so that starting it again resumes from there.
+     * A cost limit pauses the job, with the reason and a notification, and what it finished is kept.
      */
-    public function test_a_cost_limit_fails_the_job_and_a_new_run_resumes(): void {
+    public function test_a_cost_limit_pauses_the_job(): void {
         global $DB;
         $this->add_energy_sources();
         $this->connector->set_cost_per_call(1.0);
         set_config('joblimitusd', '2.5', 'local_aicoursebuilder');
+        $sink = $this->redirectMessages();
 
         $this->run_task();
 
         $job = $this->job();
-        $this->assertSame(job_manager::STATUS_FAILED, $job->status);
+        $this->assertSame(job_manager::STATUS_PAUSED, $job->status);
         $this->assertStringContainsString('2.5', $job->error);
+        $this->assertSame(generate_blueprint::STAGE, $job->stage);
+        $this->assertEquals(2.0, (float) $job->actualcost);
         $this->assertSame(0, $DB->count_records('local_aicb_blueprint', ['jobid' => $this->jobid]));
-        $paid = $this->connector->call_count(request::STEP_BRIEF) + $this->connector->call_count(request::STEP_OUTLINE);
 
-        // The limit is raised and the job started again: the brief and the outline are not paid for twice.
-        set_config('joblimitusd', '0', 'local_aicoursebuilder');
-        $DB->set_field('local_aicb_job', 'status', 'queued', ['id' => $this->jobid]);
-        $this->connector->reset_counts();
+        $messages = $sink->get_messages();
+        $this->assertCount(1, $messages);
+        $this->assertSame('budgetexceeded', $messages[0]->eventtype);
+        $this->assertEquals($this->user->id, $messages[0]->useridto);
+        $this->assertStringContainsString('2.5', $messages[0]->fullmessage);
+    }
+
+    /**
+     * Resuming a paused job, once the limit is raised, goes on from its checkpoints: what was paid for is not paid twice.
+     */
+    public function test_resuming_a_paused_job_pays_only_for_what_is_left(): void {
+        global $DB;
+        $this->add_energy_sources();
+        $this->connector->set_cost_per_call(1.0);
+        set_config('joblimitusd', '2.5', 'local_aicoursebuilder');
         $this->run_task();
+        $this->assertSame(job_manager::STATUS_PAUSED, $this->job()->status);
+        $paid = $this->connector->call_count(request::STEP_BRIEF) + $this->connector->call_count(request::STEP_OUTLINE);
+        \core_ai\manager::user_policy_accepted((int) $this->user->id, \context_system::instance()->id);
+
+        // The limit is used up, so there is nothing to resume into yet.
+        set_config('joblimitusd', '2', 'local_aicoursebuilder');
+        try {
+            (new job_manager())->resume($this->job());
+            $this->fail('A job was resumed with its limit used up');
+        } catch (\moodle_exception $e) {
+            $this->assertSame('resumestillover', $e->errorcode);
+        }
+        $this->assertSame(job_manager::STATUS_PAUSED, $this->job()->status);
+
+        // The limit is raised and the job resumed: the brief and the outline are not paid for twice.
+        set_config('joblimitusd', '0', 'local_aicoursebuilder');
+        (new job_manager())->resume($this->job());
+        $this->assertSame(job_manager::STATUS_QUEUED, $this->job()->status);
+        $this->assertNull($this->job()->error);
+        $this->connector->reset_counts();
+        $this->runAdhocTasks(generate_blueprint::class);
 
         $this->assertSame(job_manager::STATUS_REVIEW, $this->job()->status);
         $again = $this->connector->call_count(request::STEP_BRIEF) + $this->connector->call_count(request::STEP_OUTLINE);
         $this->assertLessThan($paid, $again);
+        $this->assertSame(0, $again);
+        $this->assertGreaterThanOrEqual(1, $DB->count_records('local_aicb_blueprint', ['jobid' => $this->jobid]));
     }
 
     /**
@@ -345,6 +381,7 @@ final class generate_blueprint_test extends \advanced_testcase {
             'draft' => ['draft'],
             'review' => ['review'],
             'failed' => ['failed'],
+            'paused' => ['paused'],
             'cancelled' => ['cancelled'],
             'finished' => ['finished'],
         ];

@@ -48,6 +48,8 @@ $PAGE->set_heading(get_string('job:title', 'local_aicoursebuilder'));
 $PAGE->requires->js_call_amd('local_aicoursebuilder/progress', 'init', [[
     'jobid' => (int) $job->id,
     'reviewurl' => (new moodle_url('/local/aicoursebuilder/review.php', ['id' => $job->id]))->out(false),
+    // Only the owner may resume a job that a cost limit paused.
+    'canresume' => (int) $job->userid === (int) $USER->id,
     'courseurl' => $job->courseid ? (new moodle_url('/course/view.php', ['id' => $job->courseid]))->out(false) : '',
 ]]);
 
