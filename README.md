@@ -102,9 +102,11 @@ scripts/verifica complet   # before a PR: everything the environment can run (ad
   run of the same level: after a green run the script saves the commit in `refs/verifica/stil-ok` (`stil`) or
   `refs/verifica/ok` (`schimbari`, `rapid`, `complet`), and the next run starts from it. Without that reference, or
   after a rebase, it starts from `origin/main` (run `git fetch origin` first). `stil` runs php -l and phpcs on them.
-  `schimbari` adds PHPUnit on the test directories they map to (`classes/builder/x.php` -> `tests/builder`; a changed
-  `*_test.php` runs by itself), or the whole suite if `db/`, `version.php`, `lib.php`, `lang/`, `schema/`, `prompts/` or
-  `tests/fixtures/` changed, or a changed file under `classes/` has no test directory. No Behat.
+  `schimbari` adds PHPUnit on the tests that use what changed: for a changed file of `classes/` or `tests/fixtures/` the
+  test files that mention the class by name (else the tests of its directory); a changed `*_test.php` runs by itself;
+  `version.php` or `db/` (except `db/install.xml`) runs `install_test` and `upgrade_test`, after initialising the test
+  site again if Moodle says it is out of date (a few minutes); `lang/` needs no PHPUnit. The whole suite runs only for
+  `db/install.xml`, `lib.php`, `schema/` and `prompts/`. No Behat.
 - **Locally** it runs in the webserver container of the Docker stack that mounts this plugin at
   `/var/www/html/public/local/aicoursebuilder` (AGENTS.md, Local environment). The script finds that container and
   moodle-cs (`/tmp/quality` or `/quality`) by itself; if it cannot, set `VERIFICA_CONTAINER` and `VERIFICA_PHPCS`.

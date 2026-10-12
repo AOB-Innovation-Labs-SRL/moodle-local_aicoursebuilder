@@ -11,10 +11,14 @@
 # refs/verifica/ok (schimbari, rapid, complet), and the next run starts from it. With no such reference, or one that
 # is not an ancestor of HEAD (after a rebase), it starts from origin/main. Docker backend only.
 #
-# schimbari runs PHPUnit on the test directories the changed files map to (classes/builder/x.php -> tests/builder, a
-# changed tests/**/*_test.php runs by itself). The whole suite runs instead when something global changed (db/,
-# version.php, lib.php, lang/, schema/, prompts/, tests/fixtures/), or a changed file under classes/ has no test
-# directory. No Behat: it runs in CI.
+# schimbari runs PHPUnit only on the tests that use what changed. For a changed file of classes/ or tests/fixtures/ they
+# are found by name: the test files that mention the class (qualified name anywhere in tests/, bare name in the tests
+# of the same namespace); if none does, the tests of its directory (tests/<dir>), else a note says so. A changed
+# *_test.php runs by itself. A change in version.php or db/ (except db/install.xml) runs install_test and upgrade_test,
+# after bringing the PHPUnit test site up to date if Moodle says it is not (util.php --diag, then init.php: a few
+# minutes). lang/ changes need no PHPUnit. The whole suite runs only for db/install.xml, lib.php, schema/ and prompts/.
+# No Behat: it runs in CI. The tests go to PHPUnit as one --filter, because PHPUnit does not find *_test.php files in
+# a directory.
 #
 # The independent checks run as parallel processes; the log of each one is shown at the end, with a summary.
 # Exit status is 0 only if every check passed (a skipped check is reported, and does not fail the run).
@@ -117,6 +121,35 @@ run_ci() {
 
 # ---- changed files (level schimbari) --------------------------------------------------------------------------
 
+# tests_for_class FILE: the test files that mention the class that FILE defines (a file of classes/ or of
+# tests/fixtures/), found by name: the qualified name anywhere in the tests, the bare name in the tests of the same
+# namespace. More tests than needed is the safe error; fewer is not, so a name that is a common word only costs time.
+tests_for_class() {
+    local f="$1" name dir q
+    name="$(basename "$f" .php)"
+    cd "$plugin_dir" || return
+    case "$f" in
+        tests/fixtures/*)
+            grep -rlw --include='*_test.php' "$name" tests
+            ;;
+        classes/*/*)
+            dir="$(echo "$f" | cut -d/ -f2)"
+            q='local_aicoursebuilder\\'"$dir"'\\(.*\\)?'"$name"'\b'
+            {
+                grep -rlE --include='*_test.php' "$q" tests
+                grep -lw "$name" "tests/$dir"/*_test.php 2>/dev/null
+            } | sort -u
+            ;;
+        classes/*)
+            q='local_aicoursebuilder\\'"$name"'\b'
+            {
+                grep -rlE --include='*_test.php' "$q" tests
+                grep -lw "$name" tests/*_test.php 2>/dev/null
+            } | sort -u
+            ;;
+    esac
+}
+
 # Sets: changed_php (existing .php files, not thirdparty), phpunit_all (1 = whole suite), phpunit_targets (paths
 # relative to the plugin: test directories or files) and phpunit_reason.
 pgit() {
@@ -124,7 +157,7 @@ pgit() {
 }
 
 compute_changes() {
-    local base="origin/main" ref=refs/verifica/ok f d changed
+    local base="origin/main" ref=refs/verifica/ok f d changed found hits
     [ "$level" = "stil" ] && ref=refs/verifica/stil-ok
     if pgit rev-parse --verify -q "$ref" >/dev/null && pgit merge-base --is-ancestor "$ref" HEAD; then
         base="$ref"
@@ -143,13 +176,21 @@ compute_changes() {
     changed_php=()
     phpunit_all=0
     phpunit_targets=()
+    phpunit_notes=()
+    phpunit_init=0
     phpunit_reason=""
     while IFS= read -r f; do
         [ -n "$f" ] || continue
         case "$f" in
-            db/* | version.php | lib.php | lang/* | schema/* | prompts/* | tests/fixtures/*)
+            db/install.xml | lib.php | schema/* | prompts/*)
                 phpunit_all=1
                 phpunit_reason="$f is global"
+                ;;
+            version.php | db/*)
+                # The test site has to be brought up to date (see phpunitprep in run_docker); the tests that look at
+                # the install and the upgrade follow.
+                phpunit_init=1
+                phpunit_targets+=(tests/install_test.php tests/upgrade_test.php)
                 ;;
         esac
         # prompts/*.md are versioned prompts: they are code, not documentation.
@@ -157,18 +198,20 @@ compute_changes() {
         [ -e "$plugin_dir/$f" ] || continue
         case "$f" in *.php) changed_php+=("$f") ;; esac
         case "$f" in
-            classes/*/*)
-                d="tests/$(echo "$f" | cut -d/ -f2)"
-                if [ -d "$plugin_dir/$d" ]; then
-                    phpunit_targets+=("$d")
+            classes/*.php | tests/fixtures/*.php)
+                found=$(tests_for_class "$f")
+                if [ -n "$found" ]; then
+                    mapfile -t hits <<<"$found"
+                    phpunit_targets+=("${hits[@]}")
                 else
-                    phpunit_all=1
-                    phpunit_reason="$f has no test directory ($d)"
+                    d="tests/$(echo "$f" | cut -d/ -f2)"
+                    if [[ "$f" == classes/*/* && -d "$plugin_dir/$d" ]]; then
+                        # No test names the class: the tests of its directory are the next best thing.
+                        phpunit_targets+=("$d")
+                    else
+                        phpunit_notes+=("$f: no test mentions it")
+                    fi
                 fi
-                ;;
-            classes/*)
-                phpunit_all=1
-                phpunit_reason="$f is not in a subdirectory of classes/"
                 ;;
             tests/behat/*) ;;
             tests/*_test.php | tests/*/*_test.php) phpunit_targets+=("$f") ;;
@@ -274,7 +317,16 @@ run_docker() {
     fi
 
     # What PHPUnit runs: nothing (stil), the targets the changes map to (schimbari), or the whole suite.
-    local phpunitcmd=""
+    local phpunitcmd="" phpunitprep="" n
+    if [ "$level" = "schimbari" ]; then
+        for n in "${phpunit_notes[@]+"${phpunit_notes[@]}"}"; do
+            echo "PHPUnit note: $n"
+        done
+        if [ "$phpunit_init" = "1" ]; then
+            # version.php or db/ changed: if the test site is not up to date (--diag says so), initialise it again.
+            phpunitprep="php public/admin/tool/phpunit/cli/util.php --diag >/dev/null 2>&1 || php public/admin/tool/phpunit/cli/init.php --disable-composer; "
+        fi
+    fi
     if [ "$level" = "stil" ]; then
         skip phpunit "level stil does not run PHPUnit (use schimbari)"
     elif [ "$level" != "schimbari" ] || [ "$phpunit_all" = "1" ]; then
@@ -307,7 +359,7 @@ run_docker() {
             fast_tree "$moodleroot" || exit 2
         fi
         # The filter goes in an environment variable: it holds backslashes, which would not survive three layers of quotes.
-        start phpunit docker exec -e "VERIFICA_FILTER=${phpunit_filter:-}" "$container" sh -c "cd $moodleroot && $phpunitcmd"
+        start phpunit docker exec -e "VERIFICA_FILTER=${phpunit_filter:-}" "$container" sh -c "cd $moodleroot && $phpunitprep$phpunitcmd"
     fi
 
     if [ "$level" = "complet" ]; then
