@@ -55,6 +55,9 @@ final class validation_error {
     /** @var string Schema keyword of an object that carries keys the schema does not allow. */
     public const KEYWORD_ADDITIONAL_PROPERTIES = 'additionalProperties';
 
+    /** @var string Schema keyword of an object that lacks keys the schema requires. */
+    public const KEYWORD_REQUIRED = 'required';
+
     /** @var string[] Every code, in the order they are reported. */
     public const CODES = [
         self::CODE_NOT_JSON,
@@ -75,7 +78,7 @@ final class validation_error {
      * @param string $message English message for the model, never shown to a user as it is.
      * @param string $keyword Schema keyword the value broke (required, enum, additionalProperties...),
      *                        empty for an error that did not come from the schema.
-     * @param string[] $keys Names of the keys the schema rejected, for additionalProperties only.
+     * @param string[] $keys Names of the keys the schema rejected (additionalProperties) or found missing (required).
      */
     public function __construct(
         /** @var string JSON Pointer of the offending value. */
@@ -86,7 +89,7 @@ final class validation_error {
         public readonly string $message,
         /** @var string Schema keyword the value broke, empty when the error is not a schema one. */
         public readonly string $keyword = '',
-        /** @var string[] Names of the keys the schema rejected (additionalProperties). */
+        /** @var string[] Names of the keys the schema rejected (additionalProperties) or found missing (required). */
         public readonly array $keys = [],
     ) {
     }

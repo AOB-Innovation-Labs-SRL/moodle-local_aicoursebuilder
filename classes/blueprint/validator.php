@@ -119,9 +119,12 @@ class validator {
         $describe = static fn(\Opis\JsonSchema\Errors\ValidationError $error) => [
             'message' => $formatter->formatErrorMessage($error) . self::allowed_values($error),
             'keyword' => $error->keyword(),
-            'keys' => $error->keyword() === validation_error::KEYWORD_ADDITIONAL_PROPERTIES
-                ? array_map('strval', (array) ($error->args()['properties'] ?? []))
-                : [],
+            'keys' => match ($error->keyword()) {
+                validation_error::KEYWORD_ADDITIONAL_PROPERTIES
+                    => array_map('strval', (array) ($error->args()['properties'] ?? [])),
+                validation_error::KEYWORD_REQUIRED => array_map('strval', (array) ($error->args()['missing'] ?? [])),
+                default => [],
+            },
         ];
         $errors = [];
         foreach ($formatter->formatKeyed($result->error(), $describe) as $path => $found) {

@@ -446,6 +446,16 @@ final class validator_test extends \basic_testcase {
         $this->assertCount(1, $errors);
         $this->assertSame(validation_error::KEYWORD_ADDITIONAL_PROPERTIES, $errors[0]->keyword);
         $this->assertSame(['stray'], $errors[0]->keys);
+
+        $blueprint = $this->golden;
+        unset($blueprint['sections'][0]['activities'][0]['name']);
+        $required = array_values(array_filter(
+            $this->validator->validate($blueprint, $this->sourcetexts),
+            fn($error) => $error->keyword === validation_error::KEYWORD_REQUIRED,
+        ));
+
+        $this->assertCount(1, $required);
+        $this->assertSame(['name'], $required[0]->keys, 'the missing key is named');
     }
 
     /**

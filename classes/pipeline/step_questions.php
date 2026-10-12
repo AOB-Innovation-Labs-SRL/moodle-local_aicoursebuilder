@@ -302,11 +302,41 @@ class step_questions extends step {
             if (!is_string($ref) || ($missing[$ref] ?? 0) < 1 || $free === []) {
                 continue;
             }
-            $question['id'] = array_shift($free);
+            $question['id'] = $free[0];
+            if ($this->validate_alone($question, $nodekey) !== []) {
+                // A question that is wrong on its own (a match with no subquestions) would only fail the quiz.
+                continue;
+            }
+            array_shift($free);
             $added[] = $question;
             $missing[$ref]--;
         }
         return $added;
+    }
+
+    /**
+     * Checks one question on its own, as the only question of a quiz.
+     *
+     * Schema and Moodle rules of a question do not depend on the others, so a question that breaks them can be
+     * told apart before it is added to the quiz: the counts of the quiz are left out, because they are not the
+     * question's to satisfy.
+     *
+     * @param array $question The question.
+     * @param string $nodekey Section id.
+     * @return validation_error[] The errors of the question itself.
+     */
+    protected function validate_alone(array $question, string $nodekey): array {
+        $fragment = ['id' => $nodekey, 'quiz' => [
+            'id' => $nodekey . '.quiz1',
+            'type' => 'quiz',
+            'name' => $nodekey,
+            'content' => ['questions' => [$question]],
+        ]];
+        return $this->context->validator->validate_step(
+            $this->get_step(),
+            $fragment,
+            $this->context->sourcetexts,
+        );
     }
 
     /**

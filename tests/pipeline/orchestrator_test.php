@@ -1088,11 +1088,11 @@ final class orchestrator_test extends \advanced_testcase {
     /**
      * Starts a new fake connector and queues a whole run on it, with other answers for section s1.
      *
-     * @param array|null $s1section Answer of the sections step for s1, null for its fixture.
+     * @param array|string|null $s1section Answer of the sections step for s1, a string being sent as it is; null for the fixture.
      * @param array[]|null $s1quizzes Answers of the questions step for s1 in the order it asks for
      *                                them, null for the fixture.
      */
-    private function queue_run(?array $s1section = null, ?array $s1quizzes = null): void {
+    private function queue_run(array|string|null $s1section = null, ?array $s1quizzes = null): void {
         $this->connector = new fake_connector();
         router::set_test_connector($this->connector);
         foreach (['s1', 's1-1', 's2', 's3'] as $id) {
@@ -1266,6 +1266,52 @@ final class orchestrator_test extends \advanced_testcase {
 
         $this->assertSame([], $outcome->manualnodes);
         $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR));
+    }
+
+    /**
+     * An answer that is not JSON at all reaches the repair as the model wrote it, instead of ending the node.
+     */
+    public function test_an_answer_that_is_not_json_goes_to_repair(): void {
+        $this->queue_run('Iată secțiunea cerută, cu mult drag!');
+        $this->connector->push(request::STEP_REPAIR, $this->section_fixture('s1'));
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR));
+        $this->assertStringContainsString(
+            'Iată secțiunea cerută',
+            $this->sent($this->connector->requests(request::STEP_REPAIR)[0]),
+            'the repair is given the answer to correct',
+        );
+    }
+
+    /**
+     * A question the model wrote for the missing ones that is wrong on its own is left out of the quiz.
+     */
+    public function test_a_missing_question_that_is_invalid_is_not_added(): void {
+        $quiz = $this->quiz_fixture('s1');
+        $original = $quiz['quiz']['content']['questions'];
+        $quiz['quiz']['content']['questions'] = array_values(array_filter(
+            $original,
+            fn($question) => !in_array($question['id'], ['q9', 'q10'], true),
+        ));
+        $nosub = array_replace($original[8], ['id' => 'q1', 'qtype' => 'match']);
+        unset($nosub['answers'], $nosub['single'], $nosub['shuffleanswers']);
+        $fill = ['id' => 's1', 'quiz' => [
+            'id' => 's1.quiz1',
+            'type' => 'quiz',
+            'name' => 'Missing',
+            'content' => ['questions' => [$nosub, array_replace($original[9], ['id' => 'q1'])]],
+        ]];
+        $this->queue_run(null, [$quiz, $fill]);
+        $this->connector->push(request::STEP_REPAIR, $this->quiz_fixture('s1'));
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR), 'the one still missing goes to repair');
+        $this->assertCount(10, $this->first_quiz_questions($outcome->blueprint));
     }
 
     /**

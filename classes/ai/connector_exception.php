@@ -96,4 +96,24 @@ class connector_exception extends \moodle_exception {
         }
         return new self(self::INVALID_JSON, null, $detail);
     }
+
+    /**
+     * Throws when a JSON answer that does not decode was cut off at the output limit, and does nothing otherwise.
+     *
+     * An answer that stopped on its own but is not valid JSON (a comma too many, a sentence before the object) is
+     * not an error of the call: the answer is there, and the pipeline can repair it locally or send it to a repair
+     * call. Throwing here lost the answer, so a node whose JSON was one character off went to a human. A truncated
+     * answer is different, because a longer limit is the fix and repairing a cut-off document would not complete it.
+     *
+     * @param string $finishreason Why the model stopped, as the provider reports it.
+     * @param int $maxtokens Output limit the request was sent with, 0 when none.
+     * @param string $detail Debug detail, never the answer itself.
+     * @throws self When the answer was cut off at the limit.
+     */
+    public static function fail_if_truncated(string $finishreason, int $maxtokens, string $detail): void {
+        $failure = self::for_undecodable_json($finishreason, $maxtokens, $detail);
+        if ($failure->errorcode === self::TRUNCATED) {
+            throw $failure;
+        }
+    }
 }
