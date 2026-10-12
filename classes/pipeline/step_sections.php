@@ -93,24 +93,72 @@ class step_sections extends step {
      * @param array $input Step input.
      * @param string $nodekey Section id.
      * @param spend $spend Running total of what this node has cost.
-     * @return array The answer without those activities.
+     * @return array The answer with its id set, the pages of its lessons numbered and the links nobody can use dropped.
      */
     protected function normalize(array $output, array $input, string $nodekey, spend $spend): array {
+        // The id of the answer is the id of the node it was asked for: the pipeline already knows it.
+        if (($output['id'] ?? null) !== $nodekey) {
+            $output['id'] = $nodekey;
+            $this->warnings[] = ['path' => '/id', 'keyword' => validation_error::KEYWORD_REQUIRED, 'removed' => 0, 'added' => 1];
+        }
         $activities = $output['activities'] ?? null;
-        if (!is_array($activities) || !array_is_list($activities) || $this->context->sourcetexts === []) {
+        if (!is_array($activities) || !array_is_list($activities)) {
             return $output;
         }
-        $kept = array_values(array_filter($activities, fn($activity) => !$this->is_unsourced_link($activity)));
-        if ($kept === [] || count($kept) === count($activities)) {
+        $output['activities'] = array_map(fn($activity) => $this->number_lesson_pages($activity), $activities);
+        if ($this->context->sourcetexts === []) {
+            return $output;
+        }
+        $kept = array_values(array_filter(
+            $output['activities'],
+            fn($activity) => !$this->is_unsourced_link($activity),
+        ));
+        if ($kept === [] || count($kept) === count($output['activities'])) {
             return $output;
         }
         $this->warnings[] = [
             'path' => '/activities',
             'keyword' => validation_error::CODE_URL_NOT_IN_SOURCES,
-            'removed' => count($activities) - count($kept),
+            'removed' => count($output['activities']) - count($kept),
         ];
         $output['activities'] = $kept;
         return $output;
+    }
+
+    /**
+     * Gives the pages of a lesson that have no id the id their position makes: p1, p2, p3.
+     *
+     * The prompt asks for exactly these ids, and the jumps of a lesson refer to them, so a page that was left
+     * without one gets the id the other pages already count on. A page that has an id keeps it.
+     *
+     * @param mixed $activity One activity of the answer.
+     * @return mixed The activity, with the missing page ids filled in.
+     */
+    protected function number_lesson_pages(mixed $activity): mixed {
+        $pages = is_array($activity) && ($activity['type'] ?? null) === 'lesson'
+            ? ($activity['content']['pages'] ?? null)
+            : null;
+        if (!is_array($pages) || !array_is_list($pages)) {
+            return $activity;
+        }
+        $used = array_filter(array_map(fn($page) => is_array($page) ? ($page['id'] ?? null) : null, $pages));
+        $added = 0;
+        foreach ($pages as $index => $page) {
+            if (is_array($page) && empty($page['id']) && !in_array('p' . ($index + 1), $used, true)) {
+                $pages[$index]['id'] = 'p' . ($index + 1);
+                $added++;
+            }
+        }
+        if ($added > 0) {
+            $this->warnings[] = [
+                'path' => '/content/pages',
+                'keyword' => validation_error::KEYWORD_REQUIRED,
+                'removed' => 0,
+                'added' => $added,
+            ];
+            $activity['content']['pages'] = $pages;
+        }
+        return $activity;
     }
 
     /**
@@ -125,6 +173,10 @@ class step_sections extends step {
             : null;
         if (!is_string($url)) {
             return false;
+        }
+        // An address the schema would refuse (spaces, a missing scheme) is no more use to the learner than an invented one.
+        if (filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return true;
         }
         foreach ($this->context->sourcetexts as $text) {
             if (str_contains($text, $url)) {

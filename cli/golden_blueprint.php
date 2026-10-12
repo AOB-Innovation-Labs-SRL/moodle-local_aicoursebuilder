@@ -167,6 +167,7 @@ function golden_blueprint_measure(int $jobid): array {
     $content = array_filter($steps, fn($step) => in_array($step->step, ['sections', 'activities', 'questions'], true));
     $manual = [];
     $cleaned = 0;
+    $repaired = [];
     foreach ($content as $step) {
         $reason = failure_reason::decode($step->error);
         if ($step->status === 'manual' || $step->status === 'error') {
@@ -174,6 +175,8 @@ function golden_blueprint_measure(int $jobid): array {
                 . ($reason === null ? (string) $step->error : json_encode($reason, JSON_UNESCAPED_UNICODE));
         } else if ($reason !== null && $reason['type'] === failure_reason::TYPE_CLEANED) {
             $cleaned++;
+        } else if ($reason !== null && $reason['type'] === failure_reason::TYPE_REPAIRED) {
+            $repaired[] = "{$step->step}/{$step->nodekey}: " . json_encode($reason['errors'], JSON_UNESCAPED_UNICODE);
         }
     }
 
@@ -214,6 +217,7 @@ function golden_blueprint_measure(int $jobid): array {
         'nodes' => count($content),
         'manual' => $manual,
         'cleaned' => $cleaned,
+        'repaired' => $repaired,
         'repairs' => $repairs,
         'generations' => $generations,
         'tokens' => $tokens,
@@ -285,6 +289,9 @@ $lines[] = '';
 foreach ($results as $result) {
     foreach ($result['manual'] ?? [] as $reason) {
         $lines[] = "- {$result['file']}, {$reason}";
+    }
+    foreach ($result['repaired'] ?? [] as $reason) {
+        $lines[] = "- {$result['file']}, repaired, first errors of {$reason}";
     }
     if (!empty($result['jobmessage'])) {
         $lines[] = "- {$result['file']}, job message: {$result['jobmessage']}";

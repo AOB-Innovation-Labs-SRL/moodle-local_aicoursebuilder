@@ -188,6 +188,20 @@ class step_questions extends step {
      * @return array The answer with the counts settled where that was possible.
      */
     protected function normalize(array $output, array $input, string $nodekey, spend $spend): array {
+        // The ids of the answer and of its quiz are the ones the node was asked for: the pipeline already knows them.
+        if (($output['id'] ?? null) !== $nodekey) {
+            $output['id'] = $nodekey;
+            $this->warnings[] = ['path' => '/id', 'keyword' => validation_error::KEYWORD_REQUIRED, 'removed' => 0, 'added' => 1];
+        }
+        if (is_array($output['quiz'] ?? null) && ($output['quiz']['id'] ?? null) !== $nodekey . '.quiz1') {
+            $output['quiz']['id'] = $nodekey . '.quiz1';
+            $this->warnings[] = [
+                'path' => '/quiz/id',
+                'keyword' => validation_error::KEYWORD_REQUIRED,
+                'removed' => 0,
+                'added' => 1,
+            ];
+        }
         $questions = $output['quiz']['content']['questions'] ?? null;
         $objectives = array_column($input['section']['objectives'] ?? [], 'id');
         if (!is_array($questions) || !array_is_list($questions) || $objectives === []) {
@@ -197,7 +211,22 @@ class step_questions extends step {
         $maximum = $input['questions_max'] ?? self::limits()[1];
 
         $written = count($questions);
-        $questions = self::keep_first($questions, $objectives, $maximum);
+        $settled = [];
+        foreach ($questions as $question) {
+            $question = $this->settle_question($question, $input, $nodekey);
+            if ($question !== null) {
+                $settled[] = $question;
+            }
+        }
+        if (count($settled) < $written) {
+            $this->warnings[] = [
+                'path' => '/quiz/content/questions',
+                'keyword' => 'invalid_question',
+                'removed' => $written - count($settled),
+            ];
+        }
+        $questions = self::keep_first($settled, $objectives, $maximum);
+        $written = count($settled);
         if (count($questions) < $written) {
             $this->warnings[] = [
                 'path' => '/quiz/content/questions',
@@ -220,6 +249,64 @@ class step_questions extends step {
         }
         $output['quiz']['content']['questions'] = $questions;
         return $output;
+    }
+
+    /**
+     * Returns a question as it can stand in the quiz, or null when it is wrong on its own.
+     *
+     * A question that breaks a rule of its own (an answer list it lacks, a type that does not exist, a gap marker
+     * with no choice) used to make the whole quiz fail validation, and the repair then rewrote the whole quiz to
+     * correct one question. It is left out instead, and the questions the objective is short of are asked for in
+     * the one call that tops the quiz up. Keys the schema does not allow are deleted, as they are everywhere else.
+     *
+     * @param mixed $question One entry of the questions of the answer.
+     * @param array $input Step input.
+     * @param string $nodekey Section id.
+     * @return array|null The question, or null when it has to go.
+     */
+    protected function settle_question(mixed $question, array $input, string $nodekey): ?array {
+        if (!is_array($question)) {
+            return null;
+        }
+        $fragment = ['id' => $nodekey, 'quiz' => [
+            'id' => $nodekey . '.quiz1',
+            'type' => 'quiz',
+            'name' => $nodekey,
+            'content' => ['questions' => [$question]],
+        ]];
+        for ($round = 0; $round < self::MAX_CLEAN_ROUNDS; $round++) {
+            $errors = $this->context->validator->validate_step($this->get_step(), $fragment, $this->context->sourcetexts);
+            if ($errors === []) {
+                break;
+            }
+            if (!extra_keys::are_all_extra($errors)) {
+                return null;
+            }
+            [$fragment, $removed] = extra_keys::strip($fragment, $errors);
+            if ($removed === 0) {
+                return null;
+            }
+        }
+        $question = $fragment['quiz']['content']['questions'][0] ?? null;
+        if (!is_array($question)) {
+            return null;
+        }
+
+        // The rules of this step that are about the question alone, as validate() states them for the quiz.
+        $objectives = array_column($input['section']['objectives'] ?? [], 'id');
+        foreach (['id', 'generalfeedback', 'difficulty'] as $field) {
+            if (empty($question[$field])) {
+                return null;
+            }
+        }
+        if (!in_array($question['objective_ref'] ?? null, $objectives, true)) {
+            return null;
+        }
+        $refs = $question['source_refs'] ?? null;
+        if (!is_array($refs) || (!empty($input['section']['source_refs']) && $refs === [])) {
+            return null;
+        }
+        return $question;
     }
 
     /**

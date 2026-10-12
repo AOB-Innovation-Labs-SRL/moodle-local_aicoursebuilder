@@ -52,6 +52,9 @@ abstract class step {
     /** @var int Output limit the last repair call of this node was cut off at, 0 when it was not. */
     protected int $repairtruncatedat = 0;
 
+    /** @var bool Whether the last fresh answer asked for was not JSON either, rather than failing at the provider. */
+    protected bool $regeneratedundecodable = false;
+
     /** @var array[] What this node had fixed locally, without a model call: path, keyword and what was removed. */
     protected array $warnings = [];
 
@@ -263,19 +266,28 @@ abstract class step {
      */
     protected function finish_node(string $content, array $input, string $nodekey, spend $spend): step_result {
         $this->warnings = [];
+        $this->regeneratedundecodable = false;
         $output = json_repair::decode($content);
         if ($output !== null) {
             $output = $this->normalize($output, $input, $nodekey, $spend);
         }
         $errors = $this->validate_cleaned($output, $input, $nodekey);
+        $firsterrors = $errors;
 
         $repairs = 0;
         $this->repairtruncatedat = 0;
         for ($attempt = 0; $errors !== [] && $attempt < self::MAX_REPAIR_CALLS; $attempt++) {
             // A repair call that failed at the provider still counts: it was an attempt.
             $repairs++;
-            $repaired = $this->repair($output, $content, $errors, $spend);
+            $repaired = $output === null
+                ? $this->regenerate($input, $nodekey, $spend)
+                : $this->repair($output, $content, $errors, $spend);
             if ($repaired === null) {
+                // A fresh answer that is not JSON either is one attempt used, and the next may do better. A repair that
+                // is not JSON, or any call that failed at the provider, is not tried again.
+                if ($output === null && $this->regeneratedundecodable) {
+                    continue;
+                }
                 break;
             }
             $output = $this->normalize($repaired, $input, $nodekey, $spend);
@@ -290,9 +302,9 @@ abstract class step {
                 tokenscached: $spend->tokenscached,
                 cost: $spend->cost,
                 calls: $spend->calls,
-                error: $this->warnings === []
+                error: $this->warnings === [] && $repairs === 0
                     ? ''
-                    : failure_reason::from_warnings($this->warnings, $repairs, 1 + $repairs),
+                    : failure_reason::from_warnings($this->warnings, $repairs, 1 + $repairs, $firsterrors),
             );
         }
 
@@ -392,6 +404,34 @@ abstract class step {
             $this->warnings = array_slice($this->warnings, 0, $warned);
         }
         return $errors;
+    }
+
+    /**
+     * Asks for the node again, from the start, when its first answer was not JSON at all.
+     *
+     * A JSON that does not decode is mostly a structural slip in a deeply nested answer, such as a lesson with
+     * pages and answers: one bracket missing somewhere in thousands of tokens. A repair call is given that
+     * document to correct and tends to repeat the slip, while a new answer to the same request is a fresh
+     * draw that does not carry it. It costs what a repair costs, and counts as one.
+     *
+     * @param array $input Everything the step needs.
+     * @param string $nodekey Sub-call key, empty for a step that runs once.
+     * @param spend $spend Running total of what this node has cost.
+     * @return array|null The new answer, or null when it failed or is not JSON either.
+     * @throws budget_exceeded_exception When a limit stops the call before it is sent.
+     */
+    protected function regenerate(array $input, string $nodekey, spend $spend): ?array {
+        try {
+            $result = $this->call($this->request_for($input, $nodekey), $spend);
+        } catch (connector_exception $e) {
+            $this->regeneratedundecodable = false;
+            $this->repairtruncatedat = $e->errorcode === connector_exception::TRUNCATED ? (int) $e->a : 0;
+            return null;
+        }
+        $this->repairtruncatedat = 0;
+        $decoded = json_repair::decode($result->content);
+        $this->regeneratedundecodable = $decoded === null;
+        return $decoded;
     }
 
     /**

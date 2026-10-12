@@ -304,16 +304,23 @@ final class digest_builder_test extends \advanced_testcase {
     }
 
     /**
-     * An answer that never fits the schema is sent back for repair, at most twice, and then the digest fails; a
-     * repair that is not JSON ends the repairs at once. Every call was paid for, and a new try calls again.
+     * An answer that never fits the schema is sent back for repair, at most twice, and then the digest fails; an
+     * answer that is not JSON is asked for again, at most twice, and then the digest fails. Every call was paid
+     * for, and a new try calls again.
      *
      * @dataProvider invalid_answers_provider
      * @param mixed $answer What the connector gives, every time.
      * @param int $calls How many calls are made before the digest fails.
+     * @param bool $notjson Whether the answer is not JSON at all, which is asked for again rather than repaired.
      */
-    public function test_answer_that_never_fits(mixed $answer, int $calls): void {
+    public function test_answer_that_never_fits(mixed $answer, int $calls, bool $notjson = false): void {
         $this->connector->set_cost_per_call(0.25);
         $this->connector->push(request::STEP_DIGEST, $answer);
+        if ($notjson) {
+            // An answer that is not JSON is asked for again from the start, twice, not sent to a repair.
+            $this->connector->push(request::STEP_DIGEST, $answer);
+            $this->connector->push(request::STEP_DIGEST, $answer);
+        }
         $this->connector->push(request::STEP_REPAIR, $answer);
         $this->connector->push(request::STEP_REPAIR, $answer);
         $builder = new digest_builder();
@@ -344,8 +351,8 @@ final class digest_builder_test extends \advanced_testcase {
      */
     public static function invalid_answers_provider(): array {
         return [
-            'text, not JSON' => ['Nu pot face asta.', 2],
-            'empty object' => [[], 2],
+            'text, not JSON' => ['Nu pot face asta.', 3, true],
+            'empty object' => [[], 3, true],
             'all lists empty' => [['title' => 'X', 'language' => 'ro', 'concepts' => [], 'definitions' => [],
                 'objectives' => [], 'procedures' => []], 3],
             'item without a definition' => [['title' => 'X', 'language' => 'ro', 'concepts' => [],

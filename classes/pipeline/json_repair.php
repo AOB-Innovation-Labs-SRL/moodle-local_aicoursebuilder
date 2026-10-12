@@ -86,7 +86,7 @@ class json_repair {
         $json = self::quote_normalise($json);
         $json = self::fix_literals($json);
         $json = self::drop_trailing_commas($json);
-        return self::close_brackets($json);
+        return self::close_brackets(self::close_missing_brackets($json));
     }
 
     /**
@@ -192,6 +192,57 @@ class json_repair {
      */
     protected static function drop_trailing_commas(string $json): string {
         return self::outside_strings($json, fn(string $chunk) => preg_replace('/,(\s*[}\]])/', '$1', $chunk));
+    }
+
+    /**
+     * Closes an array or object the model forgot to close before the one around it ended, and drops a closer with
+     * nothing open to close.
+     *
+     * The commonest mistake of a deeply nested answer, a lesson with pages with answers, is a missing bracket in
+     * the middle: the text is as long as it should be, every string is closed, and the brackets still do not add up.
+     * A closer that does not match what is open means the open thing was meant to end just before it, so its own
+     * closer is put there. The structure the model wrote is kept as it is; what is added is only what the next
+     * closer proves was missing, and the schema check that follows decides whether the result is a valid answer.
+     *
+     * @param string $json The JSON candidate.
+     * @return string
+     */
+    protected static function close_missing_brackets(string $json): string {
+        $out = '';
+        $stack = [];
+        $instring = false;
+        $escaped = false;
+        $length = strlen($json);
+        for ($i = 0; $i < $length; $i++) {
+            $char = $json[$i];
+            if ($instring) {
+                $out .= $char;
+                if ($escaped) {
+                    $escaped = false;
+                } else if ($char === '\\') {
+                    $escaped = true;
+                } else if ($char === '"') {
+                    $instring = false;
+                }
+                continue;
+            }
+            if ($char === '"') {
+                $instring = true;
+            } else if ($char === '{' || $char === '[') {
+                $stack[] = $char;
+            } else if ($char === '}' || $char === ']') {
+                $open = $char === '}' ? '{' : '[';
+                if (!in_array($open, $stack, true)) {
+                    continue;
+                }
+                while (end($stack) !== $open) {
+                    $out = rtrim($out, " \t\r\n,") . (array_pop($stack) === '{' ? '}' : ']');
+                }
+                array_pop($stack);
+            }
+            $out .= $char;
+        }
+        return $out;
     }
 
     /**
