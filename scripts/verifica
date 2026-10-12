@@ -92,9 +92,9 @@ skip() {
 ci_static() {
     # The static checks share one moodle-plugin-ci install and do not use the database; they run one after the
     # other so the cores stay for PHPUnit and Behat. Every one runs even if an earlier one failed.
+    # phpdoc is not here: see run_ci.
     local rc=0 cmd
-    for cmd in "phplint" "phpcs --max-warnings 0" "phpdoc --max-warnings 0" "savepoints" "mustache" \
-        "grunt --max-lint-warnings 0"; do
+    for cmd in "phplint" "phpcs --max-warnings 0" "savepoints" "mustache" "grunt --max-lint-warnings 0"; do
         # No ::group:: here: GitHub does not nest groups, and this log is shown inside one.
         echo "=== moodle-plugin-ci $cmd"
         # shellcheck disable=SC2086
@@ -108,6 +108,12 @@ run_ci() {
         echo "The level $level exists only for the docker backend; CI runs complet." >&2
         exit 2
     fi
+    # moodle-plugin-ci phpdoc copies local_moodlecheck into the Moodle tree and deletes it when it is done. A PHPUnit
+    # or Behat run that lists the plugins meanwhile finds local/moodlecheck without its version.php, and the include
+    # warning fails PHPUnit (--fail-on-warning). So phpdoc runs first, alone; the bash wait below reads its status
+    # again from the saved one.
+    start phpdoc moodle-plugin-ci phpdoc --max-warnings 0
+    wait "${pids[-1]}"
     start static ci_static
     start phpunit moodle-plugin-ci phpunit --fail-on-warning
     [ "$level" = "rapid" ] && return
