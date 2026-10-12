@@ -92,7 +92,7 @@ final class failure_reason {
     }
 
     /**
-     * Describes a node that validated after the pipeline fixed something in it without a model call.
+     * Describes a node that validated after the pipeline fixed something in it, with or without a repair call.
      *
      * Each warning is a fix the teacher may want to know about: a key the schema does not allow that
      * was deleted, or questions over the maximum that were dropped. It names the path, the schema
@@ -100,8 +100,8 @@ final class failure_reason {
      *
      * @param array[] $warnings Fixes made: ['path' => string, 'keyword' => string, 'removed' => string[]|int].
      * @param int $repairs Repair calls made.
-     * @param array $firsterrors Errors of the first answer, kept when a repair call was needed.
      * @param int $attempts Calls made in all, the first one included.
+     * @param array $firsterrors Errors of the first answer, kept when a repair call was needed.
      * @return string JSON reason.
      */
     public static function from_warnings(array $warnings, int $repairs, int $attempts, array $firsterrors = []): string {
