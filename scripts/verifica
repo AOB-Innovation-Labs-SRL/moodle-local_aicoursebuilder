@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Single verification entry point, used locally and by GitHub Actions (.github/workflows/ci.yml).
 #
-#   scripts/verifica rapid     iteration: syntax, coding style and PHPUnit
+#   scripts/verifica schimbari after each task: only what changed against origin/main (docker backend only)
+#   scripts/verifica rapid     iteration: syntax, coding style and the whole PHPUnit suite
 #   scripts/verifica complet   before a PR: everything the environment can run
+#
+# schimbari: takes the .php files that differ from origin/main (commits, working tree and new files), runs php -l and
+# phpcs on those files only, and PHPUnit on the test directories they map to (classes/builder/x.php -> tests/builder,
+# a changed tests/**/*_test.php runs by itself). The whole suite runs instead when something global changed (db/,
+# version.php, lib.php, lang/, schema/, prompts/, tests/fixtures/), or a changed file under classes/ has no test
+# directory. No Behat: it runs in CI.
 #
 # The independent checks run as parallel processes; the log of each one is shown at the end, with a summary.
 # Exit status is 0 only if every check passed (a skipped check is reported, and does not fail the run).
@@ -30,9 +37,9 @@ set -u
 
 level="${1:-}"
 case "$level" in
-    rapid | complet) ;;
+    schimbari | rapid | complet) ;;
     *)
-        echo "Usage: scripts/verifica rapid|complet" >&2
+        echo "Usage: scripts/verifica schimbari|rapid|complet" >&2
         exit 2
         ;;
 esac
@@ -81,6 +88,10 @@ ci_static() {
 }
 
 run_ci() {
+    if [ "$level" = "schimbari" ]; then
+        echo "The level schimbari exists only for the docker backend; CI runs complet." >&2
+        exit 2
+    fi
     start static ci_static
     if [ "$level" = "rapid" ]; then
         start phpunit moodle-plugin-ci phpunit --fail-on-warning
@@ -92,6 +103,60 @@ run_ci() {
         start behat moodle-plugin-ci behat --profile chrome
     else
         skip behat "no feature file in tests/behat"
+    fi
+}
+
+# ---- changed files (level schimbari) --------------------------------------------------------------------------
+
+# Sets: changed_php (existing .php files, not thirdparty), phpunit_all (1 = whole suite), phpunit_targets (paths
+# relative to the plugin: test directories or files) and phpunit_reason.
+compute_changes() {
+    local base="origin/main" f d changed
+    git -C "$plugin_dir" rev-parse --verify -q "$base" >/dev/null || {
+        echo "$base not found: run 'git fetch origin'." >&2
+        exit 2
+    }
+    changed=$({
+        git -C "$plugin_dir" diff --name-only "$base"...HEAD
+        git -C "$plugin_dir" diff --name-only HEAD
+        git -C "$plugin_dir" ls-files -o --exclude-standard
+    } | sort -u)
+    changed_php=()
+    phpunit_all=0
+    phpunit_targets=()
+    phpunit_reason=""
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in thirdparty/* | amd/build/* | .github/* | scripts/* | *.md) continue ;; esac
+        case "$f" in
+            db/* | version.php | lib.php | lang/* | schema/* | prompts/* | tests/fixtures/*)
+                phpunit_all=1
+                phpunit_reason="$f is global"
+                ;;
+        esac
+        [ -e "$plugin_dir/$f" ] || continue
+        case "$f" in *.php) changed_php+=("$f") ;; esac
+        case "$f" in
+            classes/*/*)
+                d="tests/$(echo "$f" | cut -d/ -f2)"
+                if [ -d "$plugin_dir/$d" ]; then
+                    phpunit_targets+=("$d")
+                else
+                    phpunit_all=1
+                    phpunit_reason="$f has no test directory ($d)"
+                fi
+                ;;
+            classes/*)
+                phpunit_all=1
+                phpunit_reason="$f is not in a subdirectory of classes/"
+                ;;
+            tests/behat/*) ;;
+            tests/*_test.php | tests/*/*_test.php) phpunit_targets+=("$f") ;;
+            tests/*/*) phpunit_targets+=("$(echo "$f" | cut -d/ -f1-2)") ;;
+        esac
+    done <<<"$changed"
+    if [ "${#phpunit_targets[@]}" -gt 0 ]; then
+        mapfile -t phpunit_targets < <(printf '%s\n' "${phpunit_targets[@]}" | sort -u)
     fi
 }
 
@@ -124,11 +189,26 @@ run_docker() {
         exit 2
     fi
 
-    start phplint dexec sh -c "cd $plugin && out=\$(find . -name '*.php' -not -path './thirdparty/*' -print0 \
-        | xargs -0 -n40 -P8 php -l 2>&1 | grep -v '^No syntax errors') ; [ -z \"\$out\" ] || { echo \"\$out\"; exit 1; }"
+    # What php -l and phpcs look at: the whole plugin, or only the changed files (paths have no spaces or quotes).
+    local listfiles="find . -name '*.php' -not -path './thirdparty/*' -print0" phpcsfiles="."
+    if [ "$level" = "schimbari" ]; then
+        compute_changes
+        echo "Changed .php files: ${#changed_php[@]}"
+        listfiles="printf '%s\\0' ${changed_php[*]:-}"
+        phpcsfiles="${changed_php[*]:-}"
+    fi
 
-    if dexec test -x "$phpcs"; then
-        start phpcs dexec sh -c "cd $plugin && php -d memory_limit=1G $phpcs --standard=moodle --extensions=php --warning-severity=1 --ignore=*/thirdparty/*,*/amd/build/*,*/vendor/*,*/node_modules/* -q ."
+    if [ "$level" = "schimbari" ] && [ "${#changed_php[@]}" -eq 0 ]; then
+        skip "phplint, phpcs" "no changed .php file"
+    else
+        start phplint dexec sh -c "cd $plugin && out=\$($listfiles | xargs -0 -n40 -P8 php -l 2>&1 \
+            | grep -v '^No syntax errors') ; [ -z \"\$out\" ] || { echo \"\$out\"; exit 1; }"
+    fi
+
+    if [ "$level" = "schimbari" ] && [ "${#changed_php[@]}" -eq 0 ]; then
+        :
+    elif dexec test -x "$phpcs"; then
+        start phpcs dexec sh -c "cd $plugin && php -d memory_limit=1G $phpcs --standard=moodle --extensions=php --warning-severity=1 --ignore=*/thirdparty/*,*/amd/build/*,*/vendor/*,*/node_modules/* -q $phpcsfiles"
     else
         skip phpcs "$phpcs not found in the container (see moodle-env/README.md for how to install moodle-cs)"
     fi
@@ -138,7 +218,21 @@ run_docker() {
         moodleroot=/opt/moodle-fast
         fast_tree "$plugin" "$moodleroot" || exit 2
     fi
-    start phpunit dexec sh -c "cd $moodleroot && vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite"
+    if [ "$level" != "schimbari" ] || [ "$phpunit_all" = "1" ]; then
+        [ "$level" = "schimbari" ] && echo "PHPUnit: whole suite ($phpunit_reason)"
+        start phpunit dexec sh -c "cd $moodleroot && vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite"
+    elif [ "${#phpunit_targets[@]}" -gt 0 ]; then
+        echo "PHPUnit: ${phpunit_targets[*]}"
+        # PHPUnit takes one path per run, so the targets run one after the other; every one runs even if an
+        # earlier one failed.
+        local cmd="rc=0;" t
+        for t in "${phpunit_targets[@]}"; do
+            cmd+=" vendor/bin/phpunit $plugin_rel/$t || rc=1;"
+        done
+        start phpunit dexec sh -c "cd $moodleroot && $cmd exit \$rc"
+    else
+        skip phpunit "no changed file maps to a test"
+    fi
 
     if [ "$level" = "complet" ]; then
         if [ "${VERIFICA_NO_BEHAT:-}" = "1" ]; then

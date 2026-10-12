@@ -91,11 +91,16 @@ One script, `scripts/verifica`, runs the checks, locally and in CI. The independ
 processes; at the end it shows the log of each one and a summary, and the exit status is 0 only if all passed.
 
 ```bash
-scripts/verifica rapid     # iteration: php -l, phpcs and PHPUnit
+scripts/verifica schimbari # after each task: php -l, phpcs and PHPUnit only for what changed against origin/main
+scripts/verifica rapid     # php -l, phpcs and the whole PHPUnit suite
 scripts/verifica complet   # before a PR: everything the environment can run (adds Behat; in CI also phpdoc,
                            # savepoints, mustache and grunt)
 ```
 
+- `schimbari` takes the `.php` files that differ from `origin/main` and runs php -l and phpcs on them, and PHPUnit on
+  the test directories they map to (`classes/builder/x.php` -> `tests/builder`; a changed `*_test.php` runs by itself).
+  The whole suite runs instead if `db/`, `version.php`, `lib.php`, `lang/`, `schema/`, `prompts/` or `tests/fixtures/`
+  changed, or a changed file under `classes/` has no test directory. No Behat. Run `git fetch origin` first.
 - **Locally** it runs in the webserver container of the moodle-docker stack (`moodle-env/README.md`). Set
   `VERIFICA_CONTAINER` if the container is not `moodle503-webserver-1`. Behat runs only if it was initialised in
   the container (`php public/admin/tool/behat/cli/init.php`); `VERIFICA_NO_BEHAT=1` skips it. phpdoc is part of the

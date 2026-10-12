@@ -76,8 +76,11 @@ Create a directory only when it gets its first file.
 
 ## Verification before pushing
 
-- Before a push: `scripts/verifica complet` green locally (`scripts/verifica rapid` while iterating; see README.md,
-  Verification script). CI runs the same script.
+- After each task: `scripts/verifica schimbari` green (php -l and phpcs on the changed files, PHPUnit on the test
+  directories they touch; takes seconds to a minute or two). Do not run the whole suite after every small change.
+- Before opening a pull request: `scripts/verifica complet` green locally, or rely on CI for it. Work on `dev-christi`
+  and push often: CI runs on pull requests only, so a push costs nothing. A pull request is opened when a group of
+  tasks is done, not for each task of 15 minutes.
 - CI green on the pull request. CI runs on pull requests to `main` and on demand, never on a push:
   a pull request runs a reduced matrix of two combinations, which between them cover both PHP
   versions, both Moodle branches and both databases.
