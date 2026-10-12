@@ -37,7 +37,7 @@ jobs:
       # A pull request that touches only documentation, deploy.sh or .gitignore does not need the matrix. The
       # workflow cannot use `paths-ignore`: the branch protection of main requires the checks by name, and a
       # workflow skipped by a path filter leaves them pending for ever. So the jobs always run and report, and
-      # the steps that cost time are skipped when `code` is false.
+      # the steps that cost time are skipped when `code` is false. A change under prompts/ is never skipped.
       - name: Check out repository code
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/checkout@v6
@@ -51,7 +51,9 @@ jobs:
         run: |
           code=true
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            if ! git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qvE '(\.md|^deploy\.sh|^\.gitignore)$'; then
+            files=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+            # prompts/ holds versioned prompts, which are code even when the files are .md: they always count.
+            if ! echo "$files" | grep -q '^prompts/' && ! echo "$files" | grep -qvE '(\.md|^deploy\.sh|^\.gitignore)$'; then
               code=false
               echo 'Only documentation, deploy.sh or .gitignore changed: the checks are skipped.'
             fi

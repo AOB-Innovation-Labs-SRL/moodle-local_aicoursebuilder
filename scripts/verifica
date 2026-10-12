@@ -17,15 +17,16 @@
 # Backend, chosen automatically (override with VERIFICA_BACKEND=ci|docker):
 #   ci      on GitHub Actions: moodle-plugin-ci, which has to be installed already (`moodle-plugin-ci install`).
 #           Runs phplint, phpcs, phpdoc, savepoints, mustache, grunt, phpunit and behat.
-#   docker  locally: the moodle-docker stack of moodle-env/README.md. Runs php -l, phpcs (moodle-cs),
+#   docker  locally: the Docker stack that mounts this plugin (AGENTS.md, Local environment). Runs php -l, phpcs (moodle-cs),
 #           phpunit and behat in the webserver container; phpdoc is part of the moodle phpcs standard, and
 #           savepoints, mustache and grunt exist only in moodle-plugin-ci, so they are left to CI.
 #
-# Variables (docker backend):
-#   VERIFICA_CONTAINER   webserver container (default: moodle503-webserver-1)
-#   VERIFICA_PHPCS       phpcs in the container (default: /tmp/quality/vendor/bin/phpcs)
+# Variables (docker backend; none is needed when the stack of the plugin is running):
+#   VERIFICA_CONTAINER   webserver container (default: the running one that mounts this plugin, found by itself)
+#   VERIFICA_PHPCS       phpcs in the container (default: /tmp/quality/vendor/bin/phpcs or /quality/vendor/bin/phpcs)
 #   VERIFICA_BEHAT_CONFIG behat.yml in the container (default: /var/www/behatdata/behatrun/behat/behat.yml)
 #   VERIFICA_NO_BEHAT=1  skip behat (complet only)
+#   VERIFICA_RESYNC=1    make the copy of Moodle again (it is also made again when public/version.php differs)
 #   VERIFICA_NO_FAST=1   run PHPUnit in the mounted Moodle tree instead of the native copy (see below)
 #
 # Why PHPUnit runs from a copy of Moodle: after every test Moodle resets its class loader and scans the whole code
@@ -54,7 +55,6 @@ export MSYS_NO_PATHCONV=1
 
 names=()
 pids=()
-starts=()
 skipped=()
 
 # start NAME COMMAND...: runs the command in the background, its output goes to a log.
@@ -62,8 +62,15 @@ start() {
     local name="$1"
     shift
     names+=("$name")
-    starts+=("$(date +%s)")
-    ("$@" >"$logdir/$name.log" 2>&1) &
+    # The duration is measured inside the subshell: waiting for the jobs one by one would charge a fast check with
+    # the time of the slower ones before it.
+    (
+        t=$(date +%s)
+        "$@" >"$logdir/$name.log" 2>&1
+        rc=$?
+        echo $(($(date +%s) - t)) >"$logdir/$name.time"
+        exit $rc
+    ) &
     pids+=("$!")
 }
 
@@ -79,10 +86,10 @@ ci_static() {
     local rc=0 cmd
     for cmd in "phplint" "phpcs --max-warnings 0" "phpdoc --max-warnings 0" "savepoints" "mustache" \
         "grunt --max-lint-warnings 0"; do
-        echo "::group::moodle-plugin-ci $cmd"
+        # No ::group:: here: GitHub does not nest groups, and this log is shown inside one.
+        echo "=== moodle-plugin-ci $cmd"
         # shellcheck disable=SC2086
         moodle-plugin-ci $cmd || rc=1
-        echo "::endgroup::"
     done
     return $rc
 }
@@ -93,11 +100,8 @@ run_ci() {
         exit 2
     fi
     start static ci_static
-    if [ "$level" = "rapid" ]; then
-        start phpunit moodle-plugin-ci phpunit --fail-on-warning
-        return
-    fi
     start phpunit moodle-plugin-ci phpunit --fail-on-warning
+    [ "$level" = "rapid" ] && return
     # Behat starts a browser and a second Moodle site, the slowest step: only when the plugin has a feature file.
     if compgen -G "$plugin_dir/tests/behat/*.feature" >/dev/null; then
         start behat moodle-plugin-ci behat --profile chrome
@@ -110,16 +114,20 @@ run_ci() {
 
 # Sets: changed_php (existing .php files, not thirdparty), phpunit_all (1 = whole suite), phpunit_targets (paths
 # relative to the plugin: test directories or files) and phpunit_reason.
+pgit() {
+    (cd "$plugin_dir" && git "$@")
+}
+
 compute_changes() {
     local base="origin/main" f d changed
-    git -C "$plugin_dir" rev-parse --verify -q "$base" >/dev/null || {
+    pgit rev-parse --verify -q "$base" >/dev/null || {
         echo "$base not found: run 'git fetch origin'." >&2
         exit 2
     }
     changed=$({
-        git -C "$plugin_dir" diff --name-only "$base"...HEAD
-        git -C "$plugin_dir" diff --name-only HEAD
-        git -C "$plugin_dir" ls-files -o --exclude-standard
+        pgit diff --name-only "$base"...HEAD
+        pgit diff --name-only HEAD
+        pgit ls-files -o --exclude-standard
     } | sort -u)
     changed_php=()
     phpunit_all=0
@@ -127,13 +135,14 @@ compute_changes() {
     phpunit_reason=""
     while IFS= read -r f; do
         [ -n "$f" ] || continue
-        case "$f" in thirdparty/* | amd/build/* | .github/* | scripts/* | *.md) continue ;; esac
         case "$f" in
             db/* | version.php | lib.php | lang/* | schema/* | prompts/* | tests/fixtures/*)
                 phpunit_all=1
                 phpunit_reason="$f is global"
                 ;;
         esac
+        # prompts/*.md are versioned prompts: they are code, not documentation.
+        case "$f" in thirdparty/* | amd/build/* | .github/* | scripts/*) continue ;; prompts/*) ;; *.md) continue ;; esac
         [ -e "$plugin_dir/$f" ] || continue
         case "$f" in *.php) changed_php+=("$f") ;; esac
         case "$f" in
@@ -166,28 +175,65 @@ dexec() {
     docker exec "$container" "$@"
 }
 
-# fast_tree PLUGIN_PATH FAST_ROOT: makes FAST_ROOT, a copy of the mounted Moodle on the container's own disk, with the
-# current plugin and phpunit.xml in it.
+# The webserver container of the stack that mounts this plugin: the one with a bind mount at the plugin path whose
+# source ends with the name of the plugin directory. Whatever the stack or the service is called.
+find_container() {
+    local c base
+    base="$(basename "$plugin_dir")"
+    for c in $(docker ps --format '{{.Names}}' 2>/dev/null); do
+        # One line per mount: "destination|source". The source is a Windows or a Unix path.
+        if docker inspect "$c" --format '{{range .Mounts}}{{.Destination}}|{{.Source}}{{println}}{{end}}' 2>/dev/null \
+            | grep -qiE "^/var/www/html/public/local/aicoursebuilder\|.*[/\\\\]$base\$"; then
+            echo "$c"
+            return
+        fi
+    done
+}
+
+# moodle-cs (phpcs with the moodle standard): the places where the stacks keep it.
+find_phpcs() {
+    local p
+    for p in /tmp/quality/vendor/bin/phpcs /quality/vendor/bin/phpcs; do
+        if dexec test -x "$p"; then
+            echo "$p"
+            return
+        fi
+    done
+    echo /tmp/quality/vendor/bin/phpcs
+}
+
+# fast_tree FAST_ROOT: makes FAST_ROOT, a copy of the mounted Moodle on the container's own disk, with the current
+# plugin and phpunit.xml in it. The Moodle copy is made again when it is missing, when VERIFICA_RESYNC=1, or when
+# public/version.php of the mounted Moodle differs from the one in the copy (Moodle was updated).
 fast_tree() {
-    local plugin="$1" fast="$2" src=/var/www/html
+    local fast="$1" src=/var/www/html why=""
     if ! dexec test -f "$fast/.synced"; then
-        echo "First run: copying Moodle to $fast in the container (one-off, can take 20+ minutes on Windows)..." >&2
-        dexec sh -c "rm -rf $fast && mkdir -p $fast && cd $src && tar cf - --exclude=./public/local/aicoursebuilder             --exclude=./node_modules . | tar xf - -C $fast && touch $fast/.synced" || return 1
+        why="first run"
+    elif [ "${VERIFICA_RESYNC:-}" = "1" ]; then
+        why="VERIFICA_RESYNC=1"
+    elif ! dexec cmp -s "$src/public/version.php" "$fast/public/version.php"; then
+        why="Moodle was updated"
+    fi
+    if [ -n "$why" ]; then
+        echo "Copying Moodle to $fast in the container ($why; can take 20+ minutes on Windows)..." >&2
+        dexec sh -c "rm -rf $fast && mkdir -p $fast && cd $src             && tar cf - --exclude=./$plugin_rel --exclude=./node_modules . | tar xf - -C $fast             && touch $fast/.synced" || return 1
     fi
     dexec sh -c "cp $src/phpunit.xml $fast/phpunit.xml && rm -rf $fast/$plugin_rel && mkdir -p $fast/$plugin_rel         && cd $src/$plugin_rel && tar cf - --exclude=./.git . | tar xf - -C $fast/$plugin_rel" || return 1
 }
 
 run_docker() {
-    container="${VERIFICA_CONTAINER:-moodle503-webserver-1}"
-    local phpcs="${VERIFICA_PHPCS:-/tmp/quality/vendor/bin/phpcs}"
-    local behatcfg="${VERIFICA_BEHAT_CONFIG:-/var/www/behatdata/behatrun/behat/behat.yml}"
+    container="${VERIFICA_CONTAINER:-$(find_container)}"
+    local phpcs behatcfg="${VERIFICA_BEHAT_CONFIG:-/var/www/behatdata/behatrun/behat/behat.yml}"
     plugin_rel="public/local/aicoursebuilder"
     local plugin="/var/www/html/$plugin_rel"
 
-    if ! docker exec "$container" true 2>/dev/null; then
-        echo "Container $container is not running. Start the stack (moodle-env/README.md) or set VERIFICA_CONTAINER." >&2
+    if [ -z "$container" ] || ! docker exec "$container" true 2>/dev/null; then
+        echo "No running container has this plugin mounted at $plugin. Start the Docker stack of the plugin (AGENTS.md," >&2
+        echo "Local environment) or set VERIFICA_CONTAINER to its webserver container." >&2
         exit 2
     fi
+    phpcs="${VERIFICA_PHPCS:-$(find_phpcs)}"
+    echo "Container: $container"
 
     # What php -l and phpcs look at: the whole plugin, or only the changed files (paths have no spaces or quotes).
     local listfiles="find . -name '*.php' -not -path './thirdparty/*' -print0" phpcsfiles="."
@@ -210,13 +256,13 @@ run_docker() {
     elif dexec test -x "$phpcs"; then
         start phpcs dexec sh -c "cd $plugin && php -d memory_limit=1G $phpcs --standard=moodle --extensions=php --warning-severity=1 --ignore=*/thirdparty/*,*/amd/build/*,*/vendor/*,*/node_modules/* -q $phpcsfiles"
     else
-        skip phpcs "$phpcs not found in the container (see moodle-env/README.md for how to install moodle-cs)"
+        skip phpcs "moodle-cs not found in the container: set VERIFICA_PHPCS, or install it (README.md, Verification script)"
     fi
 
     local moodleroot=/var/www/html
     if [ "${VERIFICA_NO_FAST:-}" != "1" ]; then
         moodleroot=/opt/moodle-fast
-        fast_tree "$plugin" "$moodleroot" || exit 2
+        fast_tree "$moodleroot" || exit 2
     fi
     if [ "$level" != "schimbari" ] || [ "$phpunit_all" = "1" ]; then
         [ "$level" = "schimbari" ] && echo "PHPUnit: whole suite ($phpunit_reason)"
@@ -268,7 +314,7 @@ for i in "${!pids[@]}"; do
         rc=1
         status=1
     fi
-    results+=("$rc:$(($(date +%s) - starts[i]))")
+    results+=("$rc:$(cat "$logdir/${names[$i]}.time" 2>/dev/null || echo "?")")
 done
 
 echo

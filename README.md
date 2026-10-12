@@ -101,16 +101,27 @@ scripts/verifica complet   # before a PR: everything the environment can run (ad
   the test directories they map to (`classes/builder/x.php` -> `tests/builder`; a changed `*_test.php` runs by itself).
   The whole suite runs instead if `db/`, `version.php`, `lib.php`, `lang/`, `schema/`, `prompts/` or `tests/fixtures/`
   changed, or a changed file under `classes/` has no test directory. No Behat. Run `git fetch origin` first.
-- **Locally** it runs in the webserver container of the moodle-docker stack (`moodle-env/README.md`). Set
-  `VERIFICA_CONTAINER` if the container is not `moodle503-webserver-1`. Behat runs only if it was initialised in
-  the container (`php public/admin/tool/behat/cli/init.php`); `VERIFICA_NO_BEHAT=1` skips it. phpdoc is part of the
+- **Locally** it runs in the webserver container of the Docker stack that mounts this plugin at
+  `/var/www/html/public/local/aicoursebuilder` (AGENTS.md, Local environment). The script finds that container and
+  moodle-cs (`/tmp/quality` or `/quality`) by itself; if it cannot, set `VERIFICA_CONTAINER` and `VERIFICA_PHPCS`.
+  moodle-cs is installed once per container with:
+
+  ```bash
+  docker exec CONTAINER sh -c 'curl -sS https://getcomposer.org/download/latest-stable/composer.phar -o /tmp/composer.phar \
+    && mkdir -p /tmp/quality && cd /tmp/quality \
+    && php /tmp/composer.phar config --no-plugins allow-plugins.dealerdirect/phpcodesniffer-composer-installer true \
+    && php /tmp/composer.phar require --no-interaction moodlehq/moodle-cs'
+  ```
+
+  Behat runs only if it was initialised in the container (`php public/admin/tool/behat/cli/init.php`); `VERIFICA_NO_BEHAT=1` skips it. phpdoc is part of the
   moodle phpcs standard; savepoints, mustache and grunt exist only in moodle-plugin-ci, so they run only in CI.
 - **Speed on Windows/macOS:** PHPUnit runs from a copy of Moodle kept on the container's own disk
   (`/opt/moodle-fast`), not from the mounted tree. After every test Moodle scans its whole code tree again, and on the
   mounted file system that scan costs about 6 s per test: 768 tests took 92 minutes, and take about 4 minutes from the
   copy (same results). The first run makes the copy (one-off, 20+ minutes on Windows, lost if the container is
   recreated); each run then copies the plugin and `phpunit.xml` again, which takes seconds. `VERIFICA_NO_FAST=1` runs
-  in the mounted tree instead. After adding test files, regenerate `phpunit.xml` as in `moodle-env/README.md`.
+  in the mounted tree instead. After adding test files, regenerate `phpunit.xml` (`php public/admin/tool/phpunit/cli/init.php --disable-composer` in the container).
+  The copy of Moodle is made again by itself when `public/version.php` changes, or with `VERIFICA_RESYNC=1`.
 - **In CI** (`GITHUB_ACTIONS=true`) the same script runs `moodle-plugin-ci` for all checks, in parallel, after
   `moodle-plugin-ci install`. `.github/workflows/ci.yml` only prepares the environment and calls
   `scripts/verifica complet`.
