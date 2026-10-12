@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Single verification entry point, used locally and by GitHub Actions (.github/workflows/ci.yml).
 #
-#   scripts/verifica schimbari after each task: only what changed against origin/main (docker backend only)
-#   scripts/verifica rapid     iteration: syntax, coding style and the whole PHPUnit suite
-#   scripts/verifica complet   before a PR: everything the environment can run
+#   scripts/verifica stil      after each task: php -l and phpcs on the changed files, no PHPUnit (seconds)
+#   scripts/verifica schimbari after a group of tasks: stil, plus PHPUnit on the tests the changes touch (1-2 minutes)
+#   scripts/verifica rapid     before a PR: php -l, phpcs and the whole PHPUnit suite (or leave the PR to CI)
+#   scripts/verifica complet   everything the environment can run (adds Behat locally; in CI the checks of CI)
 #
-# schimbari: takes the .php files that differ from origin/main (commits, working tree and new files), runs php -l and
-# phpcs on those files only, and PHPUnit on the test directories they map to (classes/builder/x.php -> tests/builder,
-# a changed tests/**/*_test.php runs by itself). The whole suite runs instead when something global changed (db/,
+# stil and schimbari work on the .php files that changed (commits, working tree and new files) since the last green
+# run of the same level: after a green run the script saves the commit in refs/verifica/stil-ok (stil) or
+# refs/verifica/ok (schimbari, rapid, complet), and the next run starts from it. With no such reference, or one that
+# is not an ancestor of HEAD (after a rebase), it starts from origin/main. Docker backend only.
+#
+# schimbari runs PHPUnit on the test directories the changed files map to (classes/builder/x.php -> tests/builder, a
+# changed tests/**/*_test.php runs by itself). The whole suite runs instead when something global changed (db/,
 # version.php, lib.php, lang/, schema/, prompts/, tests/fixtures/), or a changed file under classes/ has no test
 # directory. No Behat: it runs in CI.
 #
@@ -38,9 +43,9 @@ set -u
 
 level="${1:-}"
 case "$level" in
-    schimbari | rapid | complet) ;;
+    stil | schimbari | rapid | complet) ;;
     *)
-        echo "Usage: scripts/verifica schimbari|rapid|complet" >&2
+        echo "Usage: scripts/verifica stil|schimbari|rapid|complet" >&2
         exit 2
         ;;
 esac
@@ -95,8 +100,8 @@ ci_static() {
 }
 
 run_ci() {
-    if [ "$level" = "schimbari" ]; then
-        echo "The level schimbari exists only for the docker backend; CI runs complet." >&2
+    if [ "$level" = "stil" ] || [ "$level" = "schimbari" ]; then
+        echo "The level $level exists only for the docker backend; CI runs complet." >&2
         exit 2
     fi
     start static ci_static
@@ -119,11 +124,17 @@ pgit() {
 }
 
 compute_changes() {
-    local base="origin/main" f d changed
-    pgit rev-parse --verify -q "$base" >/dev/null || {
-        echo "$base not found: run 'git fetch origin'." >&2
-        exit 2
-    }
+    local base="origin/main" ref=refs/verifica/ok f d changed
+    [ "$level" = "stil" ] && ref=refs/verifica/stil-ok
+    if pgit rev-parse --verify -q "$ref" >/dev/null && pgit merge-base --is-ancestor "$ref" HEAD; then
+        base="$ref"
+    else
+        pgit rev-parse --verify -q "$base" >/dev/null || {
+            echo "$base not found: run 'git fetch origin'." >&2
+            exit 2
+        }
+    fi
+    echo "Changes since $base ($(pgit rev-parse --short "$base"))"
     changed=$({
         pgit diff --name-only "$base"...HEAD
         pgit diff --name-only HEAD
@@ -237,47 +248,66 @@ run_docker() {
 
     # What php -l and phpcs look at: the whole plugin, or only the changed files (paths have no spaces or quotes).
     local listfiles="find . -name '*.php' -not -path './thirdparty/*' -print0" phpcsfiles="."
-    if [ "$level" = "schimbari" ]; then
+    local onlychanged=0
+    if [ "$level" = "stil" ] || [ "$level" = "schimbari" ]; then
+        onlychanged=1
         compute_changes
         echo "Changed .php files: ${#changed_php[@]}"
         listfiles="printf '%s\\0' ${changed_php[*]:-}"
         phpcsfiles="${changed_php[*]:-}"
     fi
 
-    if [ "$level" = "schimbari" ] && [ "${#changed_php[@]}" -eq 0 ]; then
+    if [ "$onlychanged" = "1" ] && [ "${#changed_php[@]}" -eq 0 ]; then
         skip "phplint, phpcs" "no changed .php file"
     else
         start phplint dexec sh -c "cd $plugin && out=\$($listfiles | xargs -0 -n40 -P8 php -l 2>&1 \
             | grep -v '^No syntax errors') ; [ -z \"\$out\" ] || { echo \"\$out\"; exit 1; }"
     fi
 
-    if [ "$level" = "schimbari" ] && [ "${#changed_php[@]}" -eq 0 ]; then
+    if [ "$onlychanged" = "1" ] && [ "${#changed_php[@]}" -eq 0 ]; then
         :
     elif dexec test -x "$phpcs"; then
         start phpcs dexec sh -c "cd $plugin && php -d memory_limit=1G $phpcs --standard=moodle --extensions=php --warning-severity=1 --ignore=*/thirdparty/*,*/amd/build/*,*/vendor/*,*/node_modules/* -q $phpcsfiles"
     else
+        norecord=1
         skip phpcs "moodle-cs not found in the container: set VERIFICA_PHPCS, or install it (README.md, Verification script)"
     fi
 
-    local moodleroot=/var/www/html
-    if [ "${VERIFICA_NO_FAST:-}" != "1" ]; then
-        moodleroot=/opt/moodle-fast
-        fast_tree "$moodleroot" || exit 2
-    fi
-    if [ "$level" != "schimbari" ] || [ "$phpunit_all" = "1" ]; then
+    # What PHPUnit runs: nothing (stil), the targets the changes map to (schimbari), or the whole suite.
+    local phpunitcmd=""
+    if [ "$level" = "stil" ]; then
+        skip phpunit "level stil does not run PHPUnit (use schimbari)"
+    elif [ "$level" != "schimbari" ] || [ "$phpunit_all" = "1" ]; then
         [ "$level" = "schimbari" ] && echo "PHPUnit: whole suite ($phpunit_reason)"
-        start phpunit dexec sh -c "cd $moodleroot && vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite"
+        phpunitcmd="vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite"
     elif [ "${#phpunit_targets[@]}" -gt 0 ]; then
         echo "PHPUnit: ${phpunit_targets[*]}"
-        # PHPUnit takes one path per run, so the targets run one after the other; every one runs even if an
-        # earlier one failed.
-        local cmd="rc=0;" t
+        # PHPUnit takes one path per run and, given a directory, looks only for *Test.php, not Moodle's *_test.php
+        # (it would say "No tests executed!" and pass). So the targets become one --filter on the test ids of the
+        # suite, which are namespace\class::method, with the namespace local_aicoursebuilder\<directory>.
+        local t id
+        phpunit_filter=""
         for t in "${phpunit_targets[@]}"; do
-            cmd+=" vendor/bin/phpunit $plugin_rel/$t || rc=1;"
+            id="local_aicoursebuilder\\\\${t#tests/}"
+            id="${id//\//\\\\}"
+            case "$t" in
+                *.php) id="${id%.php}::" ;;
+                *) id="$id\\\\" ;;
+            esac
+            phpunit_filter+="${phpunit_filter:+|}$id"
         done
-        start phpunit dexec sh -c "cd $moodleroot && $cmd exit \$rc"
+        phpunitcmd='vendor/bin/phpunit --testsuite local_aicoursebuilder_testsuite --fail-on-empty-test-suite --filter "$VERIFICA_FILTER"'
     else
         skip phpunit "no changed file maps to a test"
+    fi
+    if [ -n "$phpunitcmd" ]; then
+        local moodleroot=/var/www/html
+        if [ "${VERIFICA_NO_FAST:-}" != "1" ]; then
+            moodleroot=/opt/moodle-fast
+            fast_tree "$moodleroot" || exit 2
+        fi
+        # The filter goes in an environment variable: it holds backslashes, which would not survive three layers of quotes.
+        start phpunit docker exec -e "VERIFICA_FILTER=${phpunit_filter:-}" "$container" sh -c "cd $moodleroot && $phpunitcmd"
     fi
 
     if [ "$level" = "complet" ]; then
@@ -341,4 +371,10 @@ for s in "${skipped[@]+"${skipped[@]}"}"; do
     echo "SKIPPED    $s"
 done
 echo "Total: $(($(date +%s) - t0))s"
+
+# A green run is the starting point of the next one (see the header). Not on CI, and never after a failure.
+if [ "$status" = "0" ] && [ "$backend" = "docker" ] && [ "${norecord:-0}" != "1" ]; then
+    pgit update-ref refs/verifica/stil-ok HEAD
+    [ "$level" != "stil" ] && pgit update-ref refs/verifica/ok HEAD
+fi
 exit $status

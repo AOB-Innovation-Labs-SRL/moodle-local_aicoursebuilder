@@ -91,16 +91,20 @@ One script, `scripts/verifica`, runs the checks, locally and in CI. The independ
 processes; at the end it shows the log of each one and a summary, and the exit status is 0 only if all passed.
 
 ```bash
-scripts/verifica schimbari # after each task: php -l, phpcs and PHPUnit only for what changed against origin/main
-scripts/verifica rapid     # php -l, phpcs and the whole PHPUnit suite
+scripts/verifica stil      # after each task: php -l and phpcs on the changed files (seconds)
+scripts/verifica schimbari # after a group of tasks: stil, plus PHPUnit on the tests the changes touch
+scripts/verifica rapid     # before a PR: php -l, phpcs and the whole PHPUnit suite (about 4 minutes)
 scripts/verifica complet   # before a PR: everything the environment can run (adds Behat; in CI also phpdoc,
                            # savepoints, mustache and grunt)
 ```
 
-- `schimbari` takes the `.php` files that differ from `origin/main` and runs php -l and phpcs on them, and PHPUnit on
-  the test directories they map to (`classes/builder/x.php` -> `tests/builder`; a changed `*_test.php` runs by itself).
-  The whole suite runs instead if `db/`, `version.php`, `lib.php`, `lang/`, `schema/`, `prompts/` or `tests/fixtures/`
-  changed, or a changed file under `classes/` has no test directory. No Behat. Run `git fetch origin` first.
+- `stil` and `schimbari` work on the `.php` files that changed (commits, working tree, new files) since the last green
+  run of the same level: after a green run the script saves the commit in `refs/verifica/stil-ok` (`stil`) or
+  `refs/verifica/ok` (`schimbari`, `rapid`, `complet`), and the next run starts from it. Without that reference, or
+  after a rebase, it starts from `origin/main` (run `git fetch origin` first). `stil` runs php -l and phpcs on them.
+  `schimbari` adds PHPUnit on the test directories they map to (`classes/builder/x.php` -> `tests/builder`; a changed
+  `*_test.php` runs by itself), or the whole suite if `db/`, `version.php`, `lib.php`, `lang/`, `schema/`, `prompts/` or
+  `tests/fixtures/` changed, or a changed file under `classes/` has no test directory. No Behat.
 - **Locally** it runs in the webserver container of the Docker stack that mounts this plugin at
   `/var/www/html/public/local/aicoursebuilder` (AGENTS.md, Local environment). The script finds that container and
   moodle-cs (`/tmp/quality` or `/quality`) by itself; if it cannot, set `VERIFICA_CONTAINER` and `VERIFICA_PHPCS`.
