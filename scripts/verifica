@@ -107,7 +107,6 @@ ci_static() {
         echo "=== moodle-plugin-ci $cmd"
         # shellcheck disable=SC2086
         moodle-plugin-ci $cmd || rc=1
-        touch "$logdir/phpdoc.done"
     done
     return $rc
 }
