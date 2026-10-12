@@ -222,6 +222,30 @@ final class source_manager_test extends \advanced_testcase {
     }
 
     /**
+     * Somebody who may ignore the file size limits, to whom the picker shows "Unlimited", is refused all the same.
+     */
+    public function test_size_limit_applies_to_who_can_ignore_file_size_limits(): void {
+        global $DB;
+        set_config('maxfilesize', 1, 'local_aicoursebuilder');
+        $this->setAdminUser();
+        $this->user = get_admin();
+        $manager = new source_manager();
+
+        try {
+            $manager->save_from_draft(
+                $this->jobid,
+                $this->create_draft(['big.pdf' => str_repeat('a', 1048577)]),
+                \context_system::instance()
+            );
+            $this->fail('Expected an ingest_exception');
+        } catch (ingest_exception $e) {
+            $this->assertSame(ingest_exception::TOO_LARGE, $e->errorcode);
+            $this->assertStringContainsString('big.pdf', $e->getMessage());
+        }
+        $this->assertSame(0, $DB->count_records('local_aicb_source'));
+    }
+
+    /**
      * The number of files counts the files the job already has.
      */
     public function test_file_count_limit(): void {

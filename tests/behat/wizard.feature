@@ -63,6 +63,22 @@ Feature: Generate a course blueprint from the wizard
     Then I should see "Describe the course."
     And I should see "Step 2 of 4"
 
+  Scenario: The sources step states the limits of the settings, also for somebody the file picker does not limit
+    Given the following config values are set as admin:
+      | maxfilesize  | 1       | local_aicoursebuilder |
+      | maxfiles     | 3       | local_aicoursebuilder |
+      | allowedtypes | pdf,txt | local_aicoursebuilder |
+    And I log in as "admin"
+    And I am on the "local_aicoursebuilder > wizard" page
+    When I set the field "What do you want to do?" to "Create a new course"
+    And I press "Next"
+    And I set the field "What is the course about?" to "An introductory course about renewable energy"
+    And I press "Next"
+    Then I should see "Step 3 of 4"
+    # The size and its unit are separated by a non-breaking space, so they are not matched in one string.
+    And I should see "Up to 3 files of at most 1.0"
+    And I should see "MB each; accepted types: .pdf, .txt."
+
   Scenario: A job is not started before the AI policy is accepted
     Given I log in as "admin"
     And I am on the "local_aicoursebuilder > wizard" page
