@@ -16,12 +16,15 @@
 
 namespace local_aicoursebuilder\task;
 
+use local_aicoursebuilder\builder\availability_mapper;
 use local_aicoursebuilder\builder\availability_target;
+use local_aicoursebuilder\builder\badge_builder;
 use local_aicoursebuilder\builder\build_context;
 use local_aicoursebuilder\builder\build_plan;
 use local_aicoursebuilder\builder\build_result;
 use local_aicoursebuilder\builder\build_step;
 use local_aicoursebuilder\builder\builder_registry;
+use local_aicoursebuilder\builder\competency_builder;
 
 /**
  * Builds the approved blueprint of a job into a Moodle course (spec 3.7, 3.8).
@@ -31,7 +34,8 @@ use local_aicoursebuilder\builder\builder_registry;
  * or a version belonging to another job, fails the job without touching the course.
  *
  * The order is the topological one of build_plan: course, then sections and subsections, then the modules,
- * then availability in a pass of its own once every module has a cmid, then course completion.
+ * then availability in a pass of its own once every module has a cmid, then course completion, the competencies and the
+ * badges.
  *
  * Every node goes through the builder registered for its type and its result is recorded in the build
  * context, which writes local_aicb_job.buildmap straight away. That is the checkpoint: a second run restores
@@ -40,7 +44,7 @@ use local_aicoursebuilder\builder\builder_registry;
  *
  * A node that fails is recorded with its error and the independent nodes keep going; only the course node is
  * fatal, because without a course there is nowhere to build. A type with no registered builder is recorded
- * manual with a warning, which is also what competencies and badges do until their builders land in phase 5.
+ * manual with a warning.
  *
  * Two runners never build the same job at once: the task takes a lock on the job and, if another runner
  * holds it, returns without building and without changing the job.
@@ -187,8 +191,9 @@ class build_course extends \core\task\adhoc_task {
 
         $newcourse = $this->is_new_course($job);
         $plan = build_plan::from_blueprint($blueprint, $newcourse);
-        // The modules, plus the availability pass and the course completion pass.
-        $this->stepstotal = count($plan->steps) + count($plan->availability) + ($plan->completionactivities ? 1 : 0);
+        // The modules, plus the availability pass, the course completion pass, the competencies and the badges.
+        $this->stepstotal = count($plan->steps) + count($plan->availability) + ($plan->completionactivities ? 1 : 0)
+            + ($plan->competencies ? 1 : 0) + count($plan->badges);
         $this->stepsdone = 0;
         $this->warnings = [];
 
@@ -206,10 +211,9 @@ class build_course extends \core\task\adhoc_task {
         $this->apply_availability($job, $plan->availability, $context);
         $this->apply_course_completion($job, $plan->completionactivities, $context);
 
-        // Phase 5 extension points, run here once every node has its cmid, in this order:
-        // competencies (\core_competency\api::add_competency_to_course_module) and then badges, which may
-        // depend on the activities that award them. Both are plain registry types today, so a blueprint that
-        // carries them is recorded manual with a warning until their builders exist.
+        // Competencies, then badges, which may depend on the activities that award them: both need the cmids.
+        $this->apply_competencies($job, $plan->competencies, $context);
+        $this->apply_badges($job, $plan->badges, $context);
 
         $this->finish_job($job);
     }
@@ -445,6 +449,7 @@ class build_course extends \core\task\adhoc_task {
      * @param build_context $context The build context.
      */
     protected function apply_availability(\stdClass $job, array $targets, build_context $context): void {
+        $written = false;
         foreach ($targets as $target) {
             $this->stepsdone++;
             if (!$context->is_built($target->nodeid)) {
@@ -467,8 +472,12 @@ class build_course extends \core\task\adhoc_task {
                 $this->report($job);
                 continue;
             }
-            $this->apply_availability_rule($target, $context);
+            $written = $this->apply_availability_rule($target, $context) || $written;
             $this->report($job);
+        }
+        if ($written) {
+            // The restrictions are read from the course cache, which is built from the rows that were just written.
+            rebuild_course_cache((int) $context->get_course()->id, true);
         }
     }
 
@@ -476,14 +485,37 @@ class build_course extends \core\task\adhoc_task {
      * Writes one availability rule onto its node.
      *
      * The rule is turned into the JSON of \core_availability\tree and written to course_modules.availability
-     * or course_sections.availability, then the course cache is rebuilt (spec 3.7). The mapper that builds
-     * that JSON is the builders' task, so until it lands the rule is recorded as a node left to do by hand.
+     * (an activity, or a subsection, which is a module of its section) or course_sections.availability (a section),
+     * and the course cache is rebuilt once the pass is over (spec 3.7). Writing the same JSON again changes nothing,
+     * so building again is harmless.
      *
      * @param availability_target $target The rule.
      * @param build_context $context The build context.
+     * @return bool Whether something was written, so that the caller knows the cache has to be rebuilt.
      */
-    protected function apply_availability_rule(availability_target $target, build_context $context): void {
-        $this->warn(get_string('buildwarnavailabilitymanual', 'local_aicoursebuilder', $target->nodeid));
+    protected function apply_availability_rule(availability_target $target, build_context $context): bool {
+        global $DB;
+
+        [$json, $warnings] = availability_mapper::map($target, $context);
+        foreach ($warnings as $warning) {
+            $this->warn($warning);
+        }
+        if ($json === null) {
+            return false;
+        }
+
+        $entry = $context->get_entry($target->nodeid);
+        $courseid = (int) $context->get_course()->id;
+        if ($entry['cmid'] !== null) {
+            $DB->set_field('course_modules', 'availability', $json, ['id' => $entry['cmid']]);
+            return true;
+        }
+        $sectionnum = $context->locate_section($target->nodeid);
+        if ($sectionnum === null) {
+            return false;
+        }
+        $DB->set_field('course_sections', 'availability', $json, ['course' => $courseid, 'section' => $sectionnum]);
+        return true;
     }
 
     /**
@@ -527,14 +559,102 @@ class build_course extends \core\task\adhoc_task {
      * Writes the course completion criteria of the activities that were built.
      *
      * completion_criteria_activity::update_config() with criteria_activity = [cmid => 1] and the ALL
-     * aggregation (spec 3.7). It belongs with the course builder, which owns enablecompletion, so until
-     * that builder lands this records a node left to do by hand.
+     * aggregation, for the activities and for the criteria as a whole (spec 3.7), as the course completion
+     * settings page does. An activity that does not track completion cannot be a criterion, and a course that
+     * does not track completion cannot use one, so each leaves a warning; an activity that already is a
+     * criterion is not added again, so that building again changes nothing.
      *
      * @param build_context $context The build context.
      * @param int[] $cmids Activity node id => course module id, all of them built.
      */
     protected function set_course_completion(build_context $context, array $cmids): void {
-        $this->warn(get_string('buildwarncompletionmanual', 'local_aicoursebuilder'));
+        global $CFG, $DB;
+        require_once($CFG->libdir . '/completionlib.php');
+        require_once($CFG->dirroot . '/completion/criteria/completion_criteria_activity.php');
+
+        $courseid = (int) $context->get_course()->id;
+        if (!$DB->get_field('course', 'enablecompletion', ['id' => $courseid])) {
+            $this->warn(get_string('buildwarncompletiondisabled', 'local_aicoursebuilder'));
+            return;
+        }
+
+        $untracked = [];
+        $new = [];
+        $criterion = ['course' => $courseid, 'criteriatype' => COMPLETION_CRITERIA_TYPE_ACTIVITY];
+        foreach ($cmids as $activityid => $cmid) {
+            if ((int) $DB->get_field('course_modules', 'completion', ['id' => $cmid]) === COMPLETION_TRACKING_NONE) {
+                $untracked[] = $activityid;
+            } else if (!$DB->record_exists('course_completion_criteria', $criterion + ['moduleinstance' => $cmid])) {
+                $new[$cmid] = 1;
+            }
+        }
+        if ($untracked !== []) {
+            $this->warn(get_string('buildwarncompletionnotracking', 'local_aicoursebuilder', implode(', ', $untracked)));
+        }
+
+        if ($new !== []) {
+            // The method takes the data by reference, as the settings page gives it the data of its form.
+            $data = (object) ['id' => $courseid, 'criteria_activity' => $new];
+            (new \completion_criteria_activity())->update_config($data);
+        }
+        foreach ([null, COMPLETION_CRITERIA_TYPE_ACTIVITY] as $criteriatype) {
+            $aggregation = new \completion_aggregation(['course' => $courseid, 'criteriatype' => $criteriatype]);
+            $aggregation->setMethod(COMPLETION_AGGREGATION_ALL);
+            $aggregation->save();
+        }
+        \core\event\course_completion_updated::create(['courseid' => $courseid, 'context' => \context_course::instance($courseid)])
+            ->trigger();
+    }
+
+    /**
+     * Links the competencies of the blueprint to the course and to its activities.
+     *
+     * @param \stdClass $job The local_aicb_job row, updated in place.
+     * @param array[] $competencies The competencies of the plan.
+     * @param build_context $context The build context.
+     */
+    protected function apply_competencies(\stdClass $job, array $competencies, build_context $context): void {
+        if ($competencies === []) {
+            return;
+        }
+        $this->stepsdone++;
+        try {
+            foreach (competency_builder::apply($competencies, $context) as $warning) {
+                $this->warn($warning);
+            }
+        } catch (\Throwable $e) {
+            // The competencies are an addition to the course, not a part of it: the teacher can link them.
+            $this->warn(get_string('buildwarncompetencyfailed', 'local_aicoursebuilder', [
+                'idnumber' => '*',
+                'reason' => $e->getMessage(),
+            ]));
+        }
+        $this->report($job);
+    }
+
+    /**
+     * Creates the badges of the blueprint, inactive, in the course.
+     *
+     * @param \stdClass $job The local_aicb_job row, updated in place.
+     * @param array[] $badges The badges of the plan.
+     * @param build_context $context The build context.
+     */
+    protected function apply_badges(\stdClass $job, array $badges, build_context $context): void {
+        foreach ($badges as $badge) {
+            $this->stepsdone++;
+            try {
+                foreach (badge_builder::apply([$badge], $context) as $warning) {
+                    $this->warn($warning);
+                }
+            } catch (\Throwable $e) {
+                // A badge that cannot be made does not fail the course: the teacher can make it.
+                $this->warn(get_string('buildwarnbadgefailed', 'local_aicoursebuilder', [
+                    'badge' => $badge['name'],
+                    'reason' => $e->getMessage(),
+                ]));
+            }
+            $this->report($job);
+        }
     }
 
     /**

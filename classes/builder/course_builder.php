@@ -49,6 +49,8 @@ class course_builder implements builder_interface {
     public function build(array|\stdClass $node, build_context $context): build_result {
         global $CFG;
         require_once($CFG->dirroot . '/course/lib.php');
+        // EDITOR_UNLIMITED_FILES is defined by the forms library, which a web request has loaded and cron has not.
+        require_once($CFG->libdir . '/formslib.php');
 
         $node = json_decode(json_encode($node), true);
         if ($context->is_built(build_plan::COURSE_NODEID)) {

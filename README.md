@@ -7,6 +7,12 @@ which creates a job, shows its estimated cost, starts it and follows it until th
 Once a blueprint is approved the course is built from it: the course, its sections and subsections, and the
 pages, labels, links, files, folders, books, quizzes, glossaries, forums, lessons, wikis, choices, feedback activities and
 assignments; only the types without a builder yet (H5P and SCORM) are left for the teacher to add.
+The course is built with what the blueprint says about progress: the completion of each activity, the completion of the
+course, the access restrictions (an activity or a section that waits for another activity, for a grade in it, or for a
+date), the competencies and the badges. Competencies are linked, never created: the administrator chooses a competency
+framework in the settings, and the competencies of a blueprint are looked up in it by their idnumber. Badges are created
+inactive, for the teacher to look at and switch on. Whatever cannot be done, such as a rule that waits for an activity
+that does not track completion, is left out with a warning and the course is built all the same.
 The entry point is the list of jobs at `/local/aicoursebuilder/`, linked as "AI Course Builder" in the primary
 navigation for everybody who may use the plugin: a user sees their own jobs, with the way to a new course, and a manager
 can read those of everybody.

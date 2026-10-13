@@ -162,6 +162,20 @@ if ($hassiteconfig) {
             80,
             PARAM_INT
         ));
+
+        $settings->add(new admin_setting_heading(
+            'local_aicoursebuilder/buildsettingsheading',
+            new lang_string('buildsettingsheading', 'local_aicoursebuilder'),
+            new lang_string('buildsettingsheading_desc', 'local_aicoursebuilder')
+        ));
+        $settings->add(new admin_setting_configselect(
+            'local_aicoursebuilder/competencyframework',
+            new lang_string('competencyframework', 'local_aicoursebuilder'),
+            new lang_string('competencyframework_desc', 'local_aicoursebuilder'),
+            0,
+            // The frameworks are read when the settings page is opened, not each time the admin menu is built.
+            [\local_aicoursebuilder\builder\competency_builder::class, 'framework_choices']
+        ));
     }
 
     $connectors = new admin_settingpage(
