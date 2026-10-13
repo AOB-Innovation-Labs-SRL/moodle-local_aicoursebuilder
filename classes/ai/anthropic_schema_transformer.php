@@ -32,6 +32,17 @@ namespace local_aicoursebuilder\ai;
  * the content of an activity follows its type. Our own validator keeps checking every answer against the original
  * documents, so what is narrowed here is a hint for the generation, never a weaker validation.
  *
+ * The page says additionalProperties must be false for objects, all of them. An object that names its properties is
+ * closed by saying so. One that does not (the content of an activity, which follows its type by conditionals the page
+ * does not document, or a map of rules with any name) cannot be closed without forbidding what it is for: false on the
+ * content of an activity would leave the model no key to write. A schema with such an object is not narrowed, it is
+ * refused: transform() returns null, and the connector sends the request with no schema at all, as it does for a provider
+ * that has none.
+ *
+ * The page also limits a request to 24 optional properties and 16 unions in all ("Schema is too complex for compilation" is
+ * the 400 that answers more), counted over the schema with its references expanded. A schema over either limit is refused the
+ * same way.
+ *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -57,11 +68,20 @@ class anthropic_schema_transformer {
     /** @var int Maximum depth of inlined $refs, guarding against a cycle. */
     public const MAX_DEPTH = 50;
 
+    /** @var int Most optional properties in one request, which the page gives as 24. */
+    public const MAX_OPTIONAL = 24;
+
+    /** @var int Most properties with a union type (anyOf or a type array) in one request, which the page gives as 16. */
+    public const MAX_UNIONS = 16;
+
     /** @var schema_bundler Resolves the cross-document $refs. */
     protected schema_bundler $bundler;
 
     /** @var array<string, mixed> The $defs of the bundle being transformed, as the bundle has them. */
     protected array $defs = [];
+
+    /** @var bool Whether the schema being transformed has an object that cannot be closed. */
+    protected bool $open = false;
 
     /**
      * Creates the transformer.
@@ -76,12 +96,14 @@ class anthropic_schema_transformer {
      * Transforms a schema into the subset Anthropic's structured outputs accept.
      *
      * @param array $schema The schema, as given on a request.
-     * @return array The schema, with local references only.
+     * @return array|null The schema, with local references only and every object closed; null when an object of it cannot
+     *                    be closed, which is a schema Anthropic cannot be given.
      * @throws \coding_exception When a reference cannot be resolved or the references nest too deep.
      */
-    public function transform(array $schema): array {
+    public function transform(array $schema): ?array {
         $bundle = $this->bundler->bundle($schema);
         $this->defs = $bundle['$defs'] ?? [];
+        $this->open = false;
         unset($bundle['$defs']);
 
         $out = $this->narrow($bundle, 0);
@@ -92,7 +114,85 @@ class anthropic_schema_transformer {
         if ($defs) {
             $out['$defs'] = $defs;
         }
-        return $out;
+        if ($this->open || $this->has_open_object($out)) {
+            return null;
+        }
+        [$optional, $unions] = $this->complexity($out, $out['$defs'] ?? [], 0);
+        return $optional > self::MAX_OPTIONAL || $unions > self::MAX_UNIONS ? null : $out;
+    }
+
+    /**
+     * Counts what the API limits: the optional properties and the unions, with every reference expanded as the API reads it.
+     *
+     * @param mixed $node A schema.
+     * @param array $defs The definitions of the schema.
+     * @param int $depth Depth of $refs followed so far.
+     * @return int[] [optional properties, unions]
+     * @throws \coding_exception When the references nest too deep.
+     */
+    protected function complexity(mixed $node, array $defs, int $depth): array {
+        if (!is_array($node)) {
+            return [0, 0];
+        }
+        if (isset($node['$ref']) && is_string($node['$ref'])) {
+            if ($depth >= self::MAX_DEPTH) {
+                throw new \coding_exception('Schema $ref resolution exceeded the maximum depth, likely a cycle');
+            }
+            return $this->complexity($defs[substr($node['$ref'], strlen(self::DEFS_PREFIX))] ?? [], $defs, $depth + 1);
+        }
+        $optional = 0;
+        $unions = (isset($node['anyOf']) || is_array($node['type'] ?? null)) ? 1 : 0;
+        $required = (array) ($node['required'] ?? []);
+        $children = [];
+        foreach ((array) ($node['properties'] ?? []) as $name => $child) {
+            $optional += in_array($name, $required, true) ? 0 : 1;
+            $children[] = $child;
+        }
+        $children[] = $node['items'] ?? null;
+        foreach ((array) ($node['anyOf'] ?? []) as $child) {
+            $children[] = $child;
+        }
+        foreach ($children as $child) {
+            [$childoptional, $childunions] = $this->complexity($child, $defs, $depth);
+            $optional += $childoptional;
+            $unions += $childunions;
+        }
+        return [$optional, $unions];
+    }
+
+    /**
+     * Tells whether an object of the schema is not closed with additionalProperties false.
+     *
+     * @param mixed $node A schema, or a boolean schema.
+     * @return bool
+     */
+    protected function has_open_object(mixed $node): bool {
+        if (!is_array($node)) {
+            return false;
+        }
+        $type = $node['type'] ?? null;
+        $isobject = $type === 'object' || (is_array($type) && in_array('object', $type, true)) || isset($node['properties']);
+        if ($isobject && ($node['additionalProperties'] ?? null) !== false) {
+            return true;
+        }
+        foreach ($node as $keyword => $value) {
+            if (in_array($keyword, ['properties', '$defs'], true) && is_array($value)) {
+                foreach ($value as $child) {
+                    if ($this->has_open_object($child)) {
+                        return true;
+                    }
+                }
+            } else if ($keyword === 'items' && $this->has_open_object($value)) {
+                return true;
+            } else if (in_array($keyword, ['anyOf', 'prefixItems'], true) && is_array($value)) {
+                foreach ($value as $child) {
+                    if ($this->has_open_object($child)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -146,9 +246,11 @@ class anthropic_schema_transformer {
                     $out['anyOf'] = array_map(fn(mixed $item): mixed => $this->narrow($item, $depth), (array) $value);
                     break;
                 case 'additionalProperties':
-                    // Only false is accepted; a schema here describes an open map, which is left open.
+                    // Only false is accepted. A schema or true here is an open map, which cannot be said in the subset.
                     if ($value === false) {
                         $out[$keyword] = false;
+                    } else {
+                        $this->open = true;
                     }
                     break;
                 case 'properties':

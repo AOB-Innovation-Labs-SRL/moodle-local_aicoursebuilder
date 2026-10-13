@@ -178,7 +178,8 @@ final class provider_schema_contract_test extends \advanced_testcase {
      *
      * @param string $provider deepseek, anthropic, gemini, gemini native or openaicompat.
      * @param string $step The step whose schema is sent.
-     * @return array [array, string]: the schema in the body of the request, and the whole body as it was sent.
+     * @return array [array|null, string]: the schema in the body of the request, null when Anthropic was sent none, and the
+     *                                      whole body as it was sent.
      */
     private function sent(string $provider, string $step): array {
         $schema = (new schema_store())->step_schema_array($step);
@@ -216,7 +217,11 @@ final class provider_schema_contract_test extends \advanced_testcase {
             'gemini native' => $body['generationConfig']['responseJsonSchema'] ?? null,
             'openaicompat' => $body['response_format']['json_schema']['schema'] ?? null,
         };
-        $this->assertIsArray($schema, "The schema is not where the {$provider} API reads it");
+        if ($provider === 'anthropic') {
+            $this->assertTrue($schema === null || is_array($schema));
+        } else {
+            $this->assertIsArray($schema, "The schema is not where the {$provider} API reads it");
+        }
         return [$schema, $raw];
     }
 
@@ -231,6 +236,9 @@ final class provider_schema_contract_test extends \advanced_testcase {
         [$schema, $raw] = $this->sent($provider, $step);
 
         $this->assertStringNotContainsString('aicb:', $raw, 'a registered URI of the plugin was sent');
+        if ($schema === null) {
+            return;
+        }
         $problems = self::reference_problems($schema, $provider === 'gemini');
         $this->assertSame([], $problems, "{$provider} {$step}: " . implode('; ', $problems));
     }
@@ -245,6 +253,9 @@ final class provider_schema_contract_test extends \advanced_testcase {
      */
     public function test_only_keywords_the_provider_accepts(string $provider, string $step): void {
         [$schema] = $this->sent($provider, $step);
+        if ($schema === null) {
+            return;
+        }
 
         $allowed = match ($provider) {
             'anthropic' => self::ANTHROPIC,
@@ -270,6 +281,56 @@ final class provider_schema_contract_test extends \advanced_testcase {
         [, $raw] = $this->sent($provider, $step);
 
         $this->assertDoesNotMatchRegularExpression('/"strict"\s*:\s*true/', $raw);
+    }
+
+    /**
+     * Anthropic takes additionalProperties false on every object, so a step whose schema has an object that cannot be closed
+     * is sent with no schema at all: the request carries no output_config, and the answer is checked as that of any
+     * connector. A step whose schema can be closed is sent with it, with every object closed.
+     *
+     * @dataProvider anthropic_step_provider
+     * @param string $provider The provider, always anthropic.
+     * @param string $step The step.
+     */
+    public function test_anthropic_gets_a_schema_only_when_every_object_is_closed(string $provider, string $step): void {
+        [$schema, $raw] = $this->sent($provider, $step);
+        $body = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+
+        if ($schema === null) {
+            $this->assertArrayNotHasKey('output_config', $body, "{$step} has an object that cannot be closed");
+            return;
+        }
+        $open = self::open_object_problems($schema);
+        $this->assertSame([], $open, "{$step}: " . implode('; ', $open));
+    }
+
+    /**
+     * The steps that write the course, whose schemas have the content of an activity and the rules of a completion, go
+     * to Anthropic with no schema; the ones that can be closed go with it.
+     */
+    public function test_which_steps_go_to_anthropic_with_a_schema(): void {
+        $without = ['sections', 'activities', 'questions'];
+        $with = ['brief', 'digest', 'outline', 'review'];
+        foreach ($without as $step) {
+            [$schema, $raw] = $this->sent('anthropic', $step);
+            $this->assertNull($schema, $step);
+            $this->assertStringNotContainsString('output_config', $raw, $step);
+            $this->history = [];
+        }
+        foreach ($with as $step) {
+            [$schema] = $this->sent('anthropic', $step);
+            $this->assertIsArray($schema, $step);
+            $this->history = [];
+        }
+    }
+
+    /**
+     * Returns the Anthropic cases only.
+     *
+     * @return array
+     */
+    public static function anthropic_step_provider(): array {
+        return self::cases(['anthropic']);
     }
 
     // The checks, and the proof that they check.
@@ -326,6 +387,41 @@ final class provider_schema_contract_test extends \advanced_testcase {
             }
         });
         return array_values($problems);
+    }
+
+    /**
+     * Returns the objects of a schema that are not closed with additionalProperties false.
+     *
+     * @param array $schema The schema as it was sent.
+     * @return string[] One line for each object.
+     */
+    private static function open_object_problems(array $schema): array {
+        $problems = [];
+        $objects = function (mixed $node, string $path) use (&$objects, &$problems): void {
+            if (!is_array($node)) {
+                return;
+            }
+            $type = $node['type'] ?? null;
+            $isobject = $type === 'object' || (is_array($type) && in_array('object', $type, true)) || isset($node['properties']);
+            if ($isobject && ($node['additionalProperties'] ?? null) !== false) {
+                $problems[] = "{$path}: an object that is not closed with additionalProperties false";
+            }
+            foreach ($node as $keyword => $value) {
+                if (in_array($keyword, ['properties', '$defs'], true) && is_array($value)) {
+                    foreach ($value as $name => $child) {
+                        $objects($child, "{$path}/{$keyword}/{$name}");
+                    }
+                } else if ($keyword === 'items') {
+                    $objects($value, "{$path}/items");
+                } else if (in_array($keyword, ['anyOf', 'prefixItems'], true) && is_array($value)) {
+                    foreach ($value as $index => $child) {
+                        $objects($child, "{$path}/{$keyword}/{$index}");
+                    }
+                }
+            }
+        };
+        $objects($schema, '');
+        return $problems;
     }
 
     /**
@@ -466,6 +562,19 @@ final class provider_schema_contract_test extends \advanced_testcase {
         $this->assertNotEmpty(self::anthropic_value_problems(['type' => 'string', 'pattern' => '^(?=a)b$']));
         $fine = ['type' => 'array', 'minItems' => 1, 'items' => ['type' => 'string']];
         $this->assertSame([], self::anthropic_value_problems($fine));
+
+        // An object left open is found wherever it is: the root, a property, the items of an array, a definition, an anyOf.
+        $open = ['type' => 'object', 'additionalProperties' => false, 'properties' => [
+            'content' => ['type' => 'object'],
+            'list' => ['type' => 'array', 'items' => ['type' => 'object']],
+            'ref' => ['$ref' => '#/$defs/free'],
+            'either' => ['anyOf' => [['type' => 'string'], ['type' => 'object']]],
+        ], '$defs' => ['free' => ['type' => 'object', 'properties' => ['a' => ['type' => 'string']]]]];
+        $this->assertCount(4, self::open_object_problems($open));
+        $closed = ['type' => 'object', 'additionalProperties' => false, 'properties' => [
+            'item' => ['type' => 'object', 'additionalProperties' => false, 'properties' => ['a' => ['type' => 'string']]],
+        ]];
+        $this->assertSame([], self::open_object_problems($closed));
     }
 
     /**

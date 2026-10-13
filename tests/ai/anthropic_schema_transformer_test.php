@@ -97,20 +97,97 @@ final class anthropic_schema_transformer_test extends \advanced_testcase {
     }
 
     /**
-     * An object that names its properties has no others, which is what the API asks to be said; an open map keeps no
-     * schema for its values, because the API takes only false.
+     * The API wants additionalProperties false on every object: an object that names its properties is closed by saying
+     * so, in the root, in a property, in the items of an array and in a definition.
      */
-    public function test_additional_properties_are_false_or_absent(): void {
-        $out = (new anthropic_schema_transformer())->transform(['type' => 'object', 'properties' => [
-            'rules' => ['type' => 'object', 'additionalProperties' => ['type' => ['integer', 'boolean']]],
-            'content' => ['type' => 'object'],
-            'item' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string']]],
-        ]]);
+    public function test_every_object_that_names_its_properties_is_closed(): void {
+        $out = (new anthropic_schema_transformer())->transform([
+            'type' => 'object',
+            'properties' => [
+                'item' => ['type' => 'object', 'properties' => ['id' => ['type' => 'string']]],
+                'list' => ['type' => 'array', 'items' => ['properties' => ['n' => ['type' => 'integer']]]],
+                'named' => ['$ref' => '#/$defs/named'],
+            ],
+            '$defs' => ['named' => ['type' => 'object', 'properties' => ['x' => ['type' => 'string']]]],
+        ]);
 
         $this->assertFalse($out['additionalProperties']);
-        $this->assertSame(['type' => 'object'], $out['properties']['rules']);
-        $this->assertSame(['type' => 'object'], $out['properties']['content']);
         $this->assertFalse($out['properties']['item']['additionalProperties']);
+        $this->assertFalse($out['properties']['list']['items']['additionalProperties']);
+        $this->assertFalse($out['$defs']['named']['additionalProperties']);
+    }
+
+    /**
+     * Provides a schema with an object that cannot be closed, for each way there is of leaving one open.
+     *
+     * @return array
+     */
+    public static function open_object_provider(): array {
+        return [
+            'an object with no properties, like the content of an activity' => [
+                ['type' => 'object', 'properties' => ['content' => ['type' => 'object']]],
+            ],
+            'a map whose values have a schema, like the rules of a completion' => [
+                ['type' => 'object', 'properties' => [
+                    'rules' => ['type' => 'object', 'additionalProperties' => ['type' => ['integer', 'boolean']]],
+                ]],
+            ],
+            'an object that says additionalProperties true' => [
+                ['type' => 'object', 'properties' => ['a' => ['type' => 'string']], 'additionalProperties' => true],
+            ],
+            'an object in a definition' => [
+                [
+                    'type' => 'object',
+                    'properties' => ['a' => ['$ref' => '#/$defs/free']],
+                    '$defs' => ['free' => ['type' => 'object']],
+                ],
+            ],
+            'an object in the items of an array' => [
+                ['type' => 'object', 'properties' => ['list' => ['type' => 'array', 'items' => ['type' => 'object']]]],
+            ],
+            'an object in an anyOf' => [
+                ['type' => 'object', 'properties' => ['a' => ['anyOf' => [['type' => 'string'], ['type' => 'object']]]]],
+            ],
+        ];
+    }
+
+    /**
+     * A schema with an object that cannot be closed is refused, not narrowed: closing it would forbid what it is for, and
+     * leaving it open is what the API answers with a 400.
+     *
+     * @dataProvider open_object_provider
+     * @param array $schema The schema.
+     */
+    public function test_a_schema_with_an_object_that_cannot_be_closed_is_refused(array $schema): void {
+        $this->assertNull((new anthropic_schema_transformer())->transform($schema));
+    }
+
+    /**
+     * The API takes 24 optional properties and 16 unions in a request; a schema with more is refused, and one with as many
+     * as that is not. A reference is counted at each place it is used, as the API reads the schema.
+     */
+    public function test_a_schema_over_the_limits_of_the_api_is_refused(): void {
+        $properties = fn(int $count) => array_combine(
+            array_map(fn(int $i) => "p{$i}", range(1, $count)),
+            array_fill(0, $count, ['type' => 'string']),
+        );
+        $transformer = new anthropic_schema_transformer();
+
+        $this->assertNotNull($transformer->transform(['type' => 'object', 'properties' => $properties(24)]));
+        $this->assertNull($transformer->transform(['type' => 'object', 'properties' => $properties(25)]));
+
+        $shared = ['$ref' => '#/$defs/trio'];
+        $reused = ['type' => 'object', 'required' => ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], 'properties' => [
+            'a' => $shared, 'b' => $shared, 'c' => $shared, 'd' => $shared, 'e' => $shared, 'f' => $shared,
+            'g' => $shared, 'h' => $shared, 'i' => $shared,
+        ], '$defs' => ['trio' => ['type' => 'object', 'properties' => $properties(3)]]];
+        $this->assertNull($transformer->transform($reused), 'nine uses of a definition with three optional properties are 27');
+
+        $unions = array_fill(0, 17, ['anyOf' => [['type' => 'string'], ['type' => 'null']]]);
+        $this->assertNull($transformer->transform(['type' => 'object', 'properties' => array_combine(
+            array_map(fn(int $i) => "u{$i}", array_keys($unions)),
+            $unions,
+        )]));
     }
 
     /**
@@ -148,6 +225,7 @@ final class anthropic_schema_transformer_test extends \advanced_testcase {
                 'id' => ['oneOf' => [['type' => 'string', 'pattern' => '^s1$'], ['type' => 'string', 'pattern' => '^s2$']]],
                 'content' => [
                     'type' => 'object',
+                    'properties' => ['text' => ['type' => 'string']],
                     'if' => ['properties' => ['type' => ['const' => 'page']]],
                     'then' => ['required' => ['text']],
                     'not' => ['required' => ['x']],
@@ -159,7 +237,10 @@ final class anthropic_schema_transformer_test extends \advanced_testcase {
 
         $this->assertArrayHasKey('anyOf', $out['properties']['id']);
         $this->assertArrayNotHasKey('oneOf', $out['properties']['id']);
-        $this->assertSame(['type' => 'object'], $out['properties']['content']);
+        $this->assertSame(
+            ['type' => 'object', 'properties' => ['text' => ['type' => 'string']], 'additionalProperties' => false],
+            $out['properties']['content']
+        );
         $this->assertArrayNotHasKey('title', $out);
         $this->assertArrayNotHasKey('$schema', $out);
     }

@@ -241,10 +241,13 @@ class anthropic_connector implements async_connector, connector {
             $body['thinking'] = ['type' => 'enabled'];
         }
         if ($request->schema !== null) {
-            $body['output_config'] = ['format' => [
-                'type' => 'json_schema',
-                'schema' => $this->schematransformer->transform($request->schema) ?: ['type' => 'object'],
-            ]];
+            // The API wants additionalProperties false on every object. A schema with an object that cannot be closed,
+            // such as the content of an activity, is not sent at all: the request goes with the instruction to answer in
+            // JSON that the prompt carries, and the answer is checked, repaired and validated as that of any connector.
+            $schema = $this->schematransformer->transform($request->schema);
+            if ($schema !== null) {
+                $body['output_config'] = ['format' => ['type' => 'json_schema', 'schema' => $schema]];
+            }
         }
         return $body;
     }
