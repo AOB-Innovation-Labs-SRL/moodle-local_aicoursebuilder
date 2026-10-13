@@ -164,7 +164,14 @@ final class anthropic_connector_test extends \advanced_testcase {
         [, $body] = $this->sent();
         $this->assertArrayNotHasKey('tools', $body);
         $this->assertArrayNotHasKey('tool_choice', $body);
-        $this->assertSame(['format' => ['type' => 'json_schema', 'schema' => $schema]], $body['output_config']);
+        // The API refuses maxLength with a 400, so it is moved into the description, as the SDKs of Anthropic do.
+        $expected = [
+            'type' => 'object',
+            'required' => ['titlu'],
+            'properties' => ['titlu' => ['type' => 'string', 'description' => 'Constraints: maxLength 100.']],
+            'additionalProperties' => false,
+        ];
+        $this->assertSame(['format' => ['type' => 'json_schema', 'schema' => $expected]], $body['output_config']);
         $this->assertSame(['titlu' => 'Fotosinteza'], $result->json);
     }
 
