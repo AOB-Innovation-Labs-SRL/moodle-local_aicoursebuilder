@@ -52,6 +52,7 @@ final class build_course_extras_test extends \advanced_testcase {
         $this->resetAfterTest();
         set_config('enablecompletion', 1);
         set_config('enablebadges', 1);
+        set_config('badges_allowcoursebadges', 1);
         set_config('enabled', 1, 'core_competency');
 
         $category = $this->getDataGenerator()->create_category();
@@ -428,6 +429,21 @@ final class build_course_extras_test extends \advanced_testcase {
 
         $this->assertSame('finished', $job->status, (string) $job->error);
         $this->assertSame(0, $DB->count_records('badge', ['courseid' => $job->courseid]));
+    }
+
+    /**
+     * A site that does not allow course badges gets none: the pages of Moodle that list and edit them refuse a course
+     * badge, so the teacher could not see it, switch it on or delete it.
+     */
+    public function test_badges_on_a_site_that_does_not_allow_course_badges(): void {
+        global $DB;
+        set_config('badges_allowcoursebadges', 0);
+
+        [$job] = $this->run_build();
+
+        $this->assertSame('finished', $job->status, (string) $job->error);
+        $this->assertSame(0, $DB->count_records('badge', ['courseid' => $job->courseid]));
+        $this->assertStringContainsString(get_string('buildwarnbadgescoursedisabled', 'local_aicoursebuilder'), $this->output);
     }
 
     /**

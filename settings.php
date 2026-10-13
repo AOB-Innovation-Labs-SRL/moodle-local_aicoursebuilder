@@ -163,11 +163,6 @@ if ($hassiteconfig) {
             PARAM_INT
         ));
 
-        $frameworks = [0 => new lang_string('competencyframeworknone', 'local_aicoursebuilder')];
-        foreach (\core_competency\competency_framework::get_records([], 'shortname') as $framework) {
-            $frameworks[$framework->get('id')] = format_string($framework->get('shortname'))
-                . ' (' . s($framework->get('idnumber')) . ')';
-        }
         $settings->add(new admin_setting_heading(
             'local_aicoursebuilder/buildsettingsheading',
             new lang_string('buildsettingsheading', 'local_aicoursebuilder'),
@@ -178,7 +173,8 @@ if ($hassiteconfig) {
             new lang_string('competencyframework', 'local_aicoursebuilder'),
             new lang_string('competencyframework_desc', 'local_aicoursebuilder'),
             0,
-            $frameworks
+            // The frameworks are read when the settings page is opened, not each time the admin menu is built.
+            [\local_aicoursebuilder\builder\competency_builder::class, 'framework_choices']
         ));
     }
 

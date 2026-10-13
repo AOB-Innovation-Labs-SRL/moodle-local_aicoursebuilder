@@ -55,6 +55,11 @@ final class badge_builder {
         if (empty($CFG->enablebadges)) {
             return [get_string('buildwarnbadgesdisabled', 'local_aicoursebuilder')];
         }
+        // A course badge on a site that does not allow them is one the teacher cannot see, switch on or delete: the
+        // pages of Moodle that list and edit badges refuse it.
+        if (empty($CFG->badges_allowcoursebadges)) {
+            return [get_string('buildwarnbadgescoursedisabled', 'local_aicoursebuilder')];
+        }
         require_once($CFG->libdir . '/badgeslib.php');
         require_once($CFG->dirroot . '/badges/criteria/award_criteria.php');
 

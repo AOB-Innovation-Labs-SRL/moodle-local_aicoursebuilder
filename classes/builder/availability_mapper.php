@@ -49,6 +49,9 @@ final class availability_mapper {
     public static function map(availability_target $target, build_context $context): array {
         global $CFG;
         require_once($CFG->libdir . '/completionlib.php');
+        // The grade_item class is not autoloaded. The grade library is loaded only by the code that creates or edits a
+        // module, and a build that resumes after its modules were made does neither.
+        require_once($CFG->libdir . '/gradelib.php');
 
         $children = [];
         $warnings = [];

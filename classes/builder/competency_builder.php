@@ -18,6 +18,7 @@ namespace local_aicoursebuilder\builder;
 
 use core_competency\api;
 use core_competency\competency;
+use core_competency\competency_framework;
 use core_competency\course_module_competency;
 
 /**
@@ -39,6 +40,24 @@ use core_competency\course_module_competency;
 final class competency_builder {
     /** @var int Most competencies named in the warning about those the framework does not have. */
     public const MAX_NAMED = 5;
+
+    /**
+     * Returns the frameworks the administrator can choose from, for the setting.
+     *
+     * Only the frameworks of the whole site: a framework defined in a category can be used by the courses of that
+     * category and no others, so it is no choice for a plugin that builds courses anywhere.
+     *
+     * @return string[] Framework id => name, with 0 for none first.
+     */
+    public static function framework_choices(): array {
+        $choices = [0 => get_string('competencyframeworknone', 'local_aicoursebuilder')];
+        $frameworks = competency_framework::get_records(['contextid' => \context_system::instance()->id], 'shortname');
+        foreach ($frameworks as $framework) {
+            $choices[$framework->get('id')] = format_string($framework->get('shortname'))
+                . ' (' . s($framework->get('idnumber')) . ')';
+        }
+        return $choices;
+    }
 
     /**
      * Links the competencies.

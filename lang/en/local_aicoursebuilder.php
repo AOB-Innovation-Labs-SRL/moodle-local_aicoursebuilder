@@ -70,6 +70,7 @@ $string['buildwarnavailabilitynograde'] = 'The access restriction of {$a->node} 
 $string['buildwarnavailabilityskipped'] = 'The access restriction of {$a->node} was skipped, because it depends on {$a->missing}, which was not built.';
 $string['buildwarnbadgeactivities'] = 'The badge {$a->badge} is not awarded for these activities, because they were not built or do not track completion: {$a->activities}.';
 $string['buildwarnbadgefailed'] = 'The badge {$a->badge} could not be created: {$a->reason}';
+$string['buildwarnbadgescoursedisabled'] = 'The badges of the course were not created, because this site does not allow course badges.';
 $string['buildwarnbadgesdisabled'] = 'The badges of the course were not created, because badges are switched off on this site.';
 $string['buildwarncompetencyactivity'] = 'The competency {$a->idnumber} was not linked to {$a->activity}, because that activity was not built.';
 $string['buildwarncompetencydisabled'] = 'The competencies of the course were not linked, because competencies are switched off on this site.';

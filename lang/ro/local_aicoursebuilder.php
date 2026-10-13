@@ -70,6 +70,7 @@ $string['buildwarnavailabilitynograde'] = 'Restricția de acces a lui {$a->node}
 $string['buildwarnavailabilityskipped'] = 'Restricția de acces a lui {$a->node} a fost sărită, pentru că depinde de {$a->missing}, care nu a fost construit.';
 $string['buildwarnbadgeactivities'] = 'Insigna {$a->badge} nu se acordă pentru aceste activități, pentru că nu au fost construite sau nu urmăresc finalizarea: {$a->activities}.';
 $string['buildwarnbadgefailed'] = 'Insigna {$a->badge} nu a putut fi creată: {$a->reason}';
+$string['buildwarnbadgescoursedisabled'] = 'Insignele cursului nu au fost create, pentru că acest site nu permite insigne la nivel de curs.';
 $string['buildwarnbadgesdisabled'] = 'Insignele cursului nu au fost create, pentru că insignele sunt dezactivate pe acest site.';
 $string['buildwarncompetencyactivity'] = 'Competența {$a->idnumber} nu a fost legată de {$a->activity}, pentru că acea activitate nu a fost construită.';
 $string['buildwarncompetencydisabled'] = 'Competențele cursului nu au fost legate, pentru că competențele sunt dezactivate pe acest site.';
