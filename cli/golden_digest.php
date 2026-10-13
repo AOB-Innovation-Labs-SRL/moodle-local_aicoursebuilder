@@ -133,21 +133,62 @@ cli_writeln("Job {$jobid} for user {$user->username}, connector {$connector}, " 
 $start = microtime(true);
 ingest_sources::instance($jobid, (int) $user->id)->execute();
 $seconds = microtime(true) - $start;
+// The ingestion queues the generation of the blueprint when it is done; this check is of the digest only, so the task is
+// taken off the queue, or the next adhoc run would generate a whole course and pay for it.
+foreach ($DB->get_records_select('task_adhoc', 'classname LIKE ?', ['%generate_blueprint']) as $queued) {
+    if ((int) (json_decode((string) $queued->customdata, true)['jobid'] ?? 0) === $jobid) {
+        $DB->delete_records('task_adhoc', ['id' => $queued->id]);
+    }
+}
 
 $sources = $DB->get_records('local_aicb_source', ['jobid' => $jobid], 'id');
 $digested = 0;
-cli_writeln(sprintf("\n%-18s %-9s %-16s %-5s %6s %8s %s", 'document', 'status', 'extractor', 'lang', 'chunks', 'tokens', 'digest'));
+// What each document cost, from the step rows: a long document is digested in windows (s7w0, s7w1), one node each.
+$perdocument = [];
+foreach ($DB->get_records('local_aicb_step', ['jobid' => $jobid, 'step' => 'digest']) as $step) {
+    if (preg_match('/^s(\d+)(?:w\d+)?$/', $step->nodekey, $matches)) {
+        $row = $perdocument[(int) $matches[1]] ?? ['nodes' => 0, 'in' => 0, 'cached' => 0, 'out' => 0, 'cost' => 0.0];
+        $perdocument[(int) $matches[1]] = [
+            'nodes' => $row['nodes'] + 1,
+            'in' => $row['in'] + (int) $step->tokensin,
+            'cached' => $row['cached'] + (int) $step->tokenscached,
+            'out' => $row['out'] + (int) $step->tokensout,
+            'cost' => $row['cost'] + (float) $step->cost,
+        ];
+    }
+}
+cli_writeln(sprintf(
+    "\n%-18s %-9s %-16s %-5s %6s %8s %5s %8s %8s %8s %8s  %s",
+    'document',
+    'status',
+    'extractor',
+    'lang',
+    'chunks',
+    'tokens',
+    'nodes',
+    'in',
+    'cached',
+    'out',
+    'USD',
+    'digest'
+));
 foreach ($sources as $source) {
     $digest = $source->digest ? json_decode($source->digest, true) : null;
     $digested += $source->status === ingest_sources::STATUS_DIGESTED ? 1 : 0;
+    $spent = $perdocument[(int) $source->id] ?? ['nodes' => 0, 'in' => 0, 'cached' => 0, 'out' => 0, 'cost' => 0.0];
     cli_writeln(sprintf(
-        '%-18s %-9s %-16s %-5s %6d %8d %s',
+        '%-18s %-9s %-16s %-5s %6d %8d %5d %8d %8d %8d %8.4f  %s',
         $source->filename,
         $source->status,
         (string) $source->extractor,
         (string) $source->language,
         $DB->count_records('local_aicb_chunk', ['sourceid' => $source->id]),
         (int) $source->tokencount,
+        $spent['nodes'],
+        $spent['in'],
+        $spent['cached'],
+        $spent['out'],
+        $spent['cost'],
         $digest
             ? count($digest['concepts']) . ' concepts, ' . count($digest['definitions']) . ' definitions, '
                 . count($digest['objectives']) . ' objectives, ' . count($digest['procedures']) . ' procedures'
@@ -156,18 +197,37 @@ foreach ($sources as $source) {
 }
 
 $steps = $DB->get_records('local_aicb_step', ['jobid' => $jobid, 'step' => 'digest']);
-$job = $DB->get_record('local_aicb_job', ['id' => $jobid], '*', MUST_EXIST);
 $done = count(array_filter($steps, fn($step) => $step->status === 'done'));
+$job = $DB->get_record('local_aicb_job', ['id' => $jobid], '*', MUST_EXIST);
+$stepcost = array_sum(array_column($steps, 'cost'));
+// The step rows do not keep how many calls a node made (repairs and regenerations included), so the calls are counted in
+// the call log of the job: the digest calls and the repair calls that followed them.
+$calls = $DB->get_records_sql(
+    'SELECT step, COUNT(1) AS total FROM {local_aicb_ailog} WHERE jobid = ? AND step IN (?, ?) GROUP BY step',
+    [$jobid, 'digest', 'repair']
+);
 cli_writeln(sprintf(
-    "\nDigest calls: %d done of %d (%.0f%% valid). Tokens in/out: %d/%d. Cost: %.4f USD. Time: %.0f s.",
+    "\nDigest nodes: %d done of %d (%.0f%% valid). AI calls: %d digest, %d repair. Tokens in/cached/out: %d/%d/%d. " .
+    "Cost: %.4f USD. Time: %.0f s.",
     $done,
     count($steps),
     $steps ? 100 * $done / count($steps) : 0,
+    (int) ($calls['digest']->total ?? 0),
+    (int) ($calls['repair']->total ?? 0),
     array_sum(array_column($steps, 'tokensin')),
+    array_sum(array_column($steps, 'tokenscached')),
     array_sum(array_column($steps, 'tokensout')),
     $job->actualcost,
     $seconds
 ));
+if (abs((float) $job->actualcost - $stepcost) > 0.000001) {
+    // The ingestion keeps the cost of the job up to date after every node; a difference is a defect, not a rounding.
+    cli_writeln(sprintf(
+        'WARNING: the cost of the job (%.6f) is not the sum of its digest step rows (%.6f).',
+        $job->actualcost,
+        $stepcost
+    ));
+}
 $allok = $digested === count($sources);
 cli_writeln("Digested: {$digested} of " . count($sources) . ($allok ? ' - M1 check passed.' : ' - M1 check NOT passed.'));
 exit($allok ? 0 : 2);

@@ -375,10 +375,13 @@ class ingest_sources extends \core\task\adhoc_task {
     private function update_job(\stdClass $job, array $fields): void {
         global $DB;
 
-        foreach ($fields as $name => $value) {
+        // Only the fields that change are written. The row was read when the task began, and the cost of the digests, the
+        // status after a cancellation and the rest have changed in the database since: writing the whole row would put
+        // back what it held then, the cost of the job included.
+        $record = (object) (['id' => $job->id, 'timemodified' => time()] + $fields);
+        $DB->update_record('local_aicb_job', $record);
+        foreach ($record as $name => $value) {
             $job->{$name} = $value;
         }
-        $job->timemodified = time();
-        $DB->update_record('local_aicb_job', $job);
     }
 }

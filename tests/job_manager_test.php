@@ -395,6 +395,23 @@ final class job_manager_test extends \advanced_testcase {
     }
 
     /**
+     * Pausing writes the fields it changes and leaves the others as they are in the database: the row it is given may
+     * be older than the stored one.
+     */
+    public function test_pause_does_not_write_back_what_it_did_not_change(): void {
+        global $DB;
+        $job = $this->create();
+        // The row in memory is read, and then the database changes under it.
+        $DB->update_record('local_aicb_job', (object) ['id' => $job->id, 'prompt' => 'Changed after the row was read']);
+
+        $this->manager->pause($job, 'The limit of the job was reached.');
+
+        $stored = $DB->get_record('local_aicb_job', ['id' => $job->id], '*', MUST_EXIST);
+        $this->assertSame(job_manager::STATUS_PAUSED, $stored->status);
+        $this->assertSame('Changed after the row was read', $stored->prompt);
+    }
+
+    /**
      * Only a paused job is resumed.
      */
     public function test_resume_refuses_a_job_that_is_not_paused(): void {
