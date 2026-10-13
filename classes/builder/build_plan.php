@@ -26,9 +26,11 @@ namespace local_aicoursebuilder\builder;
  *  3. the modules, in blueprint order, a section's own activities before its subsections' ones;
  *  4. the availability rules, in a separate pass, because a rule refers to the cmid of another module and
  *     every module must already have one (spec 3.7);
- *  5. course completion, which refers to the cmids of the activities that complete the course.
+ *  5. course completion, which refers to the cmids of the activities that complete the course;
+ *  6. the competencies, linked to the course and to the activities, which need the cmids;
+ *  7. the badges, whose criteria refer to the activities that award them and to course completion.
  *
- * Steps 1 to 3 are build_step objects run through the registry. Steps 4 and 5 are not builders: they are
+ * Steps 1 to 3 are build_step objects run through the registry. Steps 4 to 7 are not builders: they are
  * lists of targets the task applies itself once the cmids are known.
  *
  * In an existing course there is no course step and no section steps: the modules go into the section the
@@ -48,6 +50,9 @@ class build_plan {
      * @param build_step[] $steps Build steps, in topological order.
      * @param availability_target[] $availability Availability rules, applied after every module has a cmid.
      * @param string[] $completionactivities Activity node ids that complete the course.
+     * @param array[] $competencies The competencies to link: ['idnumber' => string, 'activities' => string[]], one
+     *                              entry for each idnumber, with every activity it is linked to.
+     * @param array[] $badges The badges of the course, as the blueprint writes them.
      */
     protected function __construct(
         /** @var build_step[] Build steps, in topological order. */
@@ -56,6 +61,10 @@ class build_plan {
         public readonly array $availability,
         /** @var string[] Activity node ids that complete the course. */
         public readonly array $completionactivities,
+        /** @var array[] The competencies to link to the course and its activities. */
+        public readonly array $competencies = [],
+        /** @var array[] The badges of the course. */
+        public readonly array $badges = [],
     ) {
     }
 
@@ -129,7 +138,13 @@ class build_plan {
             }
         }
 
-        return new self($steps, $availability, $completion);
+        $competencies = self::collect_competencies($blueprint, $steps);
+        $badges = array_values(array_filter(
+            $blueprint['course']['badges'] ?? [],
+            fn($badge) => is_array($badge) && !empty($badge['name']),
+        ));
+
+        return new self($steps, $availability, $completion, $competencies, $badges);
     }
 
     /**
@@ -150,6 +165,43 @@ class build_plan {
             $steps[] = new build_step($activityid, $type, $activity, $parentid);
         }
         return $steps;
+    }
+
+    /**
+     * Gathers the competencies of the blueprint, with the activities each one is linked to.
+     *
+     * A competency is named by its idnumber in two places: in the course, with the list of activities that
+     * develop it, and in an activity, which lists the idnumbers it develops. Both end up as one entry for each
+     * idnumber, so that the competency is looked up and linked to the course once.
+     *
+     * @param array $blueprint Decoded blueprint.
+     * @param build_step[] $steps The steps of the plan, whose activity nodes may name competencies.
+     * @return array[] ['idnumber' => string, 'activities' => string[]] for each idnumber, in the order met.
+     */
+    protected static function collect_competencies(array $blueprint, array $steps): array {
+        $found = [];
+        foreach ($blueprint['course']['competencies'] ?? [] as $competency) {
+            $idnumber = is_array($competency) ? ($competency['idnumber'] ?? null) : null;
+            if (!is_string($idnumber) || $idnumber === '') {
+                continue;
+            }
+            $found[$idnumber] = array_merge($found[$idnumber] ?? [], array_filter(
+                $competency['activities'] ?? [],
+                'is_string',
+            ));
+        }
+        foreach ($steps as $step) {
+            foreach ($step->node['competencies'] ?? [] as $idnumber) {
+                if (is_string($idnumber) && $idnumber !== '') {
+                    $found[$idnumber][] = $step->nodeid;
+                }
+            }
+        }
+        $competencies = [];
+        foreach ($found as $idnumber => $activities) {
+            $competencies[] = ['idnumber' => (string) $idnumber, 'activities' => array_values(array_unique($activities))];
+        }
+        return $competencies;
     }
 
     /**
