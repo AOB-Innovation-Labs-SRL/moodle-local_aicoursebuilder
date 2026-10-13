@@ -335,6 +335,7 @@ final class orchestrator_test extends \advanced_testcase {
         global $DB;
 
         $now = time();
+        // The fixture outline refers to src1, and a source is named for its id: this one has to be the source with id 1.
         $sourceid = $DB->insert_record('local_aicb_source', (object) [
             'jobid' => $this->jobid,
             'filename' => 'source.txt',
@@ -345,6 +346,8 @@ final class orchestrator_test extends \advanced_testcase {
             'timecreated' => $now,
             'timemodified' => $now,
         ]);
+        $DB->set_field('local_aicb_source', 'id', 1, ['id' => $sourceid]);
+        $sourceid = 1;
         $this->assertGreaterThan(0, $sourceid);
         $chunkid = $DB->insert_record('local_aicb_chunk', (object) [
             'jobid' => $this->jobid,

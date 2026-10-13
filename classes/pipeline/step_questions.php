@@ -141,18 +141,12 @@ class step_questions extends step {
             }
             $wanted[(int) $matches[1]][$ref['chunk'] ?? 0] = true;
         }
-        $sources = array_values($DB->get_records(
-            'local_aicb_source',
-            ['jobid' => $this->context->jobid],
-            'id ASC',
-            'id'
-        ));
         $chunks = [];
-        foreach ($wanted as $ordinal => $indexes) {
-            if (!isset($sources[$ordinal - 1])) {
+        // A source is named for its id (src58 is the source with id 58), as everywhere else in the pipeline.
+        foreach ($wanted as $sourceid => $indexes) {
+            if (!$DB->record_exists('local_aicb_source', ['id' => $sourceid, 'jobid' => $this->context->jobid])) {
                 continue;
             }
-            $sourceid = (int) $sources[$ordinal - 1]->id;
             foreach ($indexes as $index => $unused) {
                 $record = $DB->get_record('local_aicb_chunk', [
                     'jobid' => $this->context->jobid,
@@ -161,7 +155,7 @@ class step_questions extends step {
                 ]);
                 if ($record) {
                     $chunks[] = [
-                        'source' => 'src' . $ordinal,
+                        'source' => 'src' . $sourceid,
                         'chunk' => (int) $index,
                         'page' => $record->pagefrom === null ? null : (int) $record->pagefrom,
                         'title' => $record->title,

@@ -114,10 +114,11 @@ class regenerator {
         global $DB;
 
         $sourcetexts = [];
-        $sources = array_values($DB->get_records('local_aicb_source', ['jobid' => $job->id], 'id ASC', 'id'));
+        // A source is named for its id, as everywhere else in the pipeline (job_manager::load_sources): the blueprint
+        // refers to src58, not to the 58th source of the job.
         $names = [];
-        foreach ($sources as $index => $source) {
-            $names[$source->id] = 'src' . ($index + 1);
+        foreach ($DB->get_records('local_aicb_source', ['jobid' => $job->id], 'id ASC', 'id') as $source) {
+            $names[$source->id] = 'src' . $source->id;
         }
         $chunks = $DB->get_records('local_aicb_chunk', ['jobid' => $job->id], 'sourceid ASC, chunkindex ASC');
         foreach ($chunks as $chunk) {

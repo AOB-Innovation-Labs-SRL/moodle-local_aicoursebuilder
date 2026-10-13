@@ -330,4 +330,82 @@ final class regenerator_test extends \advanced_testcase {
         $this->assertSame(4, (int) $second->version);
         $this->assertSame(4, $DB->count_records('local_aicb_blueprint', ['jobid' => $this->jobid]));
     }
+
+    /**
+     * Inserts a source row and a chunk for the job, after a source of another job so that its id is not 1.
+     *
+     * @return int Id of the source of the job.
+     */
+    private function insert_source_with_chunk(): int {
+        global $DB;
+
+        $now = time();
+        $row = fn(int $jobid, string $name) => (object) [
+            'jobid' => $jobid,
+            'filename' => $name,
+            'mimetype' => 'text/plain',
+            'filesize' => 20,
+            'contenthash' => str_repeat('a', 40),
+            'status' => 'extracted',
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ];
+        $otherjob = (int) $DB->insert_record('local_aicb_job', (object) [
+            'userid' => $this->userid,
+            'mode' => 'newcourse',
+            'status' => 'draft',
+            'prompt' => 'Alt job',
+            'language' => 'ro',
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+        $DB->insert_record('local_aicb_source', $row($otherjob, 'other.txt'));
+        $sourceid = (int) $DB->insert_record('local_aicb_source', $row($this->jobid, 'mine.txt'));
+        $DB->insert_record('local_aicb_chunk', (object) [
+            'jobid' => $this->jobid,
+            'sourceid' => $sourceid,
+            'chunkindex' => 0,
+            'title' => 'T',
+            'pagefrom' => 1,
+            'pageto' => 1,
+            'content' => 'Text al sursei.',
+            'tokencount' => 3,
+            'contenthash' => str_repeat('b', 40),
+            'timecreated' => $now,
+        ]);
+        return $sourceid;
+    }
+
+    /**
+     * The sources of the production context are named for their ids, as the blueprint and the rest of the pipeline
+     * name them: a job whose source is not the first row of the table must still be regenerated.
+     */
+    public function test_the_sources_of_the_context_are_named_for_their_ids(): void {
+        global $DB;
+
+        $sourceid = $this->insert_source_with_chunk();
+        $this->assertGreaterThan(1, $sourceid, 'the source is not the first row of the table');
+        $job = $DB->get_record('local_aicb_job', ['id' => $this->jobid], '*', MUST_EXIST);
+        $method = new \ReflectionMethod(regenerator::class, 'context_for');
+
+        $context = $method->invoke(new regenerator(), $job);
+
+        $this->assertSame(['src' . $sourceid], array_keys($context->sourcetexts));
+    }
+
+    /**
+     * The chunks a section refers to are found by the id in the reference, not by position among the sources of the job.
+     */
+    public function test_the_questions_step_finds_the_chunks_of_a_source_by_id(): void {
+        $sourceid = $this->insert_source_with_chunk();
+        $step = new \local_aicoursebuilder\pipeline\step_questions($this->context());
+        $method = new \ReflectionMethod($step, 'referenced_chunks');
+
+        $chunks = $method->invoke($step, ['source_refs' => [['source' => 'src' . $sourceid, 'chunk' => 0]]]);
+
+        $this->assertCount(1, $chunks);
+        $this->assertSame('src' . $sourceid, $chunks[0]['source']);
+        $this->assertSame('Text al sursei.', $chunks[0]['content']);
+        $this->assertSame([], $method->invoke($step, ['source_refs' => [['source' => 'src1', 'chunk' => 0]]]));
+    }
 }
