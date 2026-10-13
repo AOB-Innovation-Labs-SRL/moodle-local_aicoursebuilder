@@ -245,12 +245,19 @@ class job_manager {
     public function pause(\stdClass $job, string $reason): void {
         global $DB;
 
-        $job->status = self::STATUS_PAUSED;
-        $job->error = $reason;
-        $job->statusmessage = null;
-        $job->actualcost = (new step_store())->totals((int) $job->id)['cost'] ?? $job->actualcost;
-        $job->timemodified = time();
-        $DB->update_record('local_aicb_job', $job);
+        // Only the fields that change are written: the row in memory may be older than the one in the database.
+        $record = (object) [
+            'id' => $job->id,
+            'status' => self::STATUS_PAUSED,
+            'error' => $reason,
+            'statusmessage' => null,
+            'actualcost' => (new step_store())->totals((int) $job->id)['cost'] ?? $job->actualcost,
+            'timemodified' => time(),
+        ];
+        $DB->update_record('local_aicb_job', $record);
+        foreach ($record as $name => $value) {
+            $job->{$name} = $value;
+        }
 
         (new budget_notifier())->exceeded($job, $reason);
     }

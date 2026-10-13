@@ -300,6 +300,29 @@ final class ingest_sources_test extends \advanced_testcase {
     }
 
     /**
+     * What the digests cost is on the job when the ingestion is done: every update of the progress after a digest writes
+     * only the fields it changes, so it cannot put back the cost the job had when the task read it.
+     */
+    public function test_the_cost_of_the_digests_stays_on_the_job(): void {
+        global $DB;
+        $this->add_sources(['manual.pdf' => source_fixtures::pdf(), 'guide.docx' => source_fixtures::docx()]);
+        router::set_test_connector((new fake_connector())->set_cost_per_call(0.25));
+
+        try {
+            $this->run_task();
+        } finally {
+            router::set_test_connector(null);
+        }
+
+        $job = $this->reload('local_aicb_job', $this->jobid);
+        $steps = $DB->get_records('local_aicb_step', ['jobid' => $this->jobid, 'step' => 'digest']);
+        $this->assertGreaterThanOrEqual(2, count($steps), 'one digest call for each source, at least');
+        $spent = array_sum(array_column($steps, 'cost'));
+        $this->assertGreaterThan(0, $spent);
+        $this->assertEqualsWithDelta($spent, (float) $job->actualcost, 0.000001);
+    }
+
+    /**
      * A run that stops after the chunks goes on with the digest: the chunks stay and the digest comes from its checkpoint.
      */
     public function test_resume_after_the_chunks(): void {
