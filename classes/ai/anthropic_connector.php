@@ -325,11 +325,12 @@ class anthropic_connector implements async_connector, connector {
         if ($request->wants_json()) {
             $json = json_decode($content, true);
             if (!is_array($json)) {
-                throw connector_exception::for_undecodable_json(
+                connector_exception::fail_if_truncated(
                     $stopreason,
                     $request->maxtokens,
                     "stop_reason={$stopreason}, content length=" . strlen($content)
                 );
+                $json = null;
             }
         }
 

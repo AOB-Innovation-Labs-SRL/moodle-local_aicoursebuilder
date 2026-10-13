@@ -129,6 +129,20 @@ final class json_repair_test extends \basic_testcase {
     }
 
     /**
+     * A bracket the model forgot to close before its parent ended is closed where the next closer proves it was
+     * missing, and a closer with nothing open is dropped; the strings in between are left alone.
+     */
+    public function test_a_missing_bracket_in_the_middle_is_closed(): void {
+        $this->assertSame(['a' => [1, 2]], json_repair::decode('{"a": [1, 2}'), 'the object ends before its array did');
+        $this->assertSame(
+            ['pages' => [['answers' => [['text' => 'x]']]]]],
+            json_repair::decode('{"pages": [{"answers": [{"text": "x]"}}]}'),
+            'the answers array lacks its closing bracket, and a bracket inside a string is not a closer',
+        );
+        $this->assertSame(['a' => 1], json_repair::decode('{"a": 1}}'), 'a closer with nothing open is dropped');
+    }
+
+    /**
      * Extraction returns the JSON part alone, without decoding it.
      */
     public function test_extract_returns_the_json_part(): void {

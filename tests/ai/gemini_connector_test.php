@@ -287,19 +287,11 @@ final class gemini_connector_test extends \advanced_testcase {
         return [
             'body is not JSON' => ['<html>gateway</html>', ['json' => true]],
             'body without candidates' => ['{"usageMetadata": {}}', ['json' => true]],
-            'empty text in JSON mode' => [
-                json_encode(['candidates' => [['content' => ['parts' => [['text' => '']]]]]]),
-                ['json' => true],
-            ],
-            'content is not JSON' => [
-                json_encode(['candidates' => [['content' => ['parts' => [['text' => 'Iată rezumatul']]]]]]),
-                ['json' => true],
-            ],
         ];
     }
 
     /**
-     * Invalid JSON answers raise connector_exception with the invalid JSON code.
+     * A body that is not a completion raises connector_exception with the invalid JSON code.
      *
      * @dataProvider invalid_json_provider
      * @param string $body HTTP response body.
@@ -314,6 +306,18 @@ final class gemini_connector_test extends \advanced_testcase {
             $this->assertSame(connector_exception::INVALID_JSON, $e->errorcode);
             $this->assertSame(0, $e->httpstatus);
         }
+    }
+
+    /**
+     * An answer that is not valid JSON but stopped on its own is returned as it is, so that the pipeline can repair it;
+     * only an answer cut off at the output limit fails.
+     */
+    public function test_undecodable_content_is_returned_for_repair(): void {
+        $body = json_encode(['candidates' => [['content' => ['parts' => [['text' => 'Iată rezumatul']]]]]]);
+        $this->mock->append(new Response(200, [], $body));
+        $result = (new gemini_connector())->complete($this->make_request(['json' => true]));
+        $this->assertNull($result->json);
+        $this->assertSame('Iată rezumatul', $result->content);
     }
 
     /**

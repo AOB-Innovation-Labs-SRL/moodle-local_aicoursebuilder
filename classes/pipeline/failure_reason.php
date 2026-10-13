@@ -42,6 +42,9 @@ final class failure_reason {
     /** @var string The answer stopped at the output token limit, so its JSON was cut off. */
     public const TYPE_TRUNCATED = 'truncated';
 
+    /** @var string The node validated after a repair call; the errors are those of its first answer. */
+    public const TYPE_REPAIRED = 'repaired';
+
     /** @var string The node validated, after the pipeline fixed something in it without a model call. */
     public const TYPE_CLEANED = 'cleaned';
 
@@ -71,18 +74,7 @@ final class failure_reason {
         int $truncatedat = 0,
         array $warnings = [],
     ): string {
-        $kept = [];
-        foreach (array_slice(array_values($errors), 0, self::MAX_ERRORS) as $error) {
-            $entry = ['path' => $error->path, 'code' => $error->code];
-            if ($error->keyword !== '') {
-                $entry['keyword'] = $error->keyword;
-            }
-            $keys = self::safe_keys($error->keys);
-            if ($keys !== []) {
-                $entry['keys'] = $keys;
-            }
-            $kept[] = $entry;
-        }
+        $kept = self::safe_errors($errors);
         $type = $repairs > 0 ? self::TYPE_REPAIR_EXHAUSTED : self::TYPE_VALIDATION;
         $reason = [
             'type' => $truncatedat > 0 ? self::TYPE_TRUNCATED : $type,
@@ -100,7 +92,7 @@ final class failure_reason {
     }
 
     /**
-     * Describes a node that validated after the pipeline fixed something in it without a model call.
+     * Describes a node that validated after the pipeline fixed something in it, with or without a repair call.
      *
      * Each warning is a fix the teacher may want to know about: a key the schema does not allow that
      * was deleted, or questions over the maximum that were dropped. It names the path, the schema
@@ -109,14 +101,16 @@ final class failure_reason {
      * @param array[] $warnings Fixes made: ['path' => string, 'keyword' => string, 'removed' => string[]|int].
      * @param int $repairs Repair calls made.
      * @param int $attempts Calls made in all, the first one included.
+     * @param array $firsterrors Errors of the first answer, kept when a repair call was needed.
      * @return string JSON reason.
      */
-    public static function from_warnings(array $warnings, int $repairs, int $attempts): string {
+    public static function from_warnings(array $warnings, int $repairs, int $attempts, array $firsterrors = []): string {
         return self::encode([
-            'type' => self::TYPE_CLEANED,
+            // A node that took a repair call says what the first answer got wrong, so the cause can be fixed at its source.
+            'type' => $repairs > 0 ? self::TYPE_REPAIRED : self::TYPE_CLEANED,
             'httpcode' => 0,
-            'errors' => [],
-            'errorcount' => 0,
+            'errors' => self::safe_errors($firsterrors),
+            'errorcount' => count($firsterrors),
             'repairs' => $repairs,
             'attempts' => $attempts,
             'warnings' => self::safe_warnings($warnings),
@@ -193,6 +187,28 @@ final class failure_reason {
     protected static function safe_keys(array $keys): array {
         $safe = array_filter($keys, fn($key) => preg_match('/^[A-Za-z0-9_.-]{1,40}$/', (string) $key) === 1);
         return array_slice(array_values($safe), 0, self::MAX_ERRORS);
+    }
+
+    /**
+     * Returns the first errors as the reason keeps them: path, code, keyword and key names, never a message.
+     *
+     * @param validation_error[] $errors The errors.
+     * @return array[]
+     */
+    protected static function safe_errors(array $errors): array {
+        $kept = [];
+        foreach (array_slice(array_values($errors), 0, self::MAX_ERRORS) as $error) {
+            $entry = ['path' => $error->path, 'code' => $error->code];
+            if ($error->keyword !== '') {
+                $entry['keyword'] = $error->keyword;
+            }
+            $keys = self::safe_keys($error->keys);
+            if ($keys !== []) {
+                $entry['keys'] = $keys;
+            }
+            $kept[] = $entry;
+        }
+        return $kept;
     }
 
     /**

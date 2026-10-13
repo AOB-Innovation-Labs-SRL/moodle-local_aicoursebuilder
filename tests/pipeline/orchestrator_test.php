@@ -238,9 +238,10 @@ final class orchestrator_test extends \advanced_testcase {
     }
 
     /**
-     * Bad fractions and gap markers are repaired before the quiz is assembled.
+     * A fault of the quiz as a whole, here two questions with one id, is repaired before the quiz is assembled. A
+     * question that is wrong on its own is not: it is replaced, see test_a_question_that_is_invalid_is_replaced_not_repaired.
      */
-    public function test_question_fraction_and_marker_errors_are_repaired(): void {
+    public function test_a_fault_of_the_whole_quiz_is_repaired(): void {
         $this->connector = new fake_connector();
         router::set_test_connector($this->connector);
         $good = json_decode(
@@ -250,14 +251,7 @@ final class orchestrator_test extends \advanced_testcase {
             JSON_THROW_ON_ERROR
         );
         $bad = $good;
-        $bad['quiz']['content']['questions'][0]['answers'][0]['fraction'] = 0.5;
-        foreach ($bad['quiz']['content']['questions'] as &$question) {
-            if ($question['qtype'] === 'gapselect') {
-                $question['questiontext'] = '<p>[[99]]</p>';
-                break;
-            }
-        }
-        unset($question);
+        $bad['quiz']['content']['questions'][1]['id'] = $bad['quiz']['content']['questions'][0]['id'];
         $this->connector->push(request::STEP_QUESTIONS, $bad, 's1');
         $this->queue_sections();
         $this->connector->push(request::STEP_REPAIR, $good);
@@ -285,7 +279,7 @@ final class orchestrator_test extends \advanced_testcase {
             512,
             JSON_THROW_ON_ERROR
         );
-        $bad['quiz']['content']['questions'][0]['answers'][0]['fraction'] = 0.5;
+        $bad['quiz']['content']['questions'][1]['id'] = $bad['quiz']['content']['questions'][0]['id'];
         $this->connector->push(request::STEP_QUESTIONS, $bad, 's1');
         $this->queue_sections();
         $this->connector->push(request::STEP_REPAIR, $bad);
@@ -1088,11 +1082,11 @@ final class orchestrator_test extends \advanced_testcase {
     /**
      * Starts a new fake connector and queues a whole run on it, with other answers for section s1.
      *
-     * @param array|null $s1section Answer of the sections step for s1, null for its fixture.
+     * @param array|string|null $s1section Answer of the sections step for s1, a string being sent as it is; null for the fixture.
      * @param array[]|null $s1quizzes Answers of the questions step for s1 in the order it asks for
      *                                them, null for the fixture.
      */
-    private function queue_run(?array $s1section = null, ?array $s1quizzes = null): void {
+    private function queue_run(array|string|null $s1section = null, ?array $s1quizzes = null): void {
         $this->connector = new fake_connector();
         router::set_test_connector($this->connector);
         foreach (['s1', 's1-1', 's2', 's3'] as $id) {
@@ -1266,6 +1260,152 @@ final class orchestrator_test extends \advanced_testcase {
 
         $this->assertSame([], $outcome->manualnodes);
         $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR));
+    }
+
+    /**
+     * An answer that is not JSON at all is asked for again from the start, not sent to a repair that would be handed
+     * a document to correct and tends to repeat its slip.
+     */
+    public function test_an_answer_that_is_not_json_is_asked_for_again(): void {
+        $this->queue_run('Iată secțiunea cerută, cu mult drag!');
+        $this->connector->push(request::STEP_SECTIONS, $this->section_fixture('s1'), 's1');
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $this->assertSame(5, $this->connector->call_count(request::STEP_SECTIONS), 'four sections, and s1 twice');
+        $reason = $this->done_reason(request::STEP_SECTIONS, 's1');
+        $this->assertSame(failure_reason::TYPE_REPAIRED, $reason['type']);
+        $this->assertSame(1, $reason['repairs']);
+        $this->assertSame('not_json', $reason['errors'][0]['code']);
+    }
+
+    /**
+     * A fresh answer that is not JSON either is asked for once more, before the node is given up.
+     */
+    public function test_a_second_answer_that_is_not_json_is_asked_for_again(): void {
+        $this->queue_run('Prima încercare, fără JSON.');
+        $this->connector->push(request::STEP_SECTIONS, 'A doua încercare, tot fără JSON.', 's1');
+        $this->connector->push(request::STEP_SECTIONS, $this->section_fixture('s1'), 's1');
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $this->assertSame(6, $this->connector->call_count(request::STEP_SECTIONS), 'four sections, and s1 three times');
+        $this->assertSame(2, $this->done_reason(request::STEP_SECTIONS, 's1')['repairs']);
+    }
+
+    /**
+     * A question that is wrong on its own is left out and replaced by the call for the missing ones, instead of
+     * sending the whole quiz to a repair.
+     */
+    public function test_a_question_that_is_invalid_is_replaced_not_repaired(): void {
+        $quiz = $this->quiz_fixture('s1');
+        $original = $quiz['quiz']['content']['questions'];
+        // A multiple choice question with no answers, and a question with a key the schema does not know.
+        unset($quiz['quiz']['content']['questions'][0]['answers']);
+        $quiz['quiz']['content']['questions'][1]['questiontext2'] = 'stray';
+        $fill = ['id' => 's1', 'quiz' => [
+            'id' => 's1.quiz1',
+            'type' => 'quiz',
+            'name' => 'Missing',
+            'content' => ['questions' => [array_replace($original[0], ['id' => 'q1'])]],
+        ]];
+        $this->queue_run(null, [$quiz, $fill]);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $questions = $this->first_quiz_questions($outcome->blueprint);
+        $this->assertCount(10, $questions);
+        $this->assertStringNotContainsString('questiontext2', json_encode($questions));
+        $warnings = array_column($this->done_reason(request::STEP_QUESTIONS, 's1')['warnings'], 'keyword');
+        $this->assertContains('invalid_question', $warnings);
+        $this->assertContains('minItems', $warnings);
+    }
+
+    /**
+     * The ids the pipeline already knows are set by it: the id of an answer and of its quiz, which would otherwise
+     * cost a repair or a manual node.
+     */
+    public function test_ids_the_pipeline_knows_are_set_not_asked_for(): void {
+        $section = $this->section_fixture('s1');
+        unset($section['id']);
+        $quiz = $this->quiz_fixture('s1');
+        unset($quiz['id']);
+        $quiz['quiz']['id'] = 'wrong';
+        $this->queue_run($section, [$quiz]);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $this->assertSame('/id', $this->done_reason(request::STEP_SECTIONS, 's1')['warnings'][0]['path']);
+        $paths = array_column($this->done_reason(request::STEP_QUESTIONS, 's1')['warnings'], 'path');
+        $this->assertSame(['/id', '/quiz/id'], $paths);
+    }
+
+    /**
+     * A page of a lesson that has no id gets the one its position makes, which the jumps already count on.
+     */
+    public function test_a_lesson_page_without_an_id_is_numbered(): void {
+        $step = new \local_aicoursebuilder\pipeline\step_activities($this->context());
+        $number = new \ReflectionMethod($step, 'number_lesson_pages');
+        $lesson = ['id' => 's2.lesson1', 'type' => 'lesson', 'name' => 'L', 'content' => ['pages' => [
+            ['id' => 'p1', 'type' => 'content', 'title' => 'A', 'contents' => 'a', 'answers' => []],
+            ['type' => 'content', 'title' => 'B', 'contents' => 'b', 'answers' => []],
+            ['id' => 'p9', 'type' => 'content', 'title' => 'C', 'contents' => 'c', 'answers' => []],
+        ]]];
+
+        $fixed = $number->invoke($step, $lesson);
+
+        $this->assertSame(['p1', 'p2', 'p9'], array_column($fixed['content']['pages'], 'id'));
+    }
+
+    /**
+     * A link whose address is not a valid URL is dropped like one that is in no source.
+     */
+    public function test_a_link_that_is_not_a_url_is_dropped(): void {
+        $section = $this->section_fixture('s1');
+        $section['activities'][$this->url_index($section)]['content']['externalurl'] = 'ro.wikipedia.org/wiki/Energie';
+        $this->queue_run($section);
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(0, $this->connector->call_count(request::STEP_REPAIR));
+        $this->assertStringNotContainsString('ro.wikipedia.org/wiki/Energie"', json_encode($outcome->blueprint));
+    }
+
+    /**
+     * A question the model wrote for the missing ones that is wrong on its own is left out of the quiz.
+     */
+    public function test_a_missing_question_that_is_invalid_is_not_added(): void {
+        $quiz = $this->quiz_fixture('s1');
+        $original = $quiz['quiz']['content']['questions'];
+        $quiz['quiz']['content']['questions'] = array_values(array_filter(
+            $original,
+            fn($question) => !in_array($question['id'], ['q9', 'q10'], true),
+        ));
+        $nosub = array_replace($original[8], ['id' => 'q1', 'qtype' => 'match']);
+        unset($nosub['answers'], $nosub['single'], $nosub['shuffleanswers']);
+        $fill = ['id' => 's1', 'quiz' => [
+            'id' => 's1.quiz1',
+            'type' => 'quiz',
+            'name' => 'Missing',
+            'content' => ['questions' => [$nosub, array_replace($original[9], ['id' => 'q1'])]],
+        ]];
+        $this->queue_run(null, [$quiz, $fill]);
+        $this->connector->push(request::STEP_REPAIR, $this->quiz_fixture('s1'));
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $this->assertSame(1, $this->connector->call_count(request::STEP_REPAIR), 'the one still missing goes to repair');
+        $this->assertCount(10, $this->first_quiz_questions($outcome->blueprint));
     }
 
     /**

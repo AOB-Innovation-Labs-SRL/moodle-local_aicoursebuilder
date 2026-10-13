@@ -277,17 +277,11 @@ final class deepseek_connector_test extends \advanced_testcase {
         return [
             'body is not JSON' => ['<html>gateway</html>', ['json' => true]],
             'body without choices' => ['{"object": "chat.completion"}', ['json' => true]],
-            'empty content in JSON mode' => [$choice(['content' => '']), ['json' => true]],
-            'content is not JSON' => [$choice(['content' => 'Iată rezumatul']), ['json' => true]],
-            'tool arguments are not JSON' => [
-                $choice(['tool_calls' => [['function' => ['name' => 'emit_digest', 'arguments' => '{"titlu":']]]]),
-                ['schema' => ['type' => 'object']],
-            ],
         ];
     }
 
     /**
-     * Invalid JSON answers raise connector_exception with the invalid JSON code.
+     * A body that is not a completion raises connector_exception with the invalid JSON code.
      *
      * @dataProvider invalid_json_provider
      * @param string $body HTTP response body.
@@ -302,6 +296,25 @@ final class deepseek_connector_test extends \advanced_testcase {
             $this->assertSame(connector_exception::INVALID_JSON, $e->errorcode);
             $this->assertSame(0, $e->httpstatus);
         }
+    }
+
+    /**
+     * An answer that is not valid JSON but stopped on its own is returned as it is, so that the pipeline can repair it;
+     * only an answer cut off at the output limit fails.
+     */
+    public function test_undecodable_content_is_returned_for_repair(): void {
+        $body = json_encode(['choices' => [['message' => ['content' => 'Iată rezumatul'], 'finish_reason' => 'stop']]]);
+        $this->mock->append(new Response(200, [], $body));
+        $result = (new deepseek_connector())->complete($this->make_request(['json' => true]));
+        $this->assertNull($result->json);
+        $this->assertSame('Iată rezumatul', $result->content);
+        $this->mock->append(new Response(200, [], json_encode(['choices' => [[
+            'message' => ['tool_calls' => [['function' => ['name' => 'emit_digest', 'arguments' => '{"titlu":']]]],
+            'finish_reason' => 'stop',
+        ]]])));
+        $result = (new deepseek_connector())->complete($this->make_request(['schema' => ['type' => 'object']]));
+        $this->assertNull($result->json);
+        $this->assertSame('{"titlu":', $result->content, 'a half-written tool call is returned too');
     }
 
     /**
