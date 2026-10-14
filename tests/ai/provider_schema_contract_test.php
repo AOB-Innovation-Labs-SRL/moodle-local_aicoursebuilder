@@ -306,11 +306,13 @@ final class provider_schema_contract_test extends \advanced_testcase {
 
     /**
      * The steps that write the course, whose schemas have the content of an activity and the rules of a completion, go
-     * to Anthropic with no schema; the ones that can be closed go with it.
+     * to Anthropic with no schema, and so does the outline, whose schema is within a margin of the limits of the API; the
+     * ones that can be closed and are small go with it.
      */
     public function test_which_steps_go_to_anthropic_with_a_schema(): void {
-        $without = ['sections', 'activities', 'questions'];
-        $with = ['brief', 'digest', 'outline', 'review'];
+        // The outline has no object that cannot be closed, but it comes within the margin of the limits of the API.
+        $without = ['sections', 'activities', 'questions', 'outline'];
+        $with = ['brief', 'digest', 'review'];
         foreach ($without as $step) {
             [$schema, $raw] = $this->sent('anthropic', $step);
             $this->assertNull($schema, $step);

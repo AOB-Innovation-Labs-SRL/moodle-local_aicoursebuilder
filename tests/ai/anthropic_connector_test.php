@@ -176,23 +176,45 @@ final class anthropic_connector_test extends \advanced_testcase {
     }
 
     /**
-     * The outline schema refers to the blueprint schema: the structured output schema has to carry
-     * everything, with no aicb:/// left.
+     * A schema that refers to the blueprint schema is sent with the definition it reaches, and with no aicb:/// left. The
+     * schema of a step is used when it can be sent at all: the review one refers to nothing, so one is made here.
      */
-    public function test_a_step_schema_is_sent_without_external_references(): void {
-        $schema = (new \local_aicoursebuilder\blueprint\schema_store())->step_schema_array(request::STEP_OUTLINE);
-        $rawjson = json_encode($schema, JSON_UNESCAPED_SLASHES);
-        $this->assertStringContainsString('aicb:///', $rawjson, 'the raw schema is not self-contained');
-        $this->mock->append(new Response(200, [], $this->message_body([['type' => 'text', 'text' => '{"course": {}}']])));
+    public function test_a_schema_is_sent_without_external_references(): void {
+        $schema = [
+            'type' => 'object',
+            'required' => ['title'],
+            'properties' => ['title' => ['$ref' => 'aicb:///blueprint.v1#/$defs/name']],
+        ];
+        $this->assertStringContainsString('aicb:///', json_encode($schema, JSON_UNESCAPED_SLASHES));
+        $this->mock->append(new Response(200, [], $this->message_body([['type' => 'text', 'text' => '{"title": "A"}']])));
 
-        (new anthropic_connector())->complete($this->make_request(['step' => request::STEP_OUTLINE, 'schema' => $schema]));
+        (new anthropic_connector())->complete($this->make_request(['step' => request::STEP_BRIEF, 'schema' => $schema]));
 
         [$sent, $body] = $this->sent();
         $this->assertStringNotContainsString('aicb:', (string) $sent->getBody());
         $sentschema = $body['output_config']['format']['schema'];
-        $this->assertSame('#/$defs/blueprint_v1__course', $sentschema['properties']['course']['$ref']);
-        $this->assertArrayHasKey('blueprint_v1__course', $sentschema['$defs']);
+        $this->assertSame('#/$defs/blueprint_v1__name', $sentschema['properties']['title']['$ref']);
+        $this->assertArrayHasKey('blueprint_v1__name', $sentschema['$defs']);
         $this->assertArrayNotHasKey('$id', $sentschema);
+    }
+
+    /**
+     * A step whose schema the API cannot be given, here the outline, which is within a margin of its limits, is sent with
+     * no schema: the request has no output_config and the instruction to answer in JSON is the prompt's.
+     */
+    public function test_a_step_whose_schema_cannot_be_sent_goes_without_it(): void {
+        $schema = (new \local_aicoursebuilder\blueprint\schema_store())->step_schema_array(request::STEP_OUTLINE);
+        $this->mock->append(new Response(200, [], $this->message_body([['type' => 'text', 'text' => '{"course": {}}']])));
+
+        $result = (new anthropic_connector())->complete($this->make_request([
+            'step' => request::STEP_OUTLINE,
+            'schema' => $schema,
+        ]));
+
+        [$sent, $body] = $this->sent();
+        $this->assertArrayNotHasKey('output_config', $body);
+        $this->assertStringNotContainsString('aicb:', (string) $sent->getBody());
+        $this->assertSame(['course' => []], $result->json);
     }
 
     /**

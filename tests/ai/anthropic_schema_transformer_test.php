@@ -163,8 +163,9 @@ final class anthropic_schema_transformer_test extends \advanced_testcase {
     }
 
     /**
-     * The API takes 24 optional properties and 16 unions in a request; a schema with more is refused, and one with as many
-     * as that is not. A reference is counted at each place it is used, as the API reads the schema.
+     * The API takes 24 optional properties and 16 unions in a request, and the count here is an estimate, so a schema is
+     * refused when it comes within a margin of them: one with as many as the margin leaves is sent, one with more is not. A
+     * reference is counted at each place it is used, as the API reads the schema.
      */
     public function test_a_schema_over_the_limits_of_the_api_is_refused(): void {
         $properties = fn(int $count) => array_combine(
@@ -173,8 +174,10 @@ final class anthropic_schema_transformer_test extends \advanced_testcase {
         );
         $transformer = new anthropic_schema_transformer();
 
-        $this->assertNotNull($transformer->transform(['type' => 'object', 'properties' => $properties(24)]));
-        $this->assertNull($transformer->transform(['type' => 'object', 'properties' => $properties(25)]));
+        $most = anthropic_schema_transformer::MAX_OPTIONAL;
+        $this->assertLessThan(anthropic_schema_transformer::API_MAX_OPTIONAL, $most, 'there is a margin under the limit');
+        $this->assertNotNull($transformer->transform(['type' => 'object', 'properties' => $properties($most)]));
+        $this->assertNull($transformer->transform(['type' => 'object', 'properties' => $properties($most + 1)]));
 
         $shared = ['$ref' => '#/$defs/trio'];
         $reused = ['type' => 'object', 'required' => ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'], 'properties' => [
@@ -183,11 +186,22 @@ final class anthropic_schema_transformer_test extends \advanced_testcase {
         ], '$defs' => ['trio' => ['type' => 'object', 'properties' => $properties(3)]]];
         $this->assertNull($transformer->transform($reused), 'nine uses of a definition with three optional properties are 27');
 
-        $unions = array_fill(0, 17, ['anyOf' => [['type' => 'string'], ['type' => 'null']]]);
-        $this->assertNull($transformer->transform(['type' => 'object', 'properties' => array_combine(
-            array_map(fn(int $i) => "u{$i}", array_keys($unions)),
-            $unions,
-        )]));
+        $union = ['anyOf' => [['type' => 'string'], ['type' => 'null']]];
+        $unions = fn(int $count) => array_combine(
+            array_map(fn(int $i) => "u{$i}", range(1, $count)),
+            array_fill(0, $count, $union),
+        );
+        $mostunions = anthropic_schema_transformer::MAX_UNIONS;
+        $this->assertNotNull($transformer->transform([
+            'type' => 'object',
+            'required' => array_keys($unions($mostunions)),
+            'properties' => $unions($mostunions),
+        ]));
+        $this->assertNull($transformer->transform([
+            'type' => 'object',
+            'required' => array_keys($unions($mostunions + 1)),
+            'properties' => $unions($mostunions + 1),
+        ]));
     }
 
     /**

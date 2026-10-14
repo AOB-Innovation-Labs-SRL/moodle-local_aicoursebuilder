@@ -40,8 +40,8 @@ namespace local_aicoursebuilder\ai;
  * that has none.
  *
  * The page also limits a request to 24 optional properties and 16 unions in all ("Schema is too complex for compilation" is
- * the 400 that answers more), counted over the schema with its references expanded. A schema over either limit is refused the
- * same way.
+ * the 400 that answers more), counted over the schema with its references expanded. How the API counts is not said, and a 400
+ * is not repaired, so a schema is refused the same way when it comes within MARGIN of either limit.
  *
  * @package    local_aicoursebuilder
  * @copyright  2026 AOB Labs
@@ -69,10 +69,23 @@ class anthropic_schema_transformer {
     public const MAX_DEPTH = 50;
 
     /** @var int Most optional properties in one request, which the page gives as 24. */
-    public const MAX_OPTIONAL = 24;
+    public const API_MAX_OPTIONAL = 24;
 
     /** @var int Most properties with a union type (anyOf or a type array) in one request, which the page gives as 16. */
-    public const MAX_UNIONS = 16;
+    public const API_MAX_UNIONS = 16;
+
+    /**
+     * @var int How far under the limits of the API a schema has to stay. The count here is an estimate: the page does not
+     * say how it counts a nullable type or a definition, and a request over the limit is a 400 that no repair can answer,
+     * which stops the step and with it the job. A schema that is only just inside the limits is not sent.
+     */
+    public const MARGIN = 4;
+
+    /** @var int Most optional properties a schema is sent with. */
+    public const MAX_OPTIONAL = self::API_MAX_OPTIONAL - self::MARGIN;
+
+    /** @var int Most unions a schema is sent with. */
+    public const MAX_UNIONS = self::API_MAX_UNIONS - self::MARGIN;
 
     /** @var schema_bundler Resolves the cross-document $refs. */
     protected schema_bundler $bundler;
