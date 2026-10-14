@@ -435,4 +435,25 @@ final class gemini_connector_test extends \advanced_testcase {
         $this->assertSame(0.0, $connector->estimate_cost($request));
         $this->assertCount(0, $this->history);
     }
+
+    /**
+     * An answer cut off at MAX_TOKENS fails, but the provider billed it: the exception carries its tokens and cost, read
+     * from usageMetadata, where the prompt count includes the cached tokens.
+     */
+    public function test_truncated_answer_carries_what_was_billed(): void {
+        $this->mock->append(new Response(200, [], $this->generate_body(
+            '{"a":',
+            'MAX_TOKENS',
+            ['candidatesTokenCount' => 4096, 'cachedContentTokenCount' => 20],
+        )));
+        try {
+            (new gemini_connector())->complete($this->make_request(['json' => true]));
+            $this->fail('A cut-off answer was accepted');
+        } catch (connector_exception $e) {
+            $this->assertSame(connector_exception::TRUNCATED, $e->errorcode);
+            $this->assertSame(100, $e->billed->tokensin);
+            $this->assertSame(4096, $e->billed->tokensout);
+            $this->assertSame(20, $e->billed->tokenscached);
+        }
+    }
 }

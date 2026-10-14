@@ -105,10 +105,13 @@ abstract class step {
      * @param string $nodekey Sub-call key, empty for a step that runs once.
      * @param result|null $first First answer, when a caller already fetched it in a batch and has
      *                           reserved and settled its cost; null to call for it here.
+     * @param result|null $billedfirst What the provider billed for a first call of the batch whose answer was refused
+     *                                 (cut off at the output limit), already reserved and settled there. The node asks
+     *                                 again, and carries that cost in its row.
      * @return step_result
      * @throws budget_exceeded_exception When a limit stops the call before it is sent.
      */
-    public function run(array $input, string $nodekey = '', ?result $first = null): step_result {
+    public function run(array $input, string $nodekey = '', ?result $first = null, ?result $billedfirst = null): step_result {
         $step = $this->get_step();
         $route = $this->context->router->get_route($step);
         $hashcontext = $this->hash_context($route);
@@ -124,6 +127,9 @@ abstract class step {
         // The running total lives out here so that a limit reached midway through a node, between
         // its first call and a repair, still records what the calls already made really cost.
         $spend = new spend();
+        if ($billedfirst !== null) {
+            $spend->add($billedfirst);
+        }
         try {
             if ($first !== null) {
                 // The first answer was fetched in a batch, and was reserved and settled there.
