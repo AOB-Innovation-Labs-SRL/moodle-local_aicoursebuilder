@@ -175,4 +175,152 @@ final class cost_estimator_test extends \advanced_testcase {
         $longestimate = $this->estimate($long);
         $this->assertGreaterThan($shortestimate['tokensout'], $longestimate['tokensout']);
     }
+
+    /**
+     * Adds a job with the given request and brief.
+     *
+     * @param string $prompt The teacher's request.
+     * @param string|null $brief Brief JSON.
+     * @param bool $offpeak Whether the job asks to run off-peak.
+     * @return int Job id.
+     */
+    private function add_job_for(string $prompt, ?string $brief = null, bool $offpeak = false): int {
+        global $DB;
+        return $DB->insert_record('local_aicb_job', (object) [
+            'userid' => $this->getDataGenerator()->create_user()->id,
+            'status' => 'draft',
+            'prompt' => $prompt,
+            'brief' => $brief,
+            'offpeak' => $offpeak ? 1 : 0,
+            'timecreated' => time(),
+            'timemodified' => time(),
+        ]);
+    }
+
+    /**
+     * Returns the estimate of a job, priced at a given moment.
+     *
+     * @param int $jobid Job id.
+     * @param int|null $timestamp The moment the work is priced at.
+     * @return array
+     */
+    private function estimate_at(int $jobid, ?int $timestamp): array {
+        global $DB;
+        $job = $DB->get_record('local_aicb_job', ['id' => $jobid], '*', MUST_EXIST);
+        return (new cost_estimator())->estimate($job, $timestamp);
+    }
+
+    /** Wednesday 14 October 2026, 07:00 UTC: inside the peak window of the DeepSeek pilot schedule. */
+    private const PEAK = 1791961200;
+
+    /** Wednesday 14 October 2026, 12:06 UTC: off-peak. */
+    private const OFFPEAK = 1791979560;
+
+    /**
+     * After the first call of the content steps the shared prefix is served from the provider's cache, so one more
+     * section costs a fraction of what sending the prefix again would cost.
+     */
+    public function test_the_prefix_is_paid_once_and_then_found_in_the_cache(): void {
+        $prefixtokens = 100_000;
+        $few = $this->add_job_for('Curs. Durata: 135 de minute.');
+        $this->add_source($few, 1, $prefixtokens);
+        $many = $this->add_job_for('Curs. Durata: 450 de minute.');
+        $this->add_source($many, 1, $prefixtokens);
+
+        $fewestimate = $this->estimate_at($few, self::OFFPEAK);
+        $manyestimate = $this->estimate_at($many, self::OFFPEAK);
+
+        // 135 minutes are 3 sections and 1 subsection, 450 minutes are 10 sections and 5 subsections: 11 nodes more,
+        // each with a call of the sections, activities and questions steps.
+        $extranodes = 11;
+        $extracost = $manyestimate['cost'] - $fewestimate['cost'];
+        $uncachedprefix = $extranodes * 3 * ($prefixtokens / 1_000_000) * 0.15;
+        $this->assertGreaterThan(0, $extracost);
+        $this->assertLessThan(
+            0.5 * $uncachedprefix + $extranodes * 0.04,
+            $extracost,
+            'a node costs its own tokens and the cached prefix, not the prefix again',
+        );
+        $this->assertGreaterThan($fewestimate['tokensin'], $manyestimate['tokensin'], 'the cached tokens are still input');
+    }
+
+    /**
+     * A connector with no prefix cache pays for the prefix at every call.
+     */
+    public function test_a_connector_without_a_prefix_cache_pays_for_the_prefix_every_time(): void {
+        $job = $this->add_job_for('Curs. Durata: 240 de minute.');
+        $this->add_source($job, 1, 100_000);
+        $cached = $this->estimate_at($job, self::OFFPEAK)['cost'];
+
+        set_config('defaultconnector', 'openaicompat', 'local_aicoursebuilder');
+        $prices = ['gpt-test' => ['input_miss' => 0.30, 'input_hit' => 0.006, 'output' => 1.2]];
+        set_config('pricing_openaicompat', json_encode($prices), 'local_aicoursebuilder');
+        set_config('openaicompat_model', 'gpt-test', 'local_aicoursebuilder');
+        $uncached = $this->estimate_at($job, self::OFFPEAK)['cost'];
+
+        $this->assertGreaterThan(3 * $cached, $uncached);
+    }
+
+    /**
+     * Work priced off-peak costs about half of the same work at peak, and a job that asks to run off-peak is priced
+     * off-peak.
+     */
+    public function test_off_peak_is_priced_at_the_off_peak_rates(): void {
+        $job = $this->add_job_for('Curs. Durata: 240 de minute.');
+        $this->add_source($job, 1, 100_000);
+
+        $peak = $this->estimate_at($job, self::PEAK)['cost'];
+        $offpeak = $this->estimate_at($job, self::OFFPEAK)['cost'];
+        $this->assertEqualsWithDelta(0.5, $offpeak / $peak, 0.02);
+
+        $asked = $this->add_job_for('Curs. Durata: 240 de minute.', null, true);
+        $this->add_source($asked, 1, 100_000);
+        $this->assertEqualsWithDelta($offpeak, $this->estimate_at($asked, null)['cost'], 0.000001);
+    }
+
+    /**
+     * The length of the course is read from the request when the brief does not exist yet.
+     */
+    public function test_the_duration_is_read_from_the_request(): void {
+        $inprompt = $this->add_job_for('Curs introductiv. Public: începători. Durata: 120 de minute. Limba: română.');
+        $inbrief = $this->add_job_for('Un curs.', '{"duration_minutes": 120}');
+        $hours = $this->add_job_for('A course of 2 hours for beginners.');
+        $long = $this->add_job_for('Curs. Durata: 480 de minute.');
+        $none = $this->add_job_for('Un curs despre energie.');
+
+        $short = $this->estimate_at($inbrief, self::PEAK)['cost'];
+        $this->assertEquals($short, $this->estimate_at($inprompt, self::PEAK)['cost']);
+        $this->assertEquals($short, $this->estimate_at($hours, self::PEAK)['cost']);
+        $this->assertGreaterThan($short, $this->estimate_at($long, self::PEAK)['cost']);
+        $this->assertGreaterThan($short, $this->estimate_at($none, self::PEAK)['cost'], 'no length asked for: the default');
+    }
+
+    /**
+     * Before the text is extracted the size of a pdf says far less about its tokens than the size of a text file.
+     */
+    public function test_the_size_of_a_file_is_read_by_its_kind(): void {
+        global $DB;
+        $pdf = $this->add_job();
+        $this->add_source($pdf, 700_000);
+        $text = $this->add_job();
+        $this->add_source($text, 700_000);
+        $DB->set_field('local_aicb_source', 'mimetype', 'text/plain', ['jobid' => $text]);
+        $DB->set_field('local_aicb_source', 'filename', 'notes.txt', ['jobid' => $text]);
+
+        $this->assertGreaterThan($this->estimate($pdf)['cost'], $this->estimate($text)['cost']);
+    }
+
+    /**
+     * The estimate is within 25% of what pdf_text_01 really cost in the runs of 14 October 2026 (deepseek-flash, 240
+     * minutes, 101,520 tokens of source): 0.3365 USD at peak on the local stack, 0.2205 USD off-peak on the test server.
+     */
+    public function test_the_estimate_is_close_to_what_a_real_run_cost(): void {
+        $job = $this->add_job_for('Curs introductiv pentru profesori despre educația incluzivă. Durata: 240 de minute.');
+        $this->add_source($job, 6_180_122, 101_520);
+
+        foreach ([[self::PEAK, 0.3365], [self::OFFPEAK, 0.2205]] as [$timestamp, $real]) {
+            $estimated = $this->estimate_at($job, $timestamp)['cost'];
+            $this->assertLessThan(0.25, abs($estimated - $real) / $real, "estimated {$estimated}, real {$real}");
+        }
+    }
 }

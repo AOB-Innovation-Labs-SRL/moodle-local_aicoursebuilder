@@ -22,6 +22,7 @@ use local_aicoursebuilder\ingest\extraction_result;
 use local_aicoursebuilder\ingest\source_fixtures;
 use local_aicoursebuilder\ingest\source_manager;
 use local_aicoursebuilder\job_manager;
+use local_aicoursebuilder\pipeline\cost_estimator;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -464,6 +465,26 @@ final class ingest_sources_test extends \advanced_testcase {
         $task = reset($tasks);
         $this->assertEquals($this->jobid, $task->get_custom_data()->jobid);
         $this->assertEquals($this->user->id, $task->get_userid());
+    }
+
+    /**
+     * Once the sources have been read the estimate of the job is made again with their real tokens, in place of the guess
+     * from the size of their files.
+     */
+    public function test_the_estimate_is_made_again_with_the_real_tokens(): void {
+        global $DB;
+
+        $this->add_sources(['notes.txt' => 'Energia regenerabilă provine din surse care se refac natural.']);
+        $DB->set_field('local_aicb_job', 'estimatedcost', 99.0, ['id' => $this->jobid]);
+
+        $this->run_task();
+        $this->run_task();
+
+        $job = $this->reload('local_aicb_job', $this->jobid);
+        $source = $DB->get_record('local_aicb_source', ['jobid' => $this->jobid], '*', IGNORE_MULTIPLE);
+        $this->assertNotNull($source->tokencount);
+        $this->assertEqualsWithDelta((new cost_estimator())->estimate($job)['cost'], (float) $job->estimatedcost, 0.000001);
+        $this->assertLessThan(99.0, (float) $job->estimatedcost);
     }
 
     /**
