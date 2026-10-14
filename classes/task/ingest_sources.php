@@ -25,6 +25,7 @@ use local_aicoursebuilder\ingest\ingest_exception;
 use local_aicoursebuilder\ingest\normalizer;
 use local_aicoursebuilder\ingest\source_manager;
 use local_aicoursebuilder\job_manager;
+use local_aicoursebuilder\pipeline\cost_estimator;
 
 /**
  * Ingests the sources of a job: extracts their text, cuts it into chunks and makes their digest (spec 3.5, 3.8).
@@ -131,6 +132,10 @@ class ingest_sources extends \core\task\adhoc_task {
             return;
         }
         if (!$this->fail_job_without_digest($job)) {
+            // The sources have been read, so what they hold is known: the estimate is made again with the real
+            // count of their tokens, in place of the guess the wizard made from the size of their files.
+            $job = $DB->get_record('local_aicb_job', ['id' => $jobid], '*', MUST_EXIST);
+            $this->update_job($job, ['estimatedcost' => (new cost_estimator())->estimate($job)['cost']]);
             // At least one source has a digest: the blueprint is generated from what there is.
             \core\task\manager::queue_adhoc_task(generate_blueprint::instance((int) $job->id, (int) $job->userid), true);
         }
