@@ -122,8 +122,8 @@ class cost_estimator {
      *
      * The estimate follows the pipeline as it runs. The sources are read once by the digest; after that every
      * call of the sections, activities and questions steps opens with the same prefix (the brief, the outline and
-     * all the sources), so the first call of a job pays for it in full and the others find it in the provider's
-     * cache, and what each of them pays for besides is its own node. The review reads the whole blueprint, and
+     * all the sources), so the first call that goes to a provider pays for it in full and the others that go to the same
+     * one find it in its cache, and what each of them pays for besides is its own node. The review reads the whole blueprint, and
      * nothing of it is cached. A job that asks to run off-peak is priced at the off-peak rates.
      *
      * @param \stdClass $job The local_aicb_job row.
@@ -153,21 +153,25 @@ class cost_estimator {
         $prefix = $total + self::PROMPT_OVERHEAD + self::BRIEF_OUTPUT + self::OUTLINE_OUTPUT;
         $nodes = $this->count_section_calls($job);
         $written = 0;
-        $first = true;
+        // The cache of a provider holds what that provider was sent: the prefix is paid in full by the first call that
+        // goes to a connector that caches it, and found in the cache by the calls that go to the same connector after.
+        $paid = [];
         $outputs = [
             request::STEP_SECTIONS => self::SECTION_OUTPUT,
             request::STEP_ACTIVITIES => self::ACTIVITIES_OUTPUT,
             request::STEP_QUESTIONS => self::QUESTIONS_OUTPUT,
         ];
         foreach ($outputs as $step => $output) {
-            $cached = $this->caches_prefix($step);
+            $route = $this->router->get_route($step);
+            $cache = $route['connector'] . '/' . $route['model'];
+            $caches = in_array($route['connector'], self::PREFIX_CACHE_CONNECTORS, true);
             for ($i = 0; $i < $nodes; $i++) {
-                if ($cached && !$first) {
+                if ($caches && !empty($paid[$cache])) {
                     $calls[] = [$step, self::NODE_INPUT[$step], $prefix, $output];
                 } else {
                     $calls[] = [$step, $prefix + self::NODE_INPUT[$step], 0, $output];
+                    $paid[$cache] = true;
                 }
-                $first = false;
                 $written += $output;
             }
         }
@@ -189,16 +193,6 @@ class cost_estimator {
             'tokensin' => (int) round($tokensin * self::REPAIR_MARGIN),
             'tokensout' => (int) round($tokensout * self::REPAIR_MARGIN),
         ];
-    }
-
-    /**
-     * Tells whether the calls of a step find the shared prefix in the cache of the provider its route uses.
-     *
-     * @param string $step Pipeline step.
-     * @return bool
-     */
-    private function caches_prefix(string $step): bool {
-        return in_array($this->router->get_route($step)['connector'], self::PREFIX_CACHE_CONNECTORS, true);
     }
 
     /**
@@ -301,7 +295,8 @@ class cost_estimator {
      * Returns the length of the course the teacher asked for, in minutes, or 0 when none was asked for.
      *
      * The confirmed brief has it when the teacher filled the duration in. Before the brief exists the request is read
-     * for it: a figure followed by minutes or hours ("Durata: 120 de minute", "2 hours").
+     * for it: a figure, with a decimal comma or point, followed by minutes or hours ("Durata: 120 de minute", "90 min",
+     * "1 oră", "2,5 ore", "1.5 hours").
      *
      * @param \stdClass $job The local_aicb_job row.
      * @return int
@@ -313,12 +308,12 @@ class cost_estimator {
             return $minutes;
         }
         $prompt = (string) ($job->prompt ?? '');
-        if (preg_match('/(\d+)\s*(?:de\s+)?(?:minute|minutes|min)\b/iu', $prompt, $found)) {
-            return (int) $found[1];
+        $pattern = '/(?<![\d.,])(\d+(?:[.,]\d+)?)\s*(?:de\s+)?(minutes|minute|min|hours|hour|ore|oră|ora)(?![\p{L}\d])/iu';
+        if (!preg_match($pattern, $prompt, $found)) {
+            return 0;
         }
-        if (preg_match('/(\d+)\s*(?:de\s+)?(?:ore|ora|hours?)\b/iu', $prompt, $found)) {
-            return (int) $found[1] * 60;
-        }
-        return 0;
+        $figure = (float) str_replace(',', '.', $found[1]);
+        $ishours = !str_starts_with(mb_strtolower($found[2]), 'min');
+        return (int) round($figure * ($ishours ? 60 : 1));
     }
 }

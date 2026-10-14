@@ -323,4 +323,88 @@ final class cost_estimator_test extends \advanced_testcase {
             $this->assertLessThan(0.25, abs($estimated - $real) / $real, "estimated {$estimated}, real {$real}");
         }
     }
+
+    /**
+     * Provides requests that state the length of the course in the ways teachers write it, with the minutes they mean.
+     *
+     * @return array
+     */
+    public static function duration_in_the_request_provider(): array {
+        return [
+            'decimal comma, hours' => ['Un curs de 2,5 ore pentru începători.', 150],
+            'decimal comma, 1,5 hours' => ['Durata: 1,5 ore.', 90],
+            'decimal point, hours' => ['A course of 1.5 hours.', 90],
+            'decimal point, 2.5 hours' => ['A course of 2.5 hours.', 150],
+            'one hour in Romanian' => ['Un curs de 1 oră.', 60],
+            'hours in Romanian' => ['Un curs de 2 ore.', 120],
+            'five hours' => ['Un curs de 5 ore.', 300],
+            'minutes' => ['Durata: 90 min.', 90],
+            'minutes in Romanian' => ['Durata: 240 de minute.', 240],
+        ];
+    }
+
+    /**
+     * The length is read whole: a decimal figure is not cut at its point, and "oră" is an hour.
+     *
+     * @dataProvider duration_in_the_request_provider
+     * @param string $prompt The request.
+     * @param int $minutes What it asks for.
+     */
+    public function test_the_duration_in_the_request_is_read_whole(string $prompt, int $minutes): void {
+        $inprompt = $this->add_job_for($prompt);
+        $inbrief = $this->add_job_for('Un curs.', json_encode(['duration_minutes' => $minutes]));
+
+        $this->assertEquals(
+            $this->estimate_at($inbrief, self::PEAK)['cost'],
+            $this->estimate_at($inprompt, self::PEAK)['cost'],
+            "'{$prompt}' is {$minutes} minutes",
+        );
+    }
+
+    /**
+     * Sets the sections step to a connector with no prefix cache, priced like DeepSeek so that only the cache differs.
+     *
+     * @param string $step The step to move to that connector.
+     */
+    private function route_to_a_connector_without_a_cache(string $step): void {
+        $prices = ['input_miss' => 0.30, 'input_hit' => 0.006, 'output' => 1.2];
+        $table = ['gpt-test' => $prices + ['offpeak' => ['input_miss' => 0.15, 'input_hit' => 0.003, 'output' => 0.6]]];
+        set_config('pricing_openaicompat', json_encode($table), 'local_aicoursebuilder');
+        set_config('openaicompat_model', 'gpt-test', 'local_aicoursebuilder');
+        set_config("route_{$step}_connector", 'openaicompat', 'local_aicoursebuilder');
+    }
+
+    /**
+     * Provides the step that goes to the connector with no cache.
+     *
+     * @return array
+     */
+    public static function step_without_a_cache_provider(): array {
+        return ['sections' => ['sections'], 'activities' => ['activities']];
+    }
+
+    /**
+     * The cache of a provider holds what that provider was sent. When the first step that carries the prefix goes to a
+     * connector with no cache, the first call that goes to DeepSeek still pays the prefix in full, and when a step in the
+     * middle goes to such a connector, all its calls pay it, whatever the other steps did.
+     *
+     * @dataProvider step_without_a_cache_provider
+     * @param string $step The step that goes to the connector with no cache.
+     */
+    public function test_the_prefix_is_paid_once_for_each_connector(string $step): void {
+        $job = $this->add_job_for('Curs. Durata: 240 de minute.');
+        $this->add_source($job, 1, 100_000);
+        $together = $this->estimate_at($job, self::OFFPEAK)['cost'];
+
+        $this->route_to_a_connector_without_a_cache($step);
+        $apart = $this->estimate_at($job, self::OFFPEAK)['cost'];
+
+        // 240 minutes are 5 sections and 2 subsections: 7 calls of the step. All 7 pay the prefix in full instead of
+        // finding it in the cache, and for sections the first call of activities has to pay it as well; for activities
+        // the sections have already paid it at DeepSeek, so the 7 calls are the whole difference.
+        $prefix = 100_000 + 1500 + 800 + 2500;
+        $dearer = ($prefix / 1_000_000) * (0.15 - 0.003);
+        $expected = 7 * $dearer * 1.05;
+        $this->assertEqualsWithDelta($expected, $apart - $together, 0.002);
+    }
 }
