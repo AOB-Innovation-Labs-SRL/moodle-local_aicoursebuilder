@@ -277,19 +277,6 @@ class deepseek_connector implements async_connector, connector {
         $choice = $data['choices'][0];
         $finishreason = (string) ($choice['finish_reason'] ?? '');
         $content = $this->extract_content($request, $choice['message'] ?? []);
-        $json = null;
-        if ($request->wants_json()) {
-            $json = json_decode($content, true);
-            if (!is_array($json)) {
-                connector_exception::fail_if_truncated(
-                    $finishreason,
-                    $request->maxtokens,
-                    "finish_reason={$finishreason}, content length=" . strlen($content)
-                );
-                $json = null;
-            }
-        }
-
         $usage = $data['usage'] ?? [];
         $cached = (int) ($usage['prompt_cache_hit_tokens'] ?? 0);
         $uncached = isset($usage['prompt_cache_miss_tokens'])
@@ -298,13 +285,39 @@ class deepseek_connector implements async_connector, connector {
         $model = (string) ($data['model'] ?? $this->model);
         $tokensout = (int) ($usage['completion_tokens'] ?? 0);
 
+        $result = new result(
+            content: $content,
+            json: null,
+            tokensin: $uncached,
+            tokensout: $tokensout,
+            tokenscached: $cached,
+            cost: pricing::cost_for(self::NAME, $model, $uncached, $tokensout, $cached),
+            model: $model,
+            durationms: $durationms,
+            finishreason: $finishreason,
+            connector: self::NAME,
+        );
+        if (!$request->wants_json()) {
+            return $result;
+        }
+        $json = json_decode($content, true);
+        if (!is_array($json)) {
+            // A cut-off answer is billed in full, so what it cost travels with the failure.
+            connector_exception::fail_if_truncated(
+                $finishreason,
+                $request->maxtokens,
+                "finish_reason={$finishreason}, content length=" . strlen($content),
+                $result,
+            );
+            return $result;
+        }
         return new result(
             content: $content,
             json: $json,
             tokensin: $uncached,
             tokensout: $tokensout,
             tokenscached: $cached,
-            cost: pricing::cost_for(self::NAME, $model, $uncached, $tokensout, $cached),
+            cost: $result->cost,
             model: $model,
             durationms: $durationms,
             finishreason: $finishreason,

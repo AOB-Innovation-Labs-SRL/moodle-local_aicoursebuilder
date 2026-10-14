@@ -303,31 +303,44 @@ class openaicompat_connector implements async_connector, connector {
         $choice = $data['choices'][0];
         $finishreason = (string) ($choice['finish_reason'] ?? '');
         $content = (string) ($choice['message']['content'] ?? '');
-        $json = null;
-        if ($request->wants_json()) {
-            $json = json_decode($content, true);
-            if (!is_array($json)) {
-                connector_exception::fail_if_truncated(
-                    $finishreason,
-                    $request->maxtokens,
-                    "finish_reason={$finishreason}, content length=" . strlen($content)
-                );
-                $json = null;
-            }
-        }
-
         $usage = $data['usage'] ?? [];
         $model = (string) ($data['model'] ?? $this->model);
         $tokensin = (int) ($usage['prompt_tokens'] ?? 0);
         $tokensout = (int) ($usage['completion_tokens'] ?? 0);
 
+        $result = new result(
+            content: $content,
+            json: null,
+            tokensin: $tokensin,
+            tokensout: $tokensout,
+            tokenscached: 0,
+            cost: pricing::cost_for(self::NAME, $model, $tokensin, $tokensout, 0),
+            model: $model,
+            durationms: $durationms,
+            finishreason: $finishreason,
+            connector: self::NAME,
+        );
+        if (!$request->wants_json()) {
+            return $result;
+        }
+        $json = json_decode($content, true);
+        if (!is_array($json)) {
+            // A cut-off answer is billed in full, so what it cost travels with the failure.
+            connector_exception::fail_if_truncated(
+                $finishreason,
+                $request->maxtokens,
+                "finish_reason={$finishreason}, content length=" . strlen($content),
+                $result,
+            );
+            return $result;
+        }
         return new result(
             content: $content,
             json: $json,
             tokensin: $tokensin,
             tokensout: $tokensout,
             tokenscached: 0,
-            cost: pricing::cost_for(self::NAME, $model, $tokensin, $tokensout, 0),
+            cost: $result->cost,
             model: $model,
             durationms: $durationms,
             finishreason: $finishreason,

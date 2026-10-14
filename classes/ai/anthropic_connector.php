@@ -324,19 +324,6 @@ class anthropic_connector implements async_connector, connector {
 
         $stopreason = (string) ($data['stop_reason'] ?? '');
         $content = $this->extract_content($data['content']);
-        $json = null;
-        if ($request->wants_json()) {
-            $json = json_decode($content, true);
-            if (!is_array($json)) {
-                connector_exception::fail_if_truncated(
-                    $stopreason,
-                    $request->maxtokens,
-                    "stop_reason={$stopreason}, content length=" . strlen($content)
-                );
-                $json = null;
-            }
-        }
-
         $usage = $data['usage'] ?? [];
         $cachewrite = (int) ($usage['cache_creation_input_tokens'] ?? 0);
         $uncached = (int) ($usage['input_tokens'] ?? 0);
@@ -349,13 +336,39 @@ class anthropic_connector implements async_connector, connector {
         $model = (string) ($data['model'] ?? $this->model);
         $tokensout = (int) ($usage['output_tokens'] ?? 0);
 
+        $result = new result(
+            content: $content,
+            json: null,
+            tokensin: $tokensin,
+            tokensout: $tokensout,
+            tokenscached: $tokenscached,
+            cost: pricing::cost_for(self::NAME, $model, $uncached, $tokensout, $tokenscached, tokenscachewrite: $cachewrite),
+            model: $model,
+            durationms: $durationms,
+            finishreason: $stopreason,
+            connector: self::NAME,
+        );
+        if (!$request->wants_json()) {
+            return $result;
+        }
+        $json = json_decode($content, true);
+        if (!is_array($json)) {
+            // A cut-off answer is billed in full, so what it cost travels with the failure.
+            connector_exception::fail_if_truncated(
+                $stopreason,
+                $request->maxtokens,
+                "stop_reason={$stopreason}, content length=" . strlen($content),
+                $result,
+            );
+            return $result;
+        }
         return new result(
             content: $content,
             json: $json,
             tokensin: $tokensin,
             tokensout: $tokensout,
             tokenscached: $tokenscached,
-            cost: pricing::cost_for(self::NAME, $model, $uncached, $tokensout, $tokenscached, tokenscachewrite: $cachewrite),
+            cost: $result->cost,
             model: $model,
             durationms: $durationms,
             finishreason: $stopreason,

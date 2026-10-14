@@ -341,19 +341,6 @@ class gemini_connector implements async_connector, connector {
         $candidate = $data['candidates'][0];
         $finishreason = (string) ($candidate['finishReason'] ?? '');
         $content = $this->extract_content($candidate);
-        $json = null;
-        if ($request->wants_json()) {
-            $json = json_decode($content, true);
-            if (!is_array($json)) {
-                connector_exception::fail_if_truncated(
-                    $finishreason,
-                    $request->maxtokens,
-                    "finishReason={$finishreason}, content length=" . strlen($content)
-                );
-                $json = null;
-            }
-        }
-
         $usage = $data['usageMetadata'] ?? [];
         $tokenscached = (int) ($usage['cachedContentTokenCount'] ?? 0);
         // The promptTokenCount field is the total effective prompt size and includes cached tokens,
@@ -361,13 +348,39 @@ class gemini_connector implements async_connector, connector {
         $tokensin = max(0, (int) ($usage['promptTokenCount'] ?? 0) - $tokenscached);
         $tokensout = (int) ($usage['candidatesTokenCount'] ?? 0);
 
+        $result = new result(
+            content: $content,
+            json: null,
+            tokensin: $tokensin,
+            tokensout: $tokensout,
+            tokenscached: $tokenscached,
+            cost: pricing::cost_for(self::NAME, $this->model, $tokensin, $tokensout, $tokenscached),
+            model: $this->model,
+            durationms: $durationms,
+            finishreason: $finishreason,
+            connector: self::NAME,
+        );
+        if (!$request->wants_json()) {
+            return $result;
+        }
+        $json = json_decode($content, true);
+        if (!is_array($json)) {
+            // A cut-off answer is billed in full, so what it cost travels with the failure.
+            connector_exception::fail_if_truncated(
+                $finishreason,
+                $request->maxtokens,
+                "finishReason={$finishreason}, content length=" . strlen($content),
+                $result,
+            );
+            return $result;
+        }
         return new result(
             content: $content,
             json: $json,
             tokensin: $tokensin,
             tokensout: $tokensout,
             tokenscached: $tokenscached,
-            cost: pricing::cost_for(self::NAME, $this->model, $tokensin, $tokensout, $tokenscached),
+            cost: $result->cost,
             model: $this->model,
             durationms: $durationms,
             finishreason: $finishreason,

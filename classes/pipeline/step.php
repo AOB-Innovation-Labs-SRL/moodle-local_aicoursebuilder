@@ -148,7 +148,8 @@ abstract class step {
             // not show them anything. A step with no placeholder of its own still fails outright.
             $placeholder = $this->placeholder($nodekey, $input);
             // The call that threw is counted too: it was made, it just never came back with a result.
-            $reason = failure_reason::from_connector($e, $spend->calls + 1);
+            // One that was billed is already in the spend.
+            $reason = failure_reason::from_connector($e, $spend->calls + ($e->billed === null ? 1 : 0));
             $result = $placeholder === null
                 ? step_result::failed($reason, calls: $spend->calls, cost: $spend->cost)
                 : step_result::needs_manual(
@@ -501,7 +502,15 @@ abstract class step {
         try {
             $result = $connector->complete($request);
         } catch (\Throwable $e) {
-            $this->context->budget->release($reservation);
+            if ($e instanceof connector_exception && $e->billed !== null) {
+                // The provider answered and billed for it (a cut-off answer is paid in full), so the
+                // reservation is settled at that cost, not released, and the node and the job carry it.
+                $this->context->budget->settle($reservation, $e->billed->cost);
+                $spend->add($e->billed);
+                $this->context->add_job_cost($e->billed->cost);
+            } else {
+                $this->context->budget->release($reservation);
+            }
             throw $e;
         }
         $this->context->budget->settle($reservation, $result->cost);

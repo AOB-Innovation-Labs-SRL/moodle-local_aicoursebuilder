@@ -260,6 +260,11 @@ class orchestrator {
                 $this->context->budget->settle($reservations[$id], $outcome->cost);
                 $this->context->add_job_cost($outcome->cost);
                 $answers[$id] = $outcome;
+            } else if ($outcome->billed !== null) {
+                // An answer that was refused after the provider billed it (cut off at the output limit)
+                // still costs what it cost.
+                $this->context->budget->settle($reservations[$id], $outcome->billed->cost);
+                $this->context->add_job_cost($outcome->billed->cost);
             } else {
                 $this->context->budget->release($reservations[$id]);
             }

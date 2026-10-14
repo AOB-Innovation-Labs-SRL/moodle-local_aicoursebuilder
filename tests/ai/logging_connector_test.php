@@ -130,6 +130,42 @@ final class logging_connector_test extends \advanced_testcase {
     }
 
     /**
+     * An answer cut off at the output limit is refused, but the provider billed it: its row keeps the tokens and the cost,
+     * so the usage report matches what the provider charges.
+     */
+    public function test_logs_the_cost_of_a_truncated_answer(): void {
+        global $DB;
+        $body = json_encode([
+            'model' => 'deepseek-flash',
+            'choices' => [['message' => ['content' => '{"a":'], 'finish_reason' => 'length']],
+            'usage' => [
+                'prompt_tokens' => 100,
+                'completion_tokens' => 4096,
+                'prompt_cache_hit_tokens' => 20,
+                'prompt_cache_miss_tokens' => 80,
+            ],
+        ]);
+        $this->mock->append(new Response(200, [], $body));
+
+        try {
+            (new logging_connector(new deepseek_connector(), deepseek_connector::NAME))->complete($this->make_request());
+            $this->fail('A cut-off answer was accepted');
+        } catch (connector_exception $e) {
+            $this->assertSame(connector_exception::TRUNCATED, $e->errorcode);
+            $this->assertSame(4096, $e->billed->tokensout);
+        }
+
+        $rows = array_values($DB->get_records('local_aicb_ailog'));
+        $this->assertCount(1, $rows);
+        $this->assertSame(logging_connector::STATUS_ERROR, $rows[0]->status);
+        $this->assertSame(80, (int) $rows[0]->tokensin);
+        $this->assertSame(4096, (int) $rows[0]->tokensout);
+        $this->assertSame(20, (int) $rows[0]->tokenscached);
+        $this->assertSame('deepseek-flash', $rows[0]->model);
+        $this->assertGreaterThan(0.0, (float) $rows[0]->cost);
+    }
+
+    /**
      * Two attempts (as retrying_connector would produce) write two rows, one per attempt.
      */
     public function test_logs_one_row_per_attempt(): void {

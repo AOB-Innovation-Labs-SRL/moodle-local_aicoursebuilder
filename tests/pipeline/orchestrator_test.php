@@ -23,6 +23,7 @@ use local_aicoursebuilder\ai\fake_lock_factory;
 use local_aicoursebuilder\ai\output_limits;
 use local_aicoursebuilder\ai\parallel_executor;
 use local_aicoursebuilder\ai\request;
+use local_aicoursebuilder\ai\result;
 use local_aicoursebuilder\ai\router;
 use local_aicoursebuilder\blueprint\schema_store;
 use local_aicoursebuilder\blueprint\validator;
@@ -742,6 +743,43 @@ final class orchestrator_test extends \advanced_testcase {
                 $this->assertSame(output_limits::for_step($step), $request->maxtokens, "{$step} sends its own limit");
             }
         }
+    }
+
+    /**
+     * An answer cut off at the output limit is billed by the provider, so what it cost is in the row of its node:
+     * the job's cost is the sum of those rows, and the budget is settled at it.
+     */
+    public function test_a_cut_off_section_still_costs_what_the_provider_billed(): void {
+        global $DB;
+
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections(['s1', 's1-1', 's3']);
+        $billed = new result(
+            content: '{"id":',
+            json: null,
+            tokensin: 1000,
+            tokensout: 4096,
+            tokenscached: 0,
+            cost: 0.25,
+            model: 'fake',
+            durationms: 1,
+            finishreason: 'length',
+        );
+        for ($i = 0; $i < 4; $i++) {
+            $failure = new connector_exception(connector_exception::TRUNCATED, 4096, 'finish_reason=length');
+            $failure->billed = $billed;
+            $this->connector->push(request::STEP_SECTIONS, $failure, 's2');
+        }
+
+        (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $row = $DB->get_record('local_aicb_step', ['jobid' => $this->jobid, 'step' => request::STEP_SECTIONS, 'nodekey' => 's2']);
+        // The first call of the section went in the batch, which no node row holds; the call the node made itself
+        // was cut off too and ends it, and that one is billed to the row.
+        $this->assertEqualsWithDelta(0.25, (float) $row->cost, 0.000001);
+        $this->assertSame(4096, (int) $row->tokensout);
+        $this->assertSame(1, (int) $row->attempts);
     }
 
     /**
