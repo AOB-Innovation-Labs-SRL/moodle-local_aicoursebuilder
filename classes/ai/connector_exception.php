@@ -26,6 +26,9 @@ namespace local_aicoursebuilder\ai;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class connector_exception extends \moodle_exception {
+    /** @var result|null What the provider billed for a call that failed after it answered, null when nothing was billed. */
+    public ?result $billed = null;
+
     /** @var string The connector has no API key or endpoint. */
     public const NOT_CONFIGURED = 'connectornotconfigured';
 
@@ -88,11 +91,19 @@ class connector_exception extends \moodle_exception {
      * @param string $finishreason Why the model stopped, as the provider reports it.
      * @param int $maxtokens Output limit the request was sent with, 0 when none.
      * @param string $detail Debug detail, never the answer itself.
+     * @param result|null $billed What the provider billed for the answer, so the log and the budget still count it.
      * @return self
      */
-    public static function for_undecodable_json(string $finishreason, int $maxtokens, string $detail): self {
+    public static function for_undecodable_json(
+        string $finishreason,
+        int $maxtokens,
+        string $detail,
+        ?result $billed = null,
+    ): self {
         if (in_array($finishreason, self::TRUNCATION_REASONS, true)) {
-            return new self(self::TRUNCATED, $maxtokens, $detail);
+            $failure = new self(self::TRUNCATED, $maxtokens, $detail);
+            $failure->billed = $billed;
+            return $failure;
         }
         return new self(self::INVALID_JSON, null, $detail);
     }
@@ -108,10 +119,17 @@ class connector_exception extends \moodle_exception {
      * @param string $finishreason Why the model stopped, as the provider reports it.
      * @param int $maxtokens Output limit the request was sent with, 0 when none.
      * @param string $detail Debug detail, never the answer itself.
+     * @param result|null $billed What the provider billed for the answer. A cut-off answer is paid for in full, so it is
+     *                            carried on the exception for the usage log and the budget.
      * @throws self When the answer was cut off at the limit.
      */
-    public static function fail_if_truncated(string $finishreason, int $maxtokens, string $detail): void {
-        $failure = self::for_undecodable_json($finishreason, $maxtokens, $detail);
+    public static function fail_if_truncated(
+        string $finishreason,
+        int $maxtokens,
+        string $detail,
+        ?result $billed = null,
+    ): void {
+        $failure = self::for_undecodable_json($finishreason, $maxtokens, $detail, $billed);
         if ($failure->errorcode === self::TRUNCATED) {
             throw $failure;
         }

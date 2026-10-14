@@ -23,6 +23,7 @@ use local_aicoursebuilder\ai\fake_lock_factory;
 use local_aicoursebuilder\ai\output_limits;
 use local_aicoursebuilder\ai\parallel_executor;
 use local_aicoursebuilder\ai\request;
+use local_aicoursebuilder\ai\result;
 use local_aicoursebuilder\ai\router;
 use local_aicoursebuilder\blueprint\schema_store;
 use local_aicoursebuilder\blueprint\validator;
@@ -742,6 +743,85 @@ final class orchestrator_test extends \advanced_testcase {
                 $this->assertSame(output_limits::for_step($step), $request->maxtokens, "{$step} sends its own limit");
             }
         }
+    }
+
+    /**
+     * An answer cut off at the output limit is billed by the provider, so what it cost is in the row of its node:
+     * the job's cost is the sum of those rows, and the budget is settled at it.
+     */
+    public function test_a_cut_off_section_still_costs_what_the_provider_billed(): void {
+        global $DB;
+
+        $this->connector = new fake_connector();
+        router::set_test_connector($this->connector);
+        $this->queue_sections(['s1', 's1-1', 's3']);
+        $billed = new result(
+            content: '{"id":',
+            json: null,
+            tokensin: 1000,
+            tokensout: 4096,
+            tokenscached: 0,
+            cost: 0.25,
+            model: 'fake',
+            durationms: 1,
+            finishreason: 'length',
+        );
+        for ($i = 0; $i < 4; $i++) {
+            $failure = new connector_exception(connector_exception::TRUNCATED, 4096, 'finish_reason=length');
+            $failure->billed = $billed;
+            $this->connector->push(request::STEP_SECTIONS, $failure, 's2');
+        }
+
+        (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $row = $DB->get_record('local_aicb_step', ['jobid' => $this->jobid, 'step' => request::STEP_SECTIONS, 'nodekey' => 's2']);
+        // The first call of the section went in the batch, and the node asks again: its row carries both calls, each
+        // cut off and billed.
+        $this->assertEqualsWithDelta(0.5, (float) $row->cost, 0.000001);
+        $this->assertSame(2 * 4096, (int) $row->tokensout);
+    }
+
+    /**
+     * The first call of a section in the batch is cut off and billed, and the node then asks again and succeeds: its row
+     * carries both calls, and the job's cost, which is the sum of the rows, includes the one the batch paid for.
+     */
+    public function test_a_section_cut_off_in_the_batch_carries_that_cost_in_its_row(): void {
+        global $DB;
+
+        $this->connector = (new fake_connector())->set_cost_per_call(0.1);
+        router::set_test_connector($this->connector);
+        $this->queue_sections(['s1', 's1-1', 's3']);
+        $failure = new connector_exception(connector_exception::TRUNCATED, 4096, 'finish_reason=length');
+        $failure->billed = new result(
+            content: '{"id":',
+            json: null,
+            tokensin: 1000,
+            tokensout: 4096,
+            tokenscached: 0,
+            cost: 0.25,
+            model: 'fake',
+            durationms: 1,
+            finishreason: 'length',
+        );
+        $this->connector->push(request::STEP_SECTIONS, $failure, 's2');
+        $this->connector->push(request::STEP_SECTIONS, $this->section_fixture('s2'), 's2');
+
+        $outcome = (new orchestrator($this->context()))->run('Un curs despre energia regenerabilă.');
+
+        $this->assertSame([], $outcome->manualnodes);
+        $row = $DB->get_record('local_aicb_step', ['jobid' => $this->jobid, 'step' => request::STEP_SECTIONS, 'nodekey' => 's2']);
+        $this->assertEqualsWithDelta(0.35, (float) $row->cost, 0.000001, 'the call the batch paid for, and the one that answered');
+        $this->assertGreaterThanOrEqual(4096, (int) $row->tokensout);
+
+        $steps = (float) $DB->get_field_sql('SELECT SUM(cost) FROM {local_aicb_step} WHERE jobid = ?', [$this->jobid]);
+        $job = (float) $DB->get_field('local_aicb_job', 'actualcost', ['id' => $this->jobid]);
+        $this->assertEqualsWithDelta($steps, $job, 0.000001, 'the cost of the job is what its rows add up to');
+
+        $logged = $DB->get_record(
+            'local_aicb_ailog',
+            ['jobid' => $this->jobid, 'step' => request::STEP_SECTIONS, 'status' => 'error'],
+        );
+        $this->assertEqualsWithDelta(0.25, (float) $logged->cost, 0.000001, 'the cut-off call is in the log with its cost');
     }
 
     /**

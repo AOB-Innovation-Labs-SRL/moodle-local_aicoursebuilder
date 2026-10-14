@@ -105,10 +105,13 @@ abstract class step {
      * @param string $nodekey Sub-call key, empty for a step that runs once.
      * @param result|null $first First answer, when a caller already fetched it in a batch and has
      *                           reserved and settled its cost; null to call for it here.
+     * @param result|null $billedfirst What the provider billed for a first call of the batch whose answer was refused
+     *                                 (cut off at the output limit), already reserved and settled there. The node asks
+     *                                 again, and carries that cost in its row.
      * @return step_result
      * @throws budget_exceeded_exception When a limit stops the call before it is sent.
      */
-    public function run(array $input, string $nodekey = '', ?result $first = null): step_result {
+    public function run(array $input, string $nodekey = '', ?result $first = null, ?result $billedfirst = null): step_result {
         $step = $this->get_step();
         $route = $this->context->router->get_route($step);
         $hashcontext = $this->hash_context($route);
@@ -124,6 +127,9 @@ abstract class step {
         // The running total lives out here so that a limit reached midway through a node, between
         // its first call and a repair, still records what the calls already made really cost.
         $spend = new spend();
+        if ($billedfirst !== null) {
+            $spend->add($billedfirst);
+        }
         try {
             if ($first !== null) {
                 // The first answer was fetched in a batch, and was reserved and settled there.
@@ -148,7 +154,8 @@ abstract class step {
             // not show them anything. A step with no placeholder of its own still fails outright.
             $placeholder = $this->placeholder($nodekey, $input);
             // The call that threw is counted too: it was made, it just never came back with a result.
-            $reason = failure_reason::from_connector($e, $spend->calls + 1);
+            // One that was billed is already in the spend.
+            $reason = failure_reason::from_connector($e, $spend->calls + ($e->billed === null ? 1 : 0));
             $result = $placeholder === null
                 ? step_result::failed($reason, calls: $spend->calls, cost: $spend->cost)
                 : step_result::needs_manual(
@@ -501,7 +508,15 @@ abstract class step {
         try {
             $result = $connector->complete($request);
         } catch (\Throwable $e) {
-            $this->context->budget->release($reservation);
+            if ($e instanceof connector_exception && $e->billed !== null) {
+                // The provider answered and billed for it (a cut-off answer is paid in full), so the
+                // reservation is settled at that cost, not released, and the node and the job carry it.
+                $this->context->budget->settle($reservation, $e->billed->cost);
+                $spend->add($e->billed);
+                $this->context->add_job_cost($e->billed->cost);
+            } else {
+                $this->context->budget->release($reservation);
+            }
             throw $e;
         }
         $this->context->budget->settle($reservation, $result->cost);

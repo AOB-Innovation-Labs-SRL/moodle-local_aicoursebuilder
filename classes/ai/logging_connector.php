@@ -60,7 +60,7 @@ class logging_connector implements async_connector, connector {
         try {
             $result = $this->inner->complete($request);
         } catch (connector_exception $e) {
-            $this->log($request, self::STATUS_ERROR, $e->httpstatus, self::duration_ms($start), null);
+            $this->log($request, self::STATUS_ERROR, $e->httpstatus, self::duration_ms($start), $e->billed);
             throw $e;
         }
         $this->log($request, self::STATUS_SUCCESS, 0, self::duration_ms($start), $result);
@@ -85,7 +85,7 @@ class logging_connector implements async_connector, connector {
                 return $result;
             },
             function (connector_exception $e) use ($request, $start): PromiseInterface {
-                $this->log($request, self::STATUS_ERROR, $e->httpstatus, self::duration_ms($start), null);
+                $this->log($request, self::STATUS_ERROR, $e->httpstatus, self::duration_ms($start), $e->billed);
                 return Create::rejectionFor($e);
             }
         );
@@ -113,7 +113,7 @@ class logging_connector implements async_connector, connector {
      * @param string $status One of the STATUS_* constants.
      * @param int $httpstatus HTTP status returned by the provider, 0 when there was none.
      * @param int $durationms Call duration in milliseconds.
-     * @param result|null $result The result, null on failure.
+     * @param result|null $result The result; on failure null, or what the provider billed for an answer that was then refused.
      */
     protected function log(request $request, string $status, int $httpstatus, int $durationms, ?result $result): void {
         global $DB;

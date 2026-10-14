@@ -171,10 +171,11 @@ class orchestrator {
         if ($inputs === []) {
             return [];
         }
-        $answers = $this->first_answers($step, $inputs);
+        $billed = [];
+        $answers = $this->first_answers($step, $inputs, $billed);
         $results = [];
         foreach ($inputs as $id => $input) {
-            $results[$id] = $step->run($input, $id, $answers[$id] ?? null);
+            $results[$id] = $step->run($input, $id, $answers[$id] ?? null, $billed[$id] ?? null);
         }
         return $results;
     }
@@ -191,10 +192,13 @@ class orchestrator {
      *
      * @param step $step The step the requests belong to.
      * @param array $inputs Input per section id.
+     * @param result[] $billed Filled with what the provider billed for the first call of a section whose answer was
+     *                         refused (cut off at the output limit), per section id. That call has been reserved and
+     *                         settled here, but it is no answer, so the node that goes on to ask again must carry its cost.
      * @return array Answer per section id, for those that arrived.
      * @throws budget_exceeded_exception When a limit stops the batch before it is sent.
      */
-    protected function first_answers(step $step, array $inputs): array {
+    protected function first_answers(step $step, array $inputs, array &$billed = []): array {
         $requests = [];
         $reservations = [];
         foreach ($inputs as $id => $input) {
@@ -260,6 +264,12 @@ class orchestrator {
                 $this->context->budget->settle($reservations[$id], $outcome->cost);
                 $this->context->add_job_cost($outcome->cost);
                 $answers[$id] = $outcome;
+            } else if ($outcome->billed !== null) {
+                // An answer that was refused after the provider billed it (cut off at the output limit)
+                // still costs what it cost.
+                $this->context->budget->settle($reservations[$id], $outcome->billed->cost);
+                $this->context->add_job_cost($outcome->billed->cost);
+                $billed[$id] = $outcome->billed;
             } else {
                 $this->context->budget->release($reservations[$id]);
             }

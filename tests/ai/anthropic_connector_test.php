@@ -511,4 +511,25 @@ final class anthropic_connector_test extends \advanced_testcase {
         $this->assertSame($mimetype, $file->get_mimetype());
         return $file;
     }
+
+    /**
+     * An answer cut off at max_tokens fails, but the provider billed it: the exception carries its tokens and cost, with
+     * the cache-creation tokens counted as input the way a successful answer counts them.
+     */
+    public function test_truncated_answer_carries_what_was_billed(): void {
+        $this->mock->append(new Response(200, [], $this->message_body(
+            [['type' => 'text', 'text' => '{"a":']],
+            'max_tokens',
+            ['output_tokens' => 4096, 'cache_creation_input_tokens' => 30],
+        )));
+        try {
+            (new anthropic_connector())->complete($this->make_request(['json' => true]));
+            $this->fail('A cut-off answer was accepted');
+        } catch (connector_exception $e) {
+            $this->assertSame(connector_exception::TRUNCATED, $e->errorcode);
+            $this->assertSame(120 + 30, $e->billed->tokensin);
+            $this->assertSame(4096, $e->billed->tokensout);
+            $this->assertSame(64, $e->billed->tokenscached);
+        }
+    }
 }
