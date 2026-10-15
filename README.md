@@ -27,6 +27,12 @@ shows one total that cannot be told apart. The automated tests run on the fake c
 A call that the provider billed but the plugin refused, such as an answer cut off at the output limit, is logged and
 charged at what the provider billed.
 
+## Documentation
+
+- [Administrator guide](docs/admin-guide.md): every setting, the AI providers and keys, cost limits, retention, and
+  `curlsecurityblockedhosts` for local models. A test fails when a setting of `settings.php` is not in it.
+- [User guide](docs/user-guide.md): the wizard, the blueprint editor, approving and the notifications.
+
 ## Requirements
 
 ### Required

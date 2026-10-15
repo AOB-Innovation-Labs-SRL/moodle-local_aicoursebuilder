@@ -118,6 +118,27 @@ class behat_local_aicoursebuilder extends behat_base {
     }
 
     /**
+     * Makes the sources of the next job be numbered from 1, as the answers of the fake connector name them (src1, src2).
+     *
+     * Behat does not restart the sequences, so the sources would get other ids, and a blueprint that refers to src1 and
+     * src2 could not be approved. The table must be empty, which it is at the start of a scenario.
+     *
+     * @Given /^the sources of the next job are numbered from 1$/
+     */
+    public function the_sources_are_numbered_from_one(): void {
+        global $CFG, $DB;
+
+        if ($DB->count_records('local_aicb_source')) {
+            throw new Exception('The sources can be numbered from 1 only while there are none.');
+        }
+        if ($DB->get_dbfamily() === 'postgres') {
+            $DB->execute('ALTER SEQUENCE ' . $CFG->prefix . 'local_aicb_source_id_seq RESTART WITH 1');
+        } else {
+            $DB->execute('ALTER TABLE {local_aicb_source} AUTO_INCREMENT = 1');
+        }
+    }
+
+    /**
      * Creates a job that a cost limit paused, and makes its owner accept the AI policy so that the job can be resumed.
      *
      * The job stopped in the generation, with nothing paid for yet.

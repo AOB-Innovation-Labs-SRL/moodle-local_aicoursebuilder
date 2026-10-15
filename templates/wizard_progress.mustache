@@ -50,10 +50,10 @@
     }
 }}
 <div data-region="aicb-progress-body">
-    <h3 class="h5">{{#str}} wizard:progresstitle, local_aicoursebuilder {{/str}}</h3>
+    <h3 class="h5" id="aicb-progress-title">{{#str}} wizard:progresstitle, local_aicoursebuilder {{/str}}</h3>
     <div class="progress mb-2" style="height: 1.25rem;">
         <div class="progress-bar {{#running}}progress-bar-striped progress-bar-animated{{/running}}"
-             role="progressbar" style="width: {{percent}}%;"
+             role="progressbar" aria-labelledby="aicb-progress-title" style="width: {{percent}}%;"
              aria-valuenow="{{percent}}" aria-valuemin="0" aria-valuemax="100">{{percent}}%</div>
     </div>
     <p class="mb-1" data-region="aicb-stage">{{stage}}</p>
