@@ -11,3 +11,6 @@ vendor/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code: saved PR reviews (local, see .claude/commands/review-pr.md)
+.claude/reviews/
