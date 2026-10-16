@@ -25,6 +25,7 @@ use local_aicoursebuilder\builder\build_result;
 use local_aicoursebuilder\builder\build_step;
 use local_aicoursebuilder\builder\builder_registry;
 use local_aicoursebuilder\builder\competency_builder;
+use local_aicoursebuilder\job_notifier;
 
 /**
  * Builds the approved blueprint of a job into a Moodle course (spec 3.7, 3.8).
@@ -124,8 +125,7 @@ class build_course extends \core\task\adhoc_task {
     /**
      * Queues the build of a job. This is what approve_blueprint calls once a version is approved.
      *
-     * Phase 6 schedules the task off-peak here, with set_next_run_time(), when the job asks for it
-     * (local_aicb_job.offpeak); until then it runs at the next cron.
+     * The build makes no AI call, so it is not delayed to the off-peak hours: it runs at the next cron.
      *
      * @param int $jobid Job id.
      * @return bool True when the task was queued, false when the job does not exist or is already over.
@@ -204,18 +204,25 @@ class build_course extends \core\task\adhoc_task {
             'error' => null,
         ]);
 
-        $context = $this->make_context($job, $newcourse);
-        if (!$this->run_steps($job, $plan, $context, $newcourse)) {
+        try {
+            $context = $this->make_context($job, $newcourse);
+            if (!$this->run_steps($job, $plan, $context, $newcourse)) {
+                return;
+            }
+            $this->apply_availability($job, $plan->availability, $context);
+            $this->apply_course_completion($job, $plan->completionactivities, $context);
+
+            // Competencies, then badges, which may depend on the activities that award them: both need the cmids.
+            $this->apply_competencies($job, $plan->competencies, $context);
+            $this->apply_badges($job, $plan->badges, $context);
+        } catch (\Throwable $e) {
+            // Whatever was built is kept, hidden, with its build map: the owner chooses to retry or to roll back.
+            debugging('Build of job ' . $job->id . ' failed: ' . $e->getMessage(), DEBUG_DEVELOPER);
+            $this->fail_job($job, get_string('builderrorunexpected', 'local_aicoursebuilder', $e->getMessage()));
             return;
         }
-        $this->apply_availability($job, $plan->availability, $context);
-        $this->apply_course_completion($job, $plan->completionactivities, $context);
 
-        // Competencies, then badges, which may depend on the activities that award them: both need the cmids.
-        $this->apply_competencies($job, $plan->competencies, $context);
-        $this->apply_badges($job, $plan->badges, $context);
-
-        $this->finish_job($job);
+        $this->finish_job($job, $newcourse);
     }
 
     /**
@@ -683,11 +690,18 @@ class build_course extends \core\task\adhoc_task {
     /**
      * Finishes the job: the course exists, with or without warnings.
      *
-     * Phase 6 sends the jobfinished notification here, with message_send() and a link to the course.
-     *
      * @param \stdClass $job The local_aicb_job row, updated in place.
+     * @param bool $newcourse Whether the job built a new course, which was created hidden and is shown now.
      */
-    protected function finish_job(\stdClass $job): void {
+    protected function finish_job(\stdClass $job, bool $newcourse = false): void {
+        global $CFG, $DB;
+
+        // The course of a new-course job was created hidden: it is shown only now that the build has succeeded.
+        $courseid = (int) ($job->courseid ?? 0);
+        if ($newcourse && $courseid > 0 && $DB->record_exists('course', ['id' => $courseid])) {
+            require_once($CFG->dirroot . '/course/lib.php');
+            update_course((object) ['id' => $courseid, 'visible' => (int) (get_config('moodlecourse', 'visible') ?? 1)]);
+        }
         $this->update_job($job, [
             'status' => self::STATUS_FINISHED,
             'progress' => 100,
@@ -702,8 +716,9 @@ class build_course extends \core\task\adhoc_task {
     /**
      * Fails the job with a reason. Only a job with no course at all gets here.
      *
-     * Phase 6 sends the jobfailed notification here, and offers the retry or the rollback
-     * (delete_course for a new course, course_delete_module over get_cmidmap() in an existing one).
+     * The owner is told, and chooses on the job page: retry, which builds again from the build map, or roll back,
+     * which deletes the course of a new-course job or the activities of the build map in an existing one
+     * (job_recovery). The course stays hidden until then.
      *
      * @param \stdClass $job The local_aicb_job row, updated in place.
      * @param string $error The reason.
@@ -717,6 +732,7 @@ class build_course extends \core\task\adhoc_task {
             'timefinished' => time(),
         ]);
         mtrace("Job {$job->id} failed: {$error}");
+        job_notifier::notify($job, 'jobfailed');
     }
 
     /**

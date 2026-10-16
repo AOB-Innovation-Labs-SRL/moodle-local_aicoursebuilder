@@ -17,6 +17,7 @@
 namespace local_aicoursebuilder;
 
 use local_aicoursebuilder\ai\budget_guard;
+use local_aicoursebuilder\ai\offpeak_scheduler;
 use local_aicoursebuilder\ai\budget_notifier;
 use local_aicoursebuilder\ingest\source_manager;
 use local_aicoursebuilder\pipeline\cost_estimator;
@@ -185,7 +186,25 @@ class job_manager {
         $task = $hassources
             ? ingest_sources::instance((int) $job->id, (int) $job->userid)
             : generate_blueprint::instance((int) $job->id, (int) $job->userid);
+        $this->schedule($task, $job);
         \core\task\manager::queue_adhoc_task($task, true);
+    }
+
+    /**
+     * Delays the task of a job to the next off-peak moment, when the job asks for it, and says so in its message.
+     *
+     * @param \core\task\adhoc_task $task The task, not yet queued.
+     * @param \stdClass $job The local_aicb_job row.
+     */
+    private function schedule(\core\task\adhoc_task $task, \stdClass $job): void {
+        global $DB;
+
+        $now = time();
+        $at = offpeak_scheduler::schedule($task, $job, $now);
+        if ($at > $now) {
+            $message = get_string('jobscheduledoffpeak', 'local_aicoursebuilder', userdate($at));
+            $DB->set_field('local_aicb_job', 'statusmessage', $message, ['id' => $job->id]);
+        }
     }
 
     /**
@@ -311,6 +330,7 @@ class job_manager {
         $task = $ingesting
             ? ingest_sources::instance((int) $job->id, (int) $job->userid)
             : generate_blueprint::instance((int) $job->id, (int) $job->userid);
+        $this->schedule($task, $job);
         \core\task\manager::queue_adhoc_task($task, true);
     }
 

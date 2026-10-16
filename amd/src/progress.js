@@ -39,6 +39,16 @@ const FINAL_STATUSES = ['review', 'approved', 'building', 'finished', 'failed', 
 /** Statuses of a job the teacher can open in the editor. */
 const EDITABLE_STATUSES = ['review', 'approved', 'building', 'finished'];
 
+/** The web service each button of the job calls. */
+const ACTIONS = {
+    'aicb-resume': 'local_aicoursebuilder_resume_job',
+    'aicb-retry': 'local_aicoursebuilder_retry_job',
+    'aicb-rollback': 'local_aicoursebuilder_rollback_job',
+};
+
+/** Selector of the buttons of a job. */
+const ACTION_BUTTONS = Object.keys(ACTIONS).map((action) => `[data-action="${action}"]`).join(',');
+
 /** What the page says about each status. */
 const STAGES = [
     'draft', 'queued', 'ingesting', 'generating', 'paused', 'review', 'approved', 'building', 'finished', 'failed', 'cancelled',
@@ -148,16 +158,16 @@ export const watch = (region, jobid, links = {}, onError = () => null) => {
             onError(error);
         }
     };
-    // The button of a paused job is drawn anew with every status, so one listener on the region serves them all.
+    // The buttons of a paused or failed job are drawn anew with every status, so one listener on the region serves them.
     region.addEventListener('click', async(event) => {
-        const button = event.target.closest('[data-action="aicb-resume"]');
+        const button = event.target.closest(ACTION_BUTTONS);
         if (!button) {
             return;
         }
         event.preventDefault();
         button.disabled = true;
         try {
-            await Ajax.call([{methodname: 'local_aicoursebuilder_resume_job', args: {jobid}}])[0];
+            await Ajax.call([{methodname: ACTIONS[button.dataset.action], args: {jobid}}])[0];
             clearTimeout(timer);
             poll();
         } catch (error) {

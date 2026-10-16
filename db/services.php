@@ -88,4 +88,18 @@ $functions = [
         'ajax' => true,
         'capabilities' => 'local/aicoursebuilder:use',
     ],
+    'local_aicoursebuilder_retry_job' => [
+        'classname' => \local_aicoursebuilder\external\retry_job::class,
+        'description' => 'Tries a failed job again, from the checkpoints it had reached.',
+        'type' => 'write',
+        'ajax' => true,
+        'capabilities' => 'local/aicoursebuilder:use',
+    ],
+    'local_aicoursebuilder_rollback_job' => [
+        'classname' => \local_aicoursebuilder\external\rollback_job::class,
+        'description' => 'Gives a failed job up: deletes the course or the activities the build made, and cancels the job.',
+        'type' => 'write',
+        'ajax' => true,
+        'capabilities' => 'local/aicoursebuilder:use',
+    ],
 ];

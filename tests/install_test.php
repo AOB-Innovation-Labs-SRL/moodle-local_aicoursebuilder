@@ -78,7 +78,7 @@ final class install_test extends \advanced_testcase {
             ['local_aicoursebuilder']
         );
         $expected = ['create_job', 'get_job_status', 'get_blueprint', 'save_blueprint', 'approve_blueprint',
-            'estimate_cost', 'regenerate_node', 'start_job', 'resume_job'];
+            'estimate_cost', 'regenerate_node', 'start_job', 'resume_job', 'retry_job', 'rollback_job'];
         $this->assertEqualsCanonicalizing(
             array_map(fn($name) => 'local_aicoursebuilder_' . $name, $expected),
             $functions

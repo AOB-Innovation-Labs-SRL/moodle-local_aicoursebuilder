@@ -30,7 +30,7 @@ templates/           Mustache templates
 lang/{en,ro}/        the only place for user-visible strings
 schema/              JSON schemas
 prompts/             prompt templates
-cli/                 developer scripts run from the command line (golden_digest.php: the M1 check on the golden set)
+cli/                 developer scripts run from the command line (golden_digest.php: the M1 check on the golden set; record_fixtures.php: records the answer of a real connector as a fixture, with a key from the settings)
 tests/               PHPUnit and Behat
 thirdparty/          vendored third-party code (with licence)
 ```

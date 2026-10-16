@@ -99,7 +99,8 @@ class course_builder implements builder_interface {
             'format' => in_array($node['format'] ?? '', ['topics', 'weeks'], true)
                 ? $node['format']
                 : ($config->format ?? 'topics'),
-            'visible' => (int) ($config->visible ?? 1),
+            // Hidden until the build succeeds; build_course shows it then, by the site default.
+            'visible' => 0,
             'startdate' => self::to_timestamp($node['startdate'] ?? null),
             'newsitems' => (int) ($config->newsitems ?? 5),
             'showgrades' => (int) ($config->showgrades ?? 1),

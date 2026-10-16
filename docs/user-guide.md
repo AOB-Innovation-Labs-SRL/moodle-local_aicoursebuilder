@@ -31,7 +31,7 @@ is incomplete, and it tells you what is missing.
    documents have been read.
    - If you have used most of your monthly budget, a warning says so.
    - If the estimate is over a limit, the start button is disabled: use fewer or smaller sources, or ask an administrator.
-   - *Run off-peak* schedules the work when the provider is cheaper; the blueprint can then take longer.
+   - *Run off-peak* schedules the work when the provider is cheaper; the blueprint can then take longer. The job page says when it will start.
    - Accept the **Moodle AI usage policy** and press **Start generation**. Without accepting it the job does not start.
 
 Your documents are sent to the AI provider that the administrator chose. Do not upload personal or confidential data
@@ -93,5 +93,5 @@ You get a message in Moodle (pop-up) and by email, and can change this in your n
 | *Accept the Moodle AI usage policy to start.* | Tick the box in the last step. |
 | *The estimated cost is over your cost limits.* | Use fewer or smaller documents, or ask an administrator to raise the limit. |
 | *Paused by a cost limit* | Wait until the limit is raised, then press Resume. |
-| *The generation stopped.* | Read the reason on the page; start a new generation, with other documents if the reason is the sources. |
+| *The generation stopped.* | Read the reason on the page. Press **Try again** to go on from where it stopped, or **Cancel and delete what was built** to remove the unfinished course (in an existing course, only the activities that were added). If the reason is the sources, start a new generation with other documents. |
 | *The blueprint cannot be approved while it has errors* | Fix the parts marked with errors, save, and approve again. |

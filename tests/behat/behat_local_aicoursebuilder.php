@@ -169,6 +169,34 @@ class behat_local_aicoursebuilder extends behat_base {
     }
 
     /**
+     * Creates a job that failed for good, and makes its owner accept the AI policy so that the job can be retried.
+     *
+     * @Given /^"(?P<username_string>[^"]*)" has a job for "(?P<prompt_string>[^"]*)" that failed$/
+     * @param string $username Username of the owner of the job.
+     * @param string $prompt What the teacher asked for, which names the job.
+     */
+    public function a_job_that_failed(string $username, string $prompt): void {
+        global $DB;
+
+        $user = \core_user::get_user_by_username($username, '*', null, MUST_EXIST);
+        \core_ai\manager::user_policy_accepted((int) $user->id, \context_system::instance()->id);
+        $now = time();
+        $DB->insert_record('local_aicb_job', (object) [
+            'userid' => $user->id,
+            'mode' => 'newcourse',
+            'categoryid' => \core_course_category::get_default()->id,
+            'status' => 'failed',
+            'stage' => 'generate',
+            'progress' => 0,
+            'prompt' => $prompt,
+            'language' => 'ro',
+            'error' => 'The provider did not answer.',
+            'timecreated' => $now,
+            'timemodified' => $now,
+        ]);
+    }
+
+    /**
      * Creates a job in an existing course, owned by a user, with a status and the cost it has run up.
      *
      * @Given /^"(?P<user>[^"]*)" has a "(?P<status>[^"]*)" job "(?P<prompt>[^"]*)" in "(?P<course>[^"]*)" cost (?P<cost>[0-9.]+)$/
