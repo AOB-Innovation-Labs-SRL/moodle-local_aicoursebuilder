@@ -46,7 +46,7 @@ final class settings_documented_test extends \advanced_testcase {
     }
 
     /**
-     * Every setting is named in docs/admin-guide.md.
+     * Every setting has a row in a table of docs/admin-guide.md: its name in code formatting is the first cell.
      */
     public function test_every_setting_is_in_the_admin_guide(): void {
         $guide = file_get_contents(dirname(__DIR__) . '/docs/admin-guide.md');
@@ -54,7 +54,10 @@ final class settings_documented_test extends \advanced_testcase {
         $this->assertGreaterThan(40, count($names), 'settings.php was not read.');
 
         $tick = chr(96);
-        $missing = array_filter($names, fn($name) => !str_contains($guide, $tick . $name . $tick));
-        $this->assertSame([], array_values($missing), 'Settings missing from docs/admin-guide.md.');
+        $missing = array_filter($names, function (string $name) use ($guide, $tick): bool {
+            $row = '~^\|\s*' . $tick . preg_quote($name, '~') . $tick . '\s*\|~m';
+            return !preg_match($row, $guide);
+        });
+        $this->assertSame([], array_values($missing), 'Settings without a row in a table of docs/admin-guide.md.');
     }
 }

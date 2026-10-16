@@ -16,7 +16,7 @@ course) and AI Course Builder: connectors (providers, prices, routes, output lim
 | `local/aicoursebuilder:manage` | Manager | Read the jobs of every user and receive the cost alerts. |
 | `local/aicoursebuilder:usedirectconnectors` | Manager | Use the direct provider connectors (carries a configuration risk). |
 
-A teacher sees only their own jobs, and loses the jobs of a course they are no longer enrolled in.
+A teacher sees only their own jobs, and only in a course where they have the capability.
 
 ## Source files
 
@@ -52,13 +52,37 @@ PHP must be allowed to run programs: if `proc_open` is in `disable_functions`, n
 `defaultconnector` is the connector used by every step that has no route of its own (see [Routes](#routes-per-step)).
 The default is DeepSeek. The options are:
 
-| Connector | Settings | Notes |
-| --- | --- | --- |
-| DeepSeek | `deepseek_apikey`, `deepseek_baseurl`, `deepseek_model`, `deepseek_thinking` | Base URL without `/v1`. DeepSeek processes data in China: send only public, non-personal content. |
-| Anthropic | `anthropic_apikey`, `anthropic_model`, `anthropic_thinking` | The model must support forced tool use or native structured outputs. |
-| Google Gemini | `gemini_apikey`, `gemini_model`, `gemini_thinking`, `gemini_native_json_schema` | An AI Studio key, not Vertex AI. There is no default model: set one before using the connector. Enable `gemini_native_json_schema` only for Gemini 2.5 and later. |
-| OpenAI-compatible endpoint | `openaicompat_baseurl`, `openaicompat_apikey`, `openaicompat_authtype`, `openaicompat_apiversion`, `openaicompat_model`, `openaicompat_supports_json_schema`, `openaicompat_supports_vision` | One endpoint: OpenAI, Azure OpenAI, Ollama, vLLM, LiteLLM or OpenRouter. The base URL goes up to, not including, `/chat/completions`. `openaicompat_authtype` is Bearer or `api-key` (Azure). `openaicompat_apiversion` is for Azure only. Leave the key empty for a server that has none. |
-| Moodle AI subsystem (`core_ai`) | none here | Uses the provider and model of the site AI settings. |
+| Connector | Notes |
+| --- | --- |
+| DeepSeek | Base URL without `/v1`. DeepSeek processes data in China: send only public, non-personal content. |
+| Anthropic | The model must support forced tool use or native structured outputs. |
+| Google Gemini | An AI Studio key, not Vertex AI. There is no default model: set one before using the connector. Enable `gemini_native_json_schema` only for Gemini 2.5 and later. |
+| OpenAI-compatible endpoint | One endpoint: OpenAI, Azure OpenAI, Ollama, vLLM, LiteLLM or OpenRouter. The base URL goes up to, not including, `/chat/completions`. `openaicompat_authtype` is Bearer or `api-key` (Azure). `openaicompat_apiversion` is for Azure only. Leave the key empty for a server that has none. |
+| Moodle AI subsystem (`core_ai`) | No settings here: it uses the provider and model of the site AI settings. |
+
+The settings of the connectors:
+
+| Setting | What it does |
+| --- | --- |
+| `defaultconnector` | The connector of every step without a route of its own. DeepSeek by default. |
+| `deepseek_apikey` | The DeepSeek key, stored encrypted. |
+| `deepseek_baseurl` | Base URL of the API, without `/v1`: `https://api.deepseek.com`. |
+| `deepseek_model` | The model of the steps that have none of their own, for example `deepseek-flash`. |
+| `deepseek_thinking` | Thinking mode: more output tokens, and the temperature is ignored. |
+| `anthropic_apikey` | The Anthropic key, stored encrypted. |
+| `anthropic_model` | The model of the steps that have none of their own. |
+| `anthropic_thinking` | Extended thinking, which uses more output tokens. |
+| `gemini_apikey` | The AI Studio key, stored encrypted. |
+| `gemini_model` | The model of the steps that have none of their own. It has no default: set it. |
+| `gemini_thinking` | Thinking, which uses more output tokens. |
+| `gemini_native_json_schema` | Sends the JSON Schema unconverted (Gemini 2.5 and later); leave off otherwise. |
+| `openaicompat_baseurl` | The URL up to, not including, `/chat/completions`, for example `https://api.openai.com/v1`. Only one instance can be set. |
+| `openaicompat_apikey` | The key, stored encrypted. Leave empty for a server that enforces none. |
+| `openaicompat_authtype` | `Authorization: Bearer` (OpenAI, Ollama, vLLM, LiteLLM, OpenRouter) or `api-key` (Azure OpenAI). |
+| `openaicompat_apiversion` | Sent as the `api-version` parameter, for Azure OpenAI only. |
+| `openaicompat_model` | The model name sent in every request. |
+| `openaicompat_supports_json_schema` | Enable only if the model accepts `response_format: json_schema`; if unsure leave off. |
+| `openaicompat_supports_vision` | Enable only if the model accepts images. |
 
 - **Keys.** The keys (`*_apikey`) are stored encrypted with `\core\encryption` and are never shown again after saving.
   They are not in the repository, in JavaScript or in logs.
@@ -122,8 +146,12 @@ questions, review and JSON repair. For each step `{step}` (`digest`, `brief`, `o
 | `route_{step}_model` | The model of the step. Empty uses the default model of the connector (ignored for the Moodle AI subsystem). |
 | `maxtokens_{step}` | The most tokens the model may write in one answer of the step. An answer that reaches it is cut off and its part is marked truncated. Empty or 0 uses the default; the provider accepts at most 393216. |
 
-Two more settings tune the quiz: `questions_min` (default 5) and `questions_max` (default 15) are the fewest and the
-most questions for each objective, from 5 to 15.
+Two more settings tune the quiz:
+
+| Setting | What it does |
+| --- | --- |
+| `questions_min` | The fewest quiz questions for each objective, from 5 to 15 (default 5). |
+| `questions_max` | The most quiz questions for each objective, from 5 to 15 (default 15). |
 
 Without an explicit output limit DeepSeek writes at most 8K tokens, which cuts long sections and quizzes off, so the
 defaults are larger (from 4096 for the brief up to 32768 for sections, questions and repair). The output priced at the
