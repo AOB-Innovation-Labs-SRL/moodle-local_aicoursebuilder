@@ -21,6 +21,7 @@ use local_aicoursebuilder\ai\router;
 use local_aicoursebuilder\blueprint\schema_store;
 use local_aicoursebuilder\blueprint\validator;
 use local_aicoursebuilder\job_manager;
+use local_aicoursebuilder\job_notifier;
 use local_aicoursebuilder\pipeline\orchestrator;
 use local_aicoursebuilder\pipeline\pipeline_context;
 use local_aicoursebuilder\pipeline\pipeline_outcome;
@@ -201,7 +202,7 @@ class generate_blueprint extends \core\task\adhoc_task {
             'statusmessage' => get_string($needsattention ? 'generatereviewattention' : 'generatereview', 'local_aicoursebuilder'),
             'timefinished' => time(),
         ]);
-        $this->notify($job, 'jobfinished');
+        job_notifier::notify($job, 'jobfinished');
     }
 
     /**
@@ -244,43 +245,7 @@ class generate_blueprint extends \core\task\adhoc_task {
             'actualcost' => $totals['cost'] ?? $job->actualcost,
             'timefinished' => time(),
         ]);
-        $this->notify($job, 'jobfailed');
-    }
-
-    /**
-     * Tells the owner of the job that it finished or failed.
-     *
-     * @param \stdClass $job The local_aicb_job row.
-     * @param string $provider Message provider: jobfinished or jobfailed.
-     */
-    private function notify(\stdClass $job, string $provider): void {
-        global $DB;
-
-        $user = $DB->get_record('user', ['id' => $job->userid]);
-        if (!$user) {
-            return;
-        }
-        // A finished job leads to the editor, a failed one to the page that says what happened.
-        $page = $provider === 'jobfinished' ? 'review' : 'job';
-        $url = new \moodle_url('/local/aicoursebuilder/' . $page . '.php', ['id' => $job->id]);
-        $a = (object) ['url' => $url->out(false), 'error' => (string) $job->error];
-        $subject = get_string('message:' . $provider . '_subject', 'local_aicoursebuilder');
-        $body = get_string('message:' . $provider . '_body', 'local_aicoursebuilder', $a);
-
-        $message = new \core\message\message();
-        $message->component = 'local_aicoursebuilder';
-        $message->name = $provider;
-        $message->userfrom = \core_user::get_noreply_user();
-        $message->userto = $user;
-        $message->subject = $subject;
-        $message->fullmessage = $body;
-        $message->fullmessageformat = FORMAT_PLAIN;
-        $message->fullmessagehtml = '';
-        $message->smallmessage = $subject;
-        $message->notification = 1;
-        $message->contexturl = $url;
-        $message->contexturlname = get_string('pluginname', 'local_aicoursebuilder');
-        message_send($message);
+        job_notifier::notify($job, 'jobfailed');
     }
 
     /**

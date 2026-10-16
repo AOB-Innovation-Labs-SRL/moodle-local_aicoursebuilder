@@ -95,6 +95,14 @@ final class external_functions_test extends \core_external\tests\externallib_tes
                 'params' => ['jobid' => 7],
                 'returns' => ['jobid' => 7, 'status' => 'queued'],
             ],
+            retry_job::class => [
+                'params' => ['jobid' => 7],
+                'returns' => ['jobid' => 7, 'status' => 'queued'],
+            ],
+            rollback_job::class => [
+                'params' => ['jobid' => 7],
+                'returns' => ['jobid' => 7, 'status' => 'cancelled'],
+            ],
             regenerate_node::class => [
                 'params' => ['jobid' => 7, 'nodeid' => 's1.quiz1', 'instructions' => 'Mai multe întrebări grele'],
                 'returns' => ['jobid' => 7, 'nodeid' => 's1.quiz1', 'queued' => true],
@@ -180,6 +188,9 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $this->assert_refused('blueprintnotfound', fn() => get_blueprint::execute($jobid, 0));
         $this->assert_refused('blueprintnotreviewable', fn() => save_blueprint::execute($jobid, '{"version": "1.0"}', 1));
         $this->assert_refused('blueprintnotreviewable', fn() => approve_blueprint::execute($jobid, 1, $hash));
+        // A job that has not failed can be neither retried nor rolled back.
+        $this->assert_refused('jobnotfailed', fn() => retry_job::execute($jobid));
+        $this->assert_refused('jobnotfailed', fn() => rollback_job::execute($jobid));
         try {
             regenerate_node::execute($jobid, 's1.quiz1', '');
             $this->fail('Expected the missing blueprint error');
@@ -260,6 +271,8 @@ final class external_functions_test extends \core_external\tests\externallib_tes
             'regenerate_node' => fn() => regenerate_node::execute($jobid, 's1.quiz1', ''),
             'start_job' => fn() => start_job::execute($jobid),
             'resume_job' => fn() => resume_job::execute($jobid),
+            'retry_job' => fn() => retry_job::execute($jobid),
+            'rollback_job' => fn() => rollback_job::execute($jobid),
         ];
         foreach ($writes as $name => $call) {
             try {
@@ -470,6 +483,48 @@ final class external_functions_test extends \core_external\tests\externallib_tes
         $this->assertSame(['jobid' => $jobid, 'status' => 'queued'], $resumed);
         $this->assertSame('queued', $DB->get_field('local_aicb_job', 'status', ['id' => $jobid]));
         $this->assertCount(1, \core\task\manager::get_adhoc_tasks(\local_aicoursebuilder\task\generate_blueprint::class));
+    }
+
+    /**
+     * The owner retries a failed job and rolls another one back; another teacher and a student are refused.
+     */
+    public function test_retry_and_rollback_are_for_the_owner_of_a_failed_job(): void {
+        global $DB;
+        $this->resetAfterTest();
+        set_config('defaultconnector', 'fake', 'local_aicoursebuilder');
+        $course = $this->getDataGenerator()->create_course();
+        $teacher = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $other = $this->getDataGenerator()->create_and_enrol($course, 'editingteacher');
+        $student = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $built = $this->getDataGenerator()->create_course();
+        $this->getDataGenerator()->enrol_user($other->id, $built->id, 'editingteacher');
+        $this->getDataGenerator()->enrol_user($student->id, $built->id, 'student');
+        $this->getDataGenerator()->enrol_user($teacher->id, $built->id, 'editingteacher');
+        $retryid = $this->create_job_record($teacher->id, $course->id);
+        $rollbackid = $this->create_job_record($teacher->id, $course->id);
+        $DB->update_record('local_aicb_job', (object) ['id' => $retryid, 'status' => 'failed', 'stage' => 'generate']);
+        $DB->update_record('local_aicb_job', (object) [
+            'id' => $rollbackid, 'status' => 'failed', 'stage' => 'build', 'mode' => 'newcourse', 'courseid' => $built->id,
+        ]);
+
+        // Another teacher of the course may not change the job, and a student may not even use the plugin.
+        $this->setUser($other);
+        $this->assert_refused('notjobowner', fn() => retry_job::execute($retryid));
+        $this->assert_refused('notjobowner', fn() => rollback_job::execute($rollbackid));
+        $this->setUser($student);
+        try {
+            rollback_job::execute($rollbackid);
+            $this->fail('A student rolled a job back');
+        } catch (\required_capability_exception $e) {
+            $this->assertSame('failed', $DB->get_field('local_aicb_job', 'status', ['id' => $rollbackid]));
+        }
+        $this->assertTrue($DB->record_exists('course', ['id' => $built->id]));
+
+        $this->setUser($teacher);
+        \core_ai\manager::user_policy_accepted((int) $teacher->id, \context_system::instance()->id);
+        $this->assertSame(['jobid' => $retryid, 'status' => 'queued'], retry_job::execute($retryid));
+        $this->assertSame(['jobid' => $rollbackid, 'status' => 'cancelled'], rollback_job::execute($rollbackid));
+        $this->assertFalse($DB->record_exists('course', ['id' => $built->id]));
     }
 
     /**

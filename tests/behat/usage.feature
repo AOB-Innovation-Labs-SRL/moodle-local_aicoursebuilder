@@ -65,3 +65,24 @@ Feature: Follow the AI spending and the cost limits
     And I run all adhoc tasks
     And I wait until "[data-region='aicb-finished']" "css_element" exists
     And I should see "The blueprint is ready for review."
+
+  @javascript
+  Scenario: A job that failed for good is tried again by its owner
+    Given "admin" has a job for "A course about tidal energy" that failed
+    And I log in as "admin"
+    When I am on the "A course about tidal energy" "local_aicoursebuilder > job" page
+    Then I should see "The generation stopped." in the "[data-region='aicb-failed']" "css_element"
+    And I should see "The provider did not answer." in the "[data-region='aicb-failed']" "css_element"
+    When I press "Try again"
+    Then I should see "Waiting for the server to start the job"
+    And I run all adhoc tasks
+    And I wait until "[data-region='aicb-finished']" "css_element" exists
+
+  @javascript
+  Scenario: A job that failed for good is given up by its owner
+    Given "admin" has a job for "A course about tidal energy" that failed
+    And I log in as "admin"
+    When I am on the "A course about tidal energy" "local_aicoursebuilder > job" page
+    And I press "Cancel and delete what was built"
+    Then I should see "Cancelled" in the "[data-region='aicb-stage']" "css_element"
+    And "Try again" "button" should not exist

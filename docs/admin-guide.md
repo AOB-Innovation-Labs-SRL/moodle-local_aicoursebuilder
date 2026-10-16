@@ -132,7 +132,9 @@ The prices compute the real cost of a call and estimate it before it is sent. Fo
 | `peakwindows_{name}` | A JSON object that maps an ISO weekday (1 = Monday ... 7 = Sunday) to a list of `[start, end)` UTC hour ranges, for example `{"1": [[1, 4], [6, 10]]}`. Empty or invalid uses the DeepSeek pilot schedule: 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday. |
 
 A teacher can choose **Run off-peak** in the wizard: the AI work is then scheduled when the provider is cheaper, so
-the blueprint can take longer to be ready.
+the blueprint can take longer to be ready. The scheduled work (reading the sources and generating the blueprint) is
+held until the next hour outside the peak windows of the connector of the *sections* step; the fake connector is never
+held. Building the course makes no AI call, so it is not held.
 
 ## Routes per step
 
@@ -176,10 +178,18 @@ that waits for an activity that does not track completion, is left out with a wa
 
 ## Retention
 
-`jobretentiondays` (default 90) is the number of days after which finished, failed and cancelled jobs are meant to be
-deleted with their sources and intermediate data; 0 keeps them. **The cleanup itself is not implemented yet**: the
-setting exists, but no scheduled task deletes anything, so jobs are kept until it is added. Until then, delete the jobs
-and their files by hand if the privacy policy of your site needs it. The Moodle privacy API (export and deletion of the
+`jobretentiondays` (default 90) is the number of days after which finished, failed and cancelled jobs are deleted, with
+their sources, chunks, pipeline steps, blueprints and files, by the scheduled task *Delete the jobs past the retention*
+(every night at 03:30, up to 200 jobs per run); 0 keeps them. The courses the jobs built are never deleted, and the AI
+call log and the budget rows are kept, because they hold the spending of the site: a row of the log loses only its job.
+
+## Failed jobs and rollback
+
+The course of a new-course job is created hidden and is shown only when the build succeeds. A job that fails for good
+(the course cannot be built, or the build stops with an unexpected error) leaves the course hidden, with what was built
+so far, and tells its owner. The owner chooses on the job page: **Try again**, which builds again from where it stopped,
+or **Cancel and delete what was built**, which deletes the hidden course, or, in an existing course, only the activities
+the build created. Nothing else in an existing course is touched. The Moodle privacy API (export and deletion of the
 personal data of a user) is implemented for every table that holds a user id.
 
 ## Notifications

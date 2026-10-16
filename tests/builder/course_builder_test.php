@@ -144,6 +144,17 @@ final class course_builder_test extends \advanced_testcase {
     }
 
     /**
+     * A new course is created hidden, whatever the site default: the task shows it once the build has succeeded.
+     */
+    public function test_a_new_course_is_created_hidden(): void {
+        set_config('visible', 1, 'moodlecourse');
+
+        [, $course] = $this->build_course();
+
+        $this->assertEquals(0, $course->visible);
+    }
+
+    /**
      * A short name that is taken gets a number instead of stopping the build.
      */
     public function test_a_taken_shortname_gets_a_number(): void {

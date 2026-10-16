@@ -21,6 +21,10 @@ Spending is limited per job, per user and month, and for the whole site. The usa
 model and month from the AI call log, and how each limit stands. The user and the managers are notified when a limit's
 alert percentage is reached; a job that a limit stops is paused, not failed, and its owner resumes it from the job
 page once the limit is raised, without paying again for the steps it had finished.
+A new course is created hidden and shown only when the build succeeds; a job that fails for good is retried or rolled back by
+its owner from the job page (the course, or in an existing course only the activities of the build map, are deleted).
+With *Run off-peak* the AI work is held until the provider's off-peak hours (`peakwindows_<connector>`, UTC); the
+scheduled task `cleanup_jobs` deletes ended jobs after `jobretentiondays`.
 The report counts what this Moodle instance sent, so it matches the provider's console only for the key that instance
 uses: every environment (local development, CI, the test server, production) must have its own API key, or the provider
 shows one total that cannot be told apart. The automated tests run on the fake connector or on a mocked HTTP client and never call a provider.

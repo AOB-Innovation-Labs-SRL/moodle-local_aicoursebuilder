@@ -357,6 +357,26 @@ final class gemini_connector_test extends \advanced_testcase {
     }
 
     /**
+     * HTTP 401 (a key the provider refuses) raises the HTTP error once, without retrying.
+     */
+    public function test_a_refused_key_is_an_http_error_that_is_not_retried(): void {
+        $this->mock->append(new Response(
+            401,
+            [],
+            '{"error": {"code": 401, "message": "API key not valid", "status": "UNAUTHENTICATED"}}'
+        ));
+        try {
+            (new gemini_connector())->complete($this->make_request());
+            $this->fail('401 accepted');
+        } catch (connector_exception $e) {
+            $this->assertSame(connector_exception::HTTP_ERROR, $e->errorcode);
+            $this->assertSame(401, $e->httpstatus);
+            $this->assertSame('API key not valid', $e->debuginfo);
+        }
+        $this->assertCount(1, $this->history);
+    }
+
+    /**
      * A network failure raises the network error.
      */
     public function test_network_error(): void {

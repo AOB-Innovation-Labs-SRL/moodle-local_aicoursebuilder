@@ -17,6 +17,7 @@
 namespace local_aicoursebuilder\task;
 
 use local_aicoursebuilder\ai\fake_lock_factory;
+use local_aicoursebuilder\builder\build_context;
 use local_aicoursebuilder\builder\build_plan;
 use local_aicoursebuilder\builder\build_result;
 use local_aicoursebuilder\builder\builder_registry;
@@ -394,6 +395,57 @@ final class build_course_test extends \advanced_testcase {
         $this->assertEmpty($job->courseid);
     }
 
+    /**
+     * The course of a new-course job is shown only once the build has succeeded.
+     */
+    public function test_the_course_is_visible_only_after_the_build_succeeds(): void {
+        global $DB;
+        set_config('visible', 1, 'moodlecourse');
+        $this->add_blueprint();
+        $this->builder->oncall = function (string $nodeid): void {
+            global $DB;
+            if ($nodeid === 's1') {
+                $courseid = (int) $DB->get_field('local_aicb_job', 'courseid', ['id' => $this->jobid]);
+                $this->assertSame(0, (int) $DB->get_field('course', 'visible', ['id' => $courseid]), 'Hidden while building');
+            }
+        };
+        $this->run_task();
+
+        $job = $this->job();
+        $this->assertSame(build_course::STATUS_FINISHED, $job->status);
+        $this->assertSame(1, (int) $DB->get_field('course', 'visible', ['id' => $job->courseid]));
+    }
+
+    /**
+     * An unexpected error after the course exists fails the job, tells the owner, and leaves the course hidden
+     * with its build map, so that the owner can retry or roll back.
+     */
+    public function test_an_unexpected_error_fails_the_job_and_keeps_the_course_hidden(): void {
+        global $DB;
+        $this->add_blueprint();
+        $sink = $this->redirectMessages();
+        $task = new class ($this->registry(), new fake_lock_factory()) extends build_course {
+            #[\Override]
+            protected function apply_availability(\stdClass $job, array $targets, build_context $context): void {
+                throw new \RuntimeException('late failure');
+            }
+        };
+        $task->set_custom_data(['jobid' => $this->jobid]);
+        $task->set_userid($this->user->id);
+        ob_start();
+        $task->execute();
+        ob_end_clean();
+
+        $job = $this->job();
+        $this->assertSame(build_course::STATUS_FAILED, $job->status);
+        $this->assertStringContainsString('late failure', $job->error);
+        $this->assertNotEmpty($job->courseid);
+        $this->assertSame(0, (int) $DB->get_field('course', 'visible', ['id' => $job->courseid]));
+        $this->assertNotEmpty($this->buildmap());
+        $messages = $sink->get_messages();
+        $this->assertCount(1, $messages);
+        $this->assertSame('jobfailed', $messages[0]->eventtype);
+    }
     /**
      * An availability rule over a node that failed is skipped with a warning, not applied half way.
      */

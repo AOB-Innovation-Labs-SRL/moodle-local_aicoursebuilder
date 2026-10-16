@@ -17,6 +17,7 @@
 namespace local_aicoursebuilder\task;
 
 use local_aicoursebuilder\ai\budget_exceeded_exception;
+use local_aicoursebuilder\ai\offpeak_scheduler;
 use local_aicoursebuilder\ingest\chunk;
 use local_aicoursebuilder\ingest\chunker;
 use local_aicoursebuilder\ingest\digest_builder;
@@ -137,7 +138,9 @@ class ingest_sources extends \core\task\adhoc_task {
             $job = $DB->get_record('local_aicb_job', ['id' => $jobid], '*', MUST_EXIST);
             $this->update_job($job, ['estimatedcost' => (new cost_estimator())->estimate($job)['cost']]);
             // At least one source has a digest: the blueprint is generated from what there is.
-            \core\task\manager::queue_adhoc_task(generate_blueprint::instance((int) $job->id, (int) $job->userid), true);
+            $next = generate_blueprint::instance((int) $job->id, (int) $job->userid);
+            offpeak_scheduler::schedule($next, $job);
+            \core\task\manager::queue_adhoc_task($next, true);
         }
     }
 

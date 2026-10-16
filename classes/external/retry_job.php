@@ -1,0 +1,74 @@
+<?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+namespace local_aicoursebuilder\external;
+
+use core_external\external_function_parameters;
+use core_external\external_single_structure;
+use core_external\external_value;
+use local_aicoursebuilder\job_recovery;
+
+/**
+ * Web service local_aicoursebuilder_retry_job.
+ *
+ * @package    local_aicoursebuilder
+ * @copyright  2026 AOB Labs
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class retry_job extends job_api {
+    /**
+     * Describes the parameters.
+     *
+     * @return external_function_parameters
+     */
+    public static function execute_parameters(): external_function_parameters {
+        return new external_function_parameters([
+            'jobid' => new external_value(PARAM_INT, 'Job id'),
+        ]);
+    }
+
+    /**
+     * Tries a failed job again, from the checkpoints it had reached.
+     *
+     * Only the owner of the job may call it. No AI call is made here: a retry only queues the task.
+     *
+     * @param int $jobid Job id.
+     * @return array The job id and its status.
+     */
+    public static function execute(int $jobid): array {
+        global $DB;
+
+        $params = self::validate_parameters(self::execute_parameters(), ['jobid' => $jobid]);
+        $job = self::validate_job($params['jobid'], true);
+
+        (new job_recovery())->retry($job);
+        $job = $DB->get_record('local_aicb_job', ['id' => $job->id], 'id, status', MUST_EXIST);
+
+        return ['jobid' => (int) $job->id, 'status' => $job->status];
+    }
+
+    /**
+     * Describes the return value.
+     *
+     * @return external_single_structure
+     */
+    public static function execute_returns(): external_single_structure {
+        return new external_single_structure([
+            'jobid' => new external_value(PARAM_INT, 'Job id'),
+            'status' => new external_value(PARAM_ALPHA, 'Job status'),
+        ]);
+    }
+}
